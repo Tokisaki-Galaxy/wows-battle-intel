@@ -25,3 +25,18 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+
+# 供应链年龄门禁豁免。
+#
+# pnpm 11 默认拒绝刚发布的包（minimumReleaseAge），防止装上被投毒的新版本。
+# CI 用 --frozen-lockfile 严格校验锁文件，命中即中止构建；本地交互式安装
+# 只会自动豁免并告警，因此两边行为不同，必须显式列出豁免项。
+#
+# 豁免对象：
+# - wrangler 4.151.0 与它的传递依赖 miniflare 5.20261012.0-beta
+#   wrangler 是构建工具，miniflare 只被它使用，不进入运行时产物。
+#   二者均为当日发布，落在默认年龄门槛内。
+# 后续如升级到已过门槛的版本，可移除这两项。
+minimumReleaseAgeExclude:
+  - miniflare@5.20261012.0-beta
+  - wrangler@4.151.0
