@@ -131,8 +131,13 @@ def group_keys_connected(matches: list[MatchFeatures]) -> np.ndarray:
         parent.setdefault(a, a)
         parent.setdefault(b, b)
         ra, rb = find(a), find(b)
-        if ra != rb:
+        if ra == rb:
+            return
+        # 恒把较大根挂到较小根，合并结果与遇到顺序无关，键可复现。
+        if ra < rb:
             parent[rb] = ra
+        else:
+            parent[ra] = rb
 
     for m in matches:
         ids = sorted(set(m.participant_account_ids))
