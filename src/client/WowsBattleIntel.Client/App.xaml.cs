@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Markup;
 using WowsBattleIntel.Client.Configuration;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Client.Views;
 
 namespace WowsBattleIntel.Client;
 
@@ -35,6 +36,12 @@ public partial class App : Application
         {
             var config = AppConfig.Load();
             Services = await AppServices.CreateAsync(config).ConfigureAwait(true);
+
+            // 配置齐全时自动开始观测。路径没准备好就先不观测，由用户在界面里开。
+            if (config.AutoObserve && config.IsUsable)
+            {
+                Services.StartObservation();
+            }
         }
         catch (Exception ex)
         {
@@ -46,6 +53,9 @@ public partial class App : Application
             Shutdown(1);
         }
     }
+
+    /// <summary>路径选择器，供配置界面使用。</summary>
+    public static IPathPicker PathPicker { get; } = new WpfPathPicker();
 
     /// <inheritdoc />
     protected override void OnExit(ExitEventArgs e)
