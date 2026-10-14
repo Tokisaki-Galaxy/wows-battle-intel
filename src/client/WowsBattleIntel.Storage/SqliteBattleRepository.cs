@@ -14,7 +14,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository
+public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore
 {
     private readonly string connectionString;
 
@@ -326,6 +326,143 @@ public sealed class SqliteBattleRepository : IBattleRepository
         }
 
         return results;
+    }
+
+    /// <inheritdoc />
+    public async Task SaveSnapshotAsync(
+        PlayerSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        await SaveSnapshotsAsync([snapshot], cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task SaveSnapshotsAsync(
+        IReadOnlyList<PlayerSnapshot> snapshots,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        if (snapshots.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var s in snapshots)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            // 相同账号同一时间戳只保留一条。
+            command.CommandText = """
+                INSERT INTO player_snapshots (
+                    account_id, server, captured_at,
+                    account_battles, account_winrate,
+                    account_winrate_solo, account_battles_solo,
+                    account_winrate_div2, account_battles_div2,
+                    account_winrate_div3, account_battles_div3,
+                    weighted_winrate, pr, source
+                ) VALUES (
+                    $accountId, $server, $capturedAt,
+                    $battles, $winrate,
+                    $wrSolo, $bSolo,
+                    $wrDiv2, $bDiv2,
+                    $wrDiv3, $bDiv3,
+                    $weighted, NULL, $source
+                )
+                ON CONFLICT(account_id, server, captured_at) DO NOTHING;
+                """;
+
+            command.Parameters.AddWithValue("$accountId", s.AccountId);
+            command.Parameters.AddWithValue("$server", s.Server.ToString());
+            command.Parameters.AddWithValue("$capturedAt", s.CapturedAt.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$battles", s.AccountBattles);
+            command.Parameters.AddWithValue("$winrate", s.AccountWinrate);
+            command.Parameters.AddWithValue("$wrSolo", s.AccountWinrateSolo);
+            command.Parameters.AddWithValue("$bSolo", s.AccountBattlesSolo);
+            command.Parameters.AddWithValue("$wrDiv2", s.AccountWinrateDiv2);
+            command.Parameters.AddWithValue("$bDiv2", s.AccountBattlesDiv2);
+            command.Parameters.AddWithValue("$wrDiv3", s.AccountWinrateDiv3);
+            command.Parameters.AddWithValue("$bDiv3", s.AccountBattlesDiv3);
+            command.Parameters.AddWithValue("$weighted", s.WeightedWinrate);
+            command.Parameters.AddWithValue("$source", s.Source ?? string.Empty);
+
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<PlayerSnapshot?> GetLatestSnapshotBeforeAsync(
+        string accountId,
+        GameServer server,
+        DateTimeOffset before,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT * FROM player_snapshots
+            WHERE account_id = $accountId AND server = $server AND captured_at <= $before
+            ORDER BY captured_at DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$accountId", accountId);
+        command.Parameters.AddWithValue("$server", server.ToString());
+        command.Parameters.AddWithValue("$before", before.ToUnixTimeMilliseconds());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new PlayerSnapshot
+        {
+            AccountId = reader.GetString(reader.GetOrdinal("account_id")),
+            Server = Enum.TryParse<GameServer>(
+                reader.GetString(reader.GetOrdinal("server")), out var sv) ? sv : GameServer.Auto,
+            CapturedAt = DateTimeOffset.FromUnixTimeMilliseconds(
+                reader.GetInt64(reader.GetOrdinal("captured_at"))),
+            AccountBattles = reader.GetInt32(reader.GetOrdinal("account_battles")),
+            AccountWinrate = reader.GetDouble(reader.GetOrdinal("account_winrate")),
+            AccountWinrateSolo = reader.GetDouble(reader.GetOrdinal("account_winrate_solo")),
+            AccountBattlesSolo = reader.GetInt32(reader.GetOrdinal("account_battles_solo")),
+            AccountWinrateDiv2 = reader.GetDouble(reader.GetOrdinal("account_winrate_div2")),
+            AccountBattlesDiv2 = reader.GetInt32(reader.GetOrdinal("account_battles_div2")),
+            AccountWinrateDiv3 = reader.GetDouble(reader.GetOrdinal("account_winrate_div3")),
+            AccountBattlesDiv3 = reader.GetInt32(reader.GetOrdinal("account_battles_div3")),
+            WeightedWinrate = reader.GetDouble(reader.GetOrdinal("weighted_winrate")),
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<(int PlayerCount, int SnapshotCount)> GetSnapshotStatsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(DISTINCT account_id || ':' || server) AS players,
+                   COUNT(*) AS snapshots
+            FROM player_snapshots;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return (reader.GetInt32(0), reader.GetInt32(1));
+        }
+
+        return (0, 0);
     }
 
     private static BattleRecord ReadBattle(SqliteDataReader reader)

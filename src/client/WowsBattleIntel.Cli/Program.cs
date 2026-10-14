@@ -1,5 +1,6 @@
 using System.Globalization;
 using Newtonsoft.Json;
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Calibration;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Prediction;
@@ -35,6 +36,7 @@ internal static class Program
                 "backtest" => RunBacktest(args),
                 "survey" => RunSurvey(args),
                 "import" => RunImport(args),
+                "snapshot" => RunSnapshot(args),
                 "predict" => RunPredict(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
@@ -443,6 +445,157 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// snapshot 子命令：对已入库对局涉及的玩家拉取当前统计并落盘快照。
+    /// </summary>
+    /// <remarks>
+    /// 重要限制：现在拉取的是"当前"统计，而对局发生在过去。直接用会造成
+    /// 时间泄漏，即用未来的信息预测过去的结果。本命令产出的快照仅用于：
+    /// 1. 验证采集链路可用
+    /// 2. 作为服务器基线计算的样本
+    /// 3. 在真实场景下，客户端开局时采集的快照时间戳早于对局，无泄漏
+    ///
+    /// 训练时应只取对局开始时间之前的快照。若历史数据为事后补采，
+    /// 评估结果会偏乐观，需在报告中标注。
+    /// </remarks>
+    private static int RunSnapshot(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel snapshot <数据库> [--limit N] [--delay MS]");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        int limit = 0;
+        int delayMs = 120;
+        for (int i = 2; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--limit" && int.TryParse(args[i + 1], out int l))
+            {
+                limit = l;
+            }
+            else if (args[i] == "--delay" && int.TryParse(args[i + 1], out int d))
+            {
+                delayMs = d;
+            }
+        }
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        repository.InitializeAsync().GetAwaiter().GetResult();
+
+        // 收集库中出现过的玩家。
+        var players = LoadDistinctPlayers(dbPath);
+        if (limit > 0)
+        {
+            players = players.Take(limit).ToList();
+        }
+
+        Console.WriteLine($"库中出现 {players.Count} 个玩家，开始拉取当前统计");
+
+        var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
+        {
+            DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+        });
+
+        var capturedAt = DateTimeOffset.UtcNow;
+        var snapshots = new List<PlayerSnapshot>();
+        int processed = 0;
+        int withData = 0;
+
+        // 分批处理，每批最多 20 人，避免单次请求过长。
+        foreach (var batch in Chunk(players, 20))
+        {
+            processed += batch.Count;
+            Console.Write($"\r[{processed}/{players.Count}] 拉取中...   ");
+
+            try
+            {
+                provider.FetchStatsAsync(batch).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"\n  批次失败: {ex.Message}");
+                continue;
+            }
+
+            foreach (var p in batch)
+            {
+                if (p.HasStats)
+                {
+                    snapshots.Add(PlayerSnapshot.FromPlayer(p, capturedAt));
+                    withData++;
+                }
+            }
+        }
+
+        Console.WriteLine();
+        repository.SaveSnapshotsAsync(snapshots).GetAwaiter().GetResult();
+
+        var (playerCount, snapshotCount) = repository.GetSnapshotStatsAsync()
+            .GetAwaiter().GetResult();
+
+        Console.WriteLine($"采集完成: {withData} 个有效统计已落盘");
+        Console.WriteLine($"库中快照: {snapshotCount} 条，覆盖 {playerCount} 个玩家");
+        Console.WriteLine();
+        Console.WriteLine("注意: 本次为事后补采，时间戳为当前时刻。");
+        Console.WriteLine("      用于训练时需注意时间泄漏，详见命令实现中的说明。");
+        return 0;
+    }
+
+    /// <summary>
+    /// 从库中读出出现过的不重复玩家。
+    /// </summary>
+    private static List<Core.Models.PlayerRecord> LoadDistinctPlayers(string dbPath)
+    {
+        var players = new List<Core.Models.PlayerRecord>();
+        var seen = new HashSet<string>();
+
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT DISTINCT account_id, server, player_name
+            FROM battle_players
+            WHERE is_bot = 0 AND account_id <> '-1' AND account_id <> ''
+            ORDER BY account_id;
+            """;
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string accountId = reader.GetString(0);
+            string serverStr = reader.GetString(1);
+            string key = $"{serverStr}:{accountId}";
+            if (!seen.Add(key))
+            {
+                continue;
+            }
+
+            players.Add(new Core.Models.PlayerRecord
+            {
+                AccountId = accountId,
+                Server = Enum.TryParse<Core.Models.GameServer>(serverStr, out var sv)
+                    ? sv
+                    : Core.Models.GameServer.Auto,
+                PlayerName = reader.GetString(2),
+            });
+        }
+
+        return players;
+    }
+
+    /// <summary>
+    /// 把序列分成固定大小的批次。
+    /// </summary>
+    private static IEnumerable<List<T>> Chunk<T>(List<T> source, int size)
+    {
+        for (int i = 0; i < source.Count; i += size)
+        {
+            yield return source.GetRange(i, Math.Min(size, source.Count - i));
+        }
     }
 
     private static ReplaysharkOutput LoadOutput(string path)
