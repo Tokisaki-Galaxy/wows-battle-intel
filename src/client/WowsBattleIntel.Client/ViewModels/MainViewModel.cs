@@ -72,8 +72,19 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>敌方名单。</summary>
     public ObservableCollection<PlayerRowViewModel> Enemies { get; } = [];
 
-    /// <summary>最近对局，按开始时间倒序。</summary>
+    /// <summary>最近对局，按开始时间倒序。完整列表，分区视图由此派生。</summary>
     public ObservableCollection<BattleSummaryViewModel> RecentBattles { get; } = [];
+
+    /// <summary>实时对局，观测会话内入库的记录，取自 RecentBattles 的前三个小时。</summary>
+    public IReadOnlyList<BattleSummaryViewModel> LiveBattles =>
+        RecentBattles.Where(s => s.IsLive).ToList();
+
+    /// <summary>历史对局，实时区之外的所有记录。</summary>
+    public IReadOnlyList<BattleSummaryViewModel> HistoryBattles =>
+        RecentBattles.Where(s => !s.IsLive).ToList();
+
+    /// <summary>是否存在实时对局，用于控制空态提示。</summary>
+    public bool HasLiveBattles => RecentBattles.Any(s => s.IsLive);
 
     /// <summary>一局新回放入库后触发，供视图刷新校准等派生数据。</summary>
     public event Action? BattleListChanged;
@@ -137,6 +148,13 @@ public sealed class MainViewModel : ViewModelBase
         ? "-"
         : currentPrediction.EnemyWinProbability.ToString("P1");
 
+    /// <summary>
+    /// 友方概率条占比，0 到 1。概率条用两列网格分割，此值决定友方列的宽度。
+    /// </summary>
+    public double AllyProbabilityRatio => currentPrediction is null
+        ? 0.5
+        : Math.Clamp(currentPrediction.AllyWinProbability, 0.0, 1.0);
+
     /// <summary>真实结果是否与预测方向一致。</summary>
     public string PredictionVerdict
     {
@@ -159,10 +177,20 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>置信度显示文本。</summary>
-    public string ConfidenceText => currentPrediction is null
+    /// <summary>置信度显示文本。Confidence 语义为战绩覆盖率，保留旧绑定兼容。</summary>
+    public string ConfidenceText => DataCoverageText;
+
+    /// <summary>数据完整度显示文本，即预测所依赖的战绩覆盖率。</summary>
+    public string DataCoverageText => currentPrediction is null
         ? "-"
         : $"{currentPrediction.Confidence:P0}";
+
+    /// <summary>
+    /// 模型置信度显示文本。由预测概率推导，离五五开越远置信越高。
+    /// </summary>
+    public string ModelConfidenceText => currentPrediction is null
+        ? "-"
+        : $"{Math.Abs(currentPrediction.AllyWinProbability - 0.5) * 2:P0}";
 
     /// <summary>模型版本显示。</summary>
     public string ModelVersionText => currentPrediction?.ModelVersion ?? services.Predictor.ModelVersion;
@@ -303,6 +331,7 @@ public sealed class MainViewModel : ViewModelBase
         finally
         {
             IsBusy = false;
+            NotifyListChanged();
         }
     }
 
@@ -443,9 +472,22 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(BattleSubtitle));
         OnPropertyChanged(nameof(PredictedWinrateText));
         OnPropertyChanged(nameof(EnemyWinrateText));
+        OnPropertyChanged(nameof(AllyProbabilityRatio));
         OnPropertyChanged(nameof(PredictionVerdict));
+        OnPropertyChanged(nameof(DataCoverageText));
+        OnPropertyChanged(nameof(ModelConfidenceText));
         OnPropertyChanged(nameof(ConfidenceText));
         OnPropertyChanged(nameof(ModelVersionText));
+    }
+
+    /// <summary>
+    /// 触发列表分区相关属性的变更通知。列表重建后派生集合需要重新求值。
+    /// </summary>
+    private void NotifyListChanged()
+    {
+        OnPropertyChanged(nameof(LiveBattles));
+        OnPropertyChanged(nameof(HistoryBattles));
+        OnPropertyChanged(nameof(HasLiveBattles));
     }
 
     /// <summary>

@@ -19,28 +19,55 @@ public sealed class BattleSummaryViewModel
     /// <summary>开始时间，UTC。</summary>
     public DateTimeOffset StartedAt => Battle.StartedAt;
 
-    /// <summary>列表主行显示文本。</summary>
+    /// <summary>
+    /// 列表首行显示文本：地图名与对局类型。
+    /// </summary>
     public string DisplayText =>
-        $"{StartedAt.ToLocalTime():MM-dd HH:mm}  {Battle.MapId}  "
-        + $"{ResultLabel}  {BattleTypeLabel}";
+        $"{Battle.MapId}  {BattleTypeLabel}";
 
-    /// <summary>列表副行显示文本，含预测与参战人数。</summary>
-    public string SecondaryText
-    {
-        get
-        {
-            string prediction = PredictedWinProbability is { } p
-                ? $"预测 {p:P0}"
-                : "无预测";
-            return $"{prediction} · {DisplayLabels.Server(Battle.Server)} · {DisplayLabels.Duration(Battle.DurationSeconds)}";
-        }
-    }
+    /// <summary>
+    /// 列表次行显示文本：时间、服务器与时长。
+    /// </summary>
+    public string SecondaryText =>
+        $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(Battle.Server)} · "
+        + $"{DisplayLabels.Duration(Battle.DurationSeconds)}";
+
+    /// <summary>预测概率小字，无预测时提示未预测。</summary>
+    public string PredictionText => PredictedWinProbability is { } p
+        ? $"预测 {p:P0}"
+        : "未预测";
 
     /// <summary>对局类型标签。</summary>
     public string BattleTypeLabel => DisplayLabels.BattleType(Battle.BattleType);
 
+    /// <summary>舰船等级，随地图名一起展示。</summary>
+    public string TierText
+    {
+        get
+        {
+            // 取己方参战者的常见等级，隐藏战绩或未解析时给占位。
+            int? tier = Battle.Players
+                .Where(p => p.IsAlly && p.ShipTier > 0)
+                .Select(p => (int?)p.ShipTier)
+                .FirstOrDefault();
+
+            return tier is { } t ? $"T{t}" : "T?";
+        }
+    }
+
     /// <summary>结果单字。</summary>
     public string ResultLabel => DisplayLabels.Outcome(Battle.Outcome);
+
+    /// <summary>结果徽章颜色键，胜绿负红，未知与平局用灰。</summary>
+    public string ResultBrushKey => Battle.Outcome switch
+    {
+        BattleOutcome.Win => "WinBrush",
+        BattleOutcome.Loss => "LossBrush",
+        _ => "HiddenBrush",
+    };
+
+    /// <summary>是否实时对局。开始时间在近三小时内的对局视为观测会话内的记录。</summary>
+    public bool IsLive => StartedAt >= DateTimeOffset.UtcNow.AddHours(-3);
 
     /// <summary>
     /// 从领域模型构造。
@@ -60,3 +87,4 @@ public sealed class BattleSummaryViewModel
         };
     }
 }
+

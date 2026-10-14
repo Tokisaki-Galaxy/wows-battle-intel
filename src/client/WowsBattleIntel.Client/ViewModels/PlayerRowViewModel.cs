@@ -97,6 +97,43 @@ public sealed class PlayerRowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 水平分类的颜色资源键。
+    /// </summary>
+    /// <remarks>
+    /// 海王用金色、猴子用紫色，普通与隐藏战绩用灰。具体色值由主题资源决定，
+    /// 这里只给语义键名，经 BrushKeyConverter 换成画刷。
+    /// </remarks>
+    public string TierBrushKey => TierLabel switch
+    {
+        "海王" => "UnicumBrush",
+        "猴子" => "ApeBrush",
+        _ => "HiddenBrush",
+    };
+
+    /// <summary>
+    /// 胜率列的颜色资源键。高低两端给语义色，中间保持默认文本色。
+    /// </summary>
+    public string WinrateBrushKey
+    {
+        get
+        {
+            if (source is null || !source.HasStats)
+            {
+                return "HiddenBrush";
+            }
+
+            // 与 TierLabel 同一套阈值，颜色跟随分类口径。
+            double wr = source.AccountWinrate;
+            if (wr > 0.58 && source.AccountBattles >= 500)
+            {
+                return "UnicumBrush";
+            }
+
+            return wr <= 0.47 ? "ApeBrush" : "TextPrimaryBrush";
+        }
+    }
+
+    /// <summary>
     /// 本局伤害显示。
     /// </summary>
     public string DamageText => source is null

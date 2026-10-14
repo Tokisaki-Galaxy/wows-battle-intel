@@ -104,7 +104,8 @@ public class MainViewModelTests
         Assert.Equal("battle-001", item.Battle.BattleId);
         Assert.Equal(0.68, item.PredictedWinProbability);
         Assert.Equal("胜", item.ResultLabel);
-        Assert.Contains("预测 68%", item.SecondaryText);
+        Assert.Equal("预测 68%", item.PredictionText);
+        Assert.Contains("亚服", item.SecondaryText);
     }
 
     [Fact]
@@ -129,6 +130,73 @@ public class MainViewModelTests
         Assert.Equal("预测正确", vm.PredictionVerdict);
         Assert.Contains("亚服", vm.BattleSubtitle);
         Assert.Contains("15 分", vm.BattleSubtitle);
+    }
+
+    [Fact]
+    public async Task SelectBattle_SplitsCoverageAndModelConfidence()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 种子数据的 Confidence 为 0.75，模型置信度按 |0.68-0.5|*2 推导。
+        await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.68);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
+
+        // 覆盖率来自 Confidence，模型置信度由概率推导，两个数字必须分开。
+        Assert.Equal("75%", vm.DataCoverageText);
+        Assert.Equal("36%", vm.ModelConfidenceText);
+        Assert.Equal(0.68, vm.AllyProbabilityRatio);
+    }
+
+    [Fact]
+    public async Task SelectBattle_WithoutPrediction_MetricsShowDash()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await holder.Services.Repository.SaveBattleAsync(
+            MakeBattle("battle-001", BattleOutcome.Win, DateTimeOffset.UtcNow));
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
+
+        // 无预测时模型置信度显示占位符，概率条保持中线。
+        Assert.Equal("-", vm.ModelConfidenceText);
+        Assert.Equal("-", vm.DataCoverageText);
+        Assert.Equal(0.5, vm.AllyProbabilityRatio);
+    }
+
+    [Fact]
+    public async Task LoadRecentBattles_PartitionsLiveAndHistory()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 一局在近三小时内，一局在三天前，分别落入实时与历史分区。
+        await SeedBattleAsync(holder.Services, "battle-live", BattleOutcome.Win, 0.6);
+        var stale = MakeBattle("battle-old", BattleOutcome.Loss, DateTimeOffset.UtcNow.AddDays(-3));
+        await holder.Services.Repository.SaveBattleAsync(stale);
+        await holder.Services.Repository.SavePredictionAsync(new PredictionResult
+        {
+            BattleId = "battle-old",
+            PredictedAt = DateTimeOffset.UtcNow,
+            AllyWinProbability = 0.4,
+        });
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        var live = Assert.Single(vm.LiveBattles);
+        Assert.Equal("battle-live", live.Battle.BattleId);
+        Assert.True(live.IsLive);
+
+        var history = Assert.Single(vm.HistoryBattles);
+        Assert.Equal("battle-old", history.Battle.BattleId);
+        Assert.False(history.IsLive);
+
+        Assert.True(vm.HasLiveBattles);
+        Assert.Equal("WinBrush", live.ResultBrushKey);
+        Assert.Equal("LossBrush", history.ResultBrushKey);
     }
 
     [Fact]
