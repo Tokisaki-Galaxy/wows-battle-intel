@@ -88,6 +88,22 @@ def cmd_train(db_path: str, model_type: str, allow_future: bool = False) -> int:
     return 0
 
 
+def cmd_baselines_compute(db_path: str) -> int:
+    """计算并保存服务器基线。"""
+    from wows_ml.baselines import compute_baselines, describe, save_baselines
+
+    baselines = compute_baselines(db_path)
+    if not baselines:
+        print("样本不足，无法计算基线。需要至少 30 个有效玩家每服务器。")
+        return 1
+
+    save_baselines(db_path, baselines)
+    print(describe(baselines))
+    print()
+    print(f"已保存 {len(baselines)} 个服务器的基线到库。")
+    return 0
+
+
 def cmd_pipeline(
     db_path: str,
     model_path: str,
@@ -153,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
     )
 
+    p_server = sub.add_parser("server-baselines", help="计算服务器基线")
+    p_server.add_argument("db", help="SQLite 数据库路径")
+
     p_pipeline = sub.add_parser("pipeline", help="训练到导出的完整管线")
     p_pipeline.add_argument("db", help="SQLite 数据库路径")
     p_pipeline.add_argument("model", help="输出 ONNX 模型路径")
@@ -181,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_pipeline(
             args.db, args.model, args.manifest, args.model_type, args.allow_future
         )
+    if args.command == "server-baselines":
+        return cmd_baselines_compute(args.db)
 
     parser.print_help()
     return 1
