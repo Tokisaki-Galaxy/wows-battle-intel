@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Prediction layer. Local inference via ONNX Runtime, plus the
+    feature extraction pipeline shared with the ML project.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>WowsBattleIntel.Prediction</RootNamespace>
+    <AssemblyName>WowsBattleIntel.Prediction</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WowsBattleIntel.Core\WowsBattleIntel.Core.csproj" />
+  </ItemGroup>
+
+</Project>

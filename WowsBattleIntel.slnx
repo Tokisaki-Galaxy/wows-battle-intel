@@ -3,12 +3,14 @@
   <Folder Name="/src/client/">
     <Project Path="src/client/WowsBattleIntel.Cli/WowsBattleIntel.Cli.csproj" />
     <Project Path="src/client/WowsBattleIntel.Core/WowsBattleIntel.Core.csproj" />
+    <Project Path="src/client/WowsBattleIntel.Prediction/WowsBattleIntel.Prediction.csproj" />
     <Project Path="src/client/WowsBattleIntel.Replay/WowsBattleIntel.Replay.csproj" />
     <Project Path="src/client/WowsBattleIntel.Stats/WowsBattleIntel.Stats.csproj" />
     <Project Path="src/client/WowsBattleIntel.Storage/WowsBattleIntel.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WowsBattleIntel.Core.Tests/WowsBattleIntel.Core.Tests.csproj" />
+    <Project Path="tests/WowsBattleIntel.Prediction.Tests/WowsBattleIntel.Prediction.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Replay.Tests/WowsBattleIntel.Replay.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Stats.Tests/WowsBattleIntel.Stats.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Storage.Tests/WowsBattleIntel.Storage.Tests.csproj" />
