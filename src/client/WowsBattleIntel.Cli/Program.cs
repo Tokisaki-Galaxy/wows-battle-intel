@@ -41,6 +41,7 @@ internal static class Program
                 "predict" => RunPredict(args),
                 "onnx" => RunOnnx(args),
                 "history-backtest" => RunHistoryBacktest(args),
+                "snapshot-backtest" => RunSnapshotBacktest(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -777,6 +778,171 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// snapshot-backtest 子命令：用账号胜率快照特征回测。
+    /// </summary>
+    /// <remarks>
+    /// 与 history-backtest 的差别：不要求玩家反复出现，用账号总胜率作为
+    /// 特征，因此每个玩家都有特征，覆盖全部对局。
+    ///
+    /// 关于时间泄漏：账号总胜率是长期累积量，短期内基本稳定。用当前胜率
+    /// 近似对局当时胜率误差可忽略，这是 XVM 与 ApeRadar 的标准做法。
+    /// 近期状态这类短期特征才需要严格按时间切分。
+    /// </remarks>
+    private static int RunSnapshotBacktest(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel snapshot-backtest <数据库> [--csv <文件>]");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        string? csvPath = null;
+        for (int i = 2; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--csv")
+            {
+                csvPath = args[i + 1];
+            }
+        }
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        repository.InitializeAsync().GetAwaiter().GetResult();
+
+        // 载入全部快照，建内存索引。
+        var snapshots = LoadAllSnapshots(dbPath);
+        Console.WriteLine($"载入玩家快照: {snapshots.Count} 条");
+
+        var battles = LoadBattlesOrdered(dbPath);
+        Console.WriteLine($"按时间排序的有效对局: {battles.Count} 局");
+
+        var predictor = new BaselinePredictor();
+        var pairs = new List<(PredictionResult Prediction, BattleOutcome Outcome)>();
+        var lookup = BuildLookup(snapshots);
+        int skipped = 0;
+        int enriched = 0;
+
+        foreach (var battle in battles)
+        {
+            var enrichedBattle = SnapshotFeatureBuilder.Enrich(battle, lookup);
+
+            // 统计有多少对局真正补上了特征。
+            if (enrichedBattle.Players.Any(p => p.HasStats))
+            {
+                enriched++;
+            }
+
+            var prediction = predictor.PredictAsync(enrichedBattle).GetAwaiter().GetResult();
+
+            // 双方都无有效特征时预测无意义，跳过。
+            if (prediction.Confidence <= 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            pairs.Add((prediction, battle.Outcome));
+        }
+
+        if (pairs.Count == 0)
+        {
+            Console.WriteLine("没有可用样本。请先运行 snapshot 命令采集玩家统计。");
+            return 0;
+        }
+
+        var report = CalibrationMetrics.BuildReport(pairs);
+        Console.WriteLine();
+        Console.WriteLine("=== 账号胜率特征回测 ===");
+        Console.WriteLine($"样本数: {report.SampleCount}, 跳过: {skipped}, 有特征: {enriched}");
+        Console.WriteLine($"Brier 分数: {report.BrierScore:F4}  (无信息基线 0.25)");
+        Console.WriteLine($"对数损失:   {report.LogLoss:F4}  (无信息基线 0.6931)");
+        Console.WriteLine($"判别准确率: {report.Accuracy:P2}");
+        Console.WriteLine();
+        Console.WriteLine("=== 校准曲线 ===");
+        Console.WriteLine($"{"概率区间",-14} {"样本",6} {"预测均值",10} {"实际胜率",10} {"偏差",10}");
+        foreach (var bucket in report.Curve)
+        {
+            Console.WriteLine(
+                $"{bucket.LowerBound:F1}-{bucket.UpperBound:F1}      {bucket.SampleCount,6} " +
+                $"{bucket.PredictedMean,10:F3} {bucket.ActualWinrate,10:F3} {bucket.CalibrationError,10:+0.000;-0.000}");
+        }
+
+        if (csvPath is not null)
+        {
+            using var writer = new StreamWriter(csvPath);
+            writer.WriteLine("battle_id,predicted,actual,outcome");
+            foreach (var (pred, outcome) in pairs)
+            {
+                writer.WriteLine(
+                    $"{pred.BattleId}," +
+                    $"{pred.AllyWinProbability.ToString("F6", CultureInfo.InvariantCulture)}," +
+                    $"{(outcome == BattleOutcome.Win ? 1 : 0)},{outcome}");
+            }
+            Console.WriteLine();
+            Console.WriteLine($"明细已写入: {csvPath}");
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// 载入全部玩家快照，键为 服务器:账号ID。
+    /// </summary>
+    private static Dictionary<string, PlayerSnapshot> LoadAllSnapshots(string dbPath)
+    {
+        var result = new Dictionary<string, PlayerSnapshot>();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        // 每个账号取最新一条快照。
+        cmd.CommandText = """
+            SELECT account_id, server, captured_at, account_battles, account_winrate,
+                   account_winrate_solo, account_battles_solo, account_winrate_div2,
+                   account_battles_div2, account_winrate_div3, account_battles_div3,
+                   weighted_winrate
+            FROM player_snapshots s
+            WHERE captured_at = (
+                SELECT MAX(captured_at) FROM player_snapshots
+                WHERE account_id = s.account_id AND server = s.server
+            );
+            """;
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string key = $"{reader.GetString(1)}:{reader.GetString(0)}";
+            result[key] = new PlayerSnapshot
+            {
+                AccountId = reader.GetString(0),
+                Server = Enum.TryParse<GameServer>(reader.GetString(1), out var sv)
+                    ? sv : GameServer.Auto,
+                CapturedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
+                AccountBattles = reader.GetInt32(3),
+                AccountWinrate = reader.GetDouble(4),
+                AccountWinrateSolo = reader.GetDouble(5),
+                AccountBattlesSolo = reader.GetInt32(6),
+                AccountWinrateDiv2 = reader.GetDouble(7),
+                AccountBattlesDiv2 = reader.GetInt32(8),
+                AccountWinrateDiv3 = reader.GetDouble(9),
+                AccountBattlesDiv3 = reader.GetInt32(10),
+                WeightedWinrate = reader.GetDouble(11),
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 构造快照查找函数。
+    /// </summary>
+    private static Func<string, GameServer, PlayerSnapshot?> BuildLookup(
+        Dictionary<string, PlayerSnapshot> snapshots)
+    {
+        return (accountId, server) =>
+            snapshots.GetValueOrDefault($"{server}:{accountId}");
     }
 
     /// <summary>
