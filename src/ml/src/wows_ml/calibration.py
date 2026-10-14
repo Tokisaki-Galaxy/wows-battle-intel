@@ -48,7 +48,8 @@ class CalibrationReport:
         if self.curve:
             lines.append("")
             lines.append("校准曲线:")
-            lines.append(f"  {'区间':<12} {'样本':>6} {'预测均值':>10} {'实际胜率':>10} {'偏差':>10}")
+            header = f"  {'区间':<12} {'样本':>6} {'预测均值':>10} {'实际胜率':>10} {'偏差':>10}"
+            lines.append(header)
             for b in self.curve:
                 lines.append(
                     f"  {b.lower:.1f}-{b.upper:.1f}     {b.sample_count:>6} "

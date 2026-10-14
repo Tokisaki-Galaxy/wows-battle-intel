@@ -28,18 +28,34 @@ class DatasetStats:
     skipped_no_result: int = 0
     skipped_no_features: int = 0
     total_players: int = 0
+    # 使用了晚于对局开始时间的快照的玩家数。大于 0 表示存在时间泄漏。
+    future_snapshots_used: int = 0
 
 
-def load_battles(db_path: str | Path) -> tuple[list[MatchFeatures], DatasetStats]:
+def load_battles(
+    db_path: str | Path,
+    *,
+    allow_future_snapshots: bool = False,
+) -> tuple[list[MatchFeatures], DatasetStats]:
     """从 SQLite 加载对局并构造特征。
 
     当前实现从 battle_players 还原参战者，并尝试用 player_snapshots
     补齐历史统计。若无快照，特征退化为哨兵值，此时该局对训练无价值。
 
+    allow_future_snapshots：
+        默认 False，只使用对局开始时间之前的快照，避免时间泄漏。
+        这是正确且有生产意义的模式：客户端在开局时采集快照，
+        时间戳自然早于或等于对局开始时间。
+
+        设为 True 时，使用任意时间的最近快照来补特征。这适用于
+        事后补采数据的场景，能跑通管线验证，但会产生乐观偏差，
+        评估结果不可用于判断真实预测能力。使用时会记录警告。
+
     返回特征列表与统计信息。
     """
     stats = DatasetStats()
     matches: list[MatchFeatures] = []
+    future_used = 0
 
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -71,10 +87,15 @@ def load_battles(db_path: str | Path) -> tuple[list[MatchFeatures], DatasetStats
             players: list[PlayerFeatures] = []
             for row in player_rows:
                 stats.total_players += 1
-                # 尝试用该局开始时间之前的最近快照补齐历史统计。
-                snapshot = _latest_snapshot_before(
-                    conn, row["account_id"], row["server"], battle["started_at"]
+                snapshot, is_future = _resolve_snapshot(
+                    conn,
+                    row["account_id"],
+                    row["server"],
+                    battle["started_at"],
+                    allow_future_snapshots,
                 )
+                if is_future:
+                    future_used += 1
                 players.append(_build_player(row, snapshot))
 
             ally = [p for p in players if p.is_ally]
@@ -100,7 +121,46 @@ def load_battles(db_path: str | Path) -> tuple[list[MatchFeatures], DatasetStats
     finally:
         conn.close()
 
+    if future_used > 0:
+        stats.future_snapshots_used = future_used
+
     return matches, stats
+
+
+def _resolve_snapshot(
+    conn: sqlite3.Connection,
+    account_id: str,
+    server: str,
+    battle_started_ms: int,
+    allow_future: bool,
+) -> tuple[sqlite3.Row | None, bool]:
+    """解析用于某玩家的快照。
+
+    返回 (快照, 是否使用了未来快照)。
+    默认只取对局开始前的最近快照，避免时间泄漏。
+    """
+    if not allow_future:
+        return _latest_snapshot_before(conn, account_id, server, battle_started_ms), False
+
+    # 允许未来快照时，取该玩家任意时间的最近一条。
+    row = conn.execute(
+        """
+        SELECT account_battles, account_winrate, account_winrate_solo, account_battles_solo,
+               account_winrate_div2, account_battles_div2, account_winrate_div3,
+               account_battles_div3, weighted_winrate, captured_at
+        FROM player_snapshots
+        WHERE account_id = ? AND server = ?
+        ORDER BY captured_at DESC
+        LIMIT 1
+        """,
+        (account_id, server),
+    ).fetchone()
+
+    if row is None:
+        return None, False
+    # 是否真的用到了晚于对局的快照。
+    is_future = row["captured_at"] > battle_started_ms
+    return row, is_future
 
 
 def _latest_snapshot_before(

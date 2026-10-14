@@ -150,7 +150,6 @@ def aggregate_team(players: list[PlayerFeatures]) -> TeamFeatures:
 
     与 C# 端 TeamAggregator.Aggregate 逻辑一致。
     """
-    human = [p for p in players if not p.is_hidden or True]  # 隐藏玩家计入人数
     with_stats = [p for p in players if p.has_stats]
 
     result = TeamFeatures(
@@ -187,5 +186,4 @@ def aggregate_team(players: list[PlayerFeatures]) -> TeamFeatures:
     result.div2_groups = sum(1 for p in players if p.division_size == 2) // 2
     result.div3_groups = sum(1 for p in players if p.division_size == 3) // 3
 
-    _ = human
     return result

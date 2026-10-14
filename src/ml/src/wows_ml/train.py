@@ -14,6 +14,8 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from wows_ml.calibration import CalibrationReport, build_report
 from wows_ml.features import MatchFeatures
@@ -78,7 +80,7 @@ def train_logistic(
     matches: list[MatchFeatures],
     folds: int = 5,
     random_state: int = 42,
-) -> tuple[LogisticRegression, TrainResult]:
+) -> tuple[Pipeline, TrainResult]:
     """训练逻辑回归基线。
 
     这是必要的基线：简单、可解释、无需调参。
@@ -101,7 +103,9 @@ def train_logistic(
         probs = model.predict_proba(x[test_idx])[:, 1]
         reports.append(build_report(probs, y[test_idx]))
 
-        for name, coef in zip(MatchFeatures.feature_names(), model.coef_[0], strict=True):
+        for name, coef in zip(
+            MatchFeatures.feature_names(), _extract_coefficients(model), strict=True
+        ):
             all_importance.setdefault(name, []).append(float(coef))
 
     # 用全量数据训练最终模型。
@@ -113,13 +117,34 @@ def train_logistic(
     return final_model, result
 
 
-def _make_logistic() -> LogisticRegression:
-    return LogisticRegression(
-        C=1.0,
-        max_iter=1000,
-        solver="lbfgs",
-        random_state=42,
+def _make_logistic() -> Pipeline:
+    """构造逻辑回归管道。
+
+    必须配合标准化：场次类特征在数千量级，胜率在 0 到 1，
+    量级差异会导致 lbfgs 不收敛。标准化是应有处理，不是可选优化。
+    """
+    return Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "model",
+                LogisticRegression(
+                    C=1.0,
+                    max_iter=2000,
+                    solver="lbfgs",
+                    random_state=42,
+                ),
+            ),
+        ]
     )
+
+
+def _extract_coefficients(model) -> np.ndarray:
+    """从管道中取出线性模型的系数，用于特征重要性展示。"""
+    if isinstance(model, Pipeline) and "model" in model.named_steps:
+        inner = model.named_steps["model"]
+        return inner.coef_[0]
+    return model.coef_[0]
 
 
 def train_lightgbm(
