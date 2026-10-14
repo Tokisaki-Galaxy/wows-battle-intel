@@ -53,13 +53,14 @@ data/
 
 ## 回放文件本身
 
-回放不在本目录，仍在游戏安装目录下：
+回放不在本目录。当前有两个来源：
 
 ```text
-D:\SteamLibrary\steamapps\common\World of Warships\replays\<版本>\
+D:\SteamLibrary\steamapps\common\World of Warships\replays\<版本>\   录制者 Tokisaki_Galaxy
+D:\replays\<版本>\                                                   录制者 Qin0730
 ```
 
-解析脚本直接读取那里，产物写入 `data/parsed/`。
+解析脚本直接读取这些目录，产物写入 `data/parsed/`。第二份是另一名玩家贡献的回放，两者的对局时段互补。
 
 ## 版本匹配
 
@@ -69,6 +70,14 @@ D:\SteamLibrary\steamapps\common\World of Warships\replays\<版本>\
 
 | 游戏版本 | gamedata 目录 | 回放数量 |
 |---|---|---|
-| 15.6.0 | 15.6.0_12830008 | 120 |
-| 15.7.0 | 15.7.0_13015811 | 191 |
-| 15.8.0 | 15.8.0_13187581 | 183 |
+| 15.6.0 | 15.6.0_12830008 | 274 |
+| 15.7.0 | 15.7.0_13015811 | 425 |
+| 15.8.0 | 15.8.0_13187581 | 366 |
+
+`D:\replays` 下还有 14.7 到 15.9 的其余版本目录，本阶段未解析，因为缺对应的 gamedata 与 constants。补齐后即可扩展版本覆盖。
+
+## 对局去重
+
+同一局被两名玩家各录一次时，两份回放的开局时间、地图、类型与参战者集合完全相同，`BattleIdGenerator` 据此算出的 `battle_id` 一致。导入时 `battles` 表主键加 `ON CONFLICT DO NOTHING` 自动收敛成一条，不产生重复。
+
+不要用文件名去重。文件名里的时间戳是战斗结束时写盘的时刻，两个客户端相差数秒，不可靠。
