@@ -474,6 +474,7 @@ internal static class Program
         string dbPath = args[1];
         int limit = 0;
         int delayMs = 120;
+        bool fast = false;
         for (int i = 2; i < args.Length - 1; i++)
         {
             if (args[i] == "--limit" && int.TryParse(args[i + 1], out int l))
@@ -483,6 +484,10 @@ internal static class Program
             else if (args[i] == "--delay" && int.TryParse(args[i + 1], out int d))
             {
                 delayMs = d;
+            }
+            else if (args[i] == "--fast")
+            {
+                fast = true;
             }
         }
 
@@ -497,10 +502,15 @@ internal static class Program
         }
 
         Console.WriteLine($"库中出现 {players.Count} 个玩家，开始拉取当前统计");
+        if (fast)
+        {
+            Console.WriteLine("快速模式: 跳过单船查询，只拉账号统计");
+        }
 
         var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+            SkipShipStats = fast,
         });
 
         var capturedAt = DateTimeOffset.UtcNow;
@@ -508,8 +518,10 @@ internal static class Program
         int processed = 0;
         int withData = 0;
 
-        // 分批处理，每批最多 20 人，避免单次请求过长。
-        foreach (var batch in Chunk(players, 20))
+        // 快速模式批量 100（API 上限），普通模式 20 以免单船查询过多。
+        int batchSize = fast ? 100 : 20;
+
+        foreach (var batch in Chunk(players, batchSize))
         {
             processed += batch.Count;
             Console.Write($"\r[{processed}/{players.Count}] 拉取中...   ");
@@ -532,10 +544,20 @@ internal static class Program
                     withData++;
                 }
             }
+
+            // 每 1000 人落一次盘，避免中断丢失全部进度。
+            if (snapshots.Count >= 1000)
+            {
+                repository.SaveSnapshotsAsync(snapshots).GetAwaiter().GetResult();
+                snapshots.Clear();
+            }
         }
 
         Console.WriteLine();
-        repository.SaveSnapshotsAsync(snapshots).GetAwaiter().GetResult();
+        if (snapshots.Count > 0)
+        {
+            repository.SaveSnapshotsAsync(snapshots).GetAwaiter().GetResult();
+        }
 
         var (playerCount, snapshotCount) = repository.GetSnapshotStatsAsync()
             .GetAwaiter().GetResult();

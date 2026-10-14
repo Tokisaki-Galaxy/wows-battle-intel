@@ -81,7 +81,14 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         string host = WgApiParser.GetApiHost(server);
 
         // --- 步骤一：昵称换账号 ID ---
-        var byName = await ResolveAccountIdsAsync(group, host, cancellationToken).ConfigureAwait(false);
+        // 回放解析出的玩家已带真实账号 ID，无需按昵称查询。
+        // 只对缺失 ID 的玩家走这一步，省一次请求也避开重名歧义。
+        var needResolve = group.Where(p => p.AccountId == "-1").ToList();
+        if (needResolve.Count > 0)
+        {
+            await ResolveAccountIdsAsync(needResolve, host, cancellationToken).ConfigureAwait(false);
+        }
+
         var resolved = group.Where(p => p.AccountId != "-1").ToList();
         if (resolved.Count == 0)
         {
@@ -91,10 +98,11 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         // --- 步骤二：账号统计 ---
         await FetchAccountStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
 
-        // --- 步骤三：单船统计，逐玩家 ---
-        await FetchShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
-
-        _ = byName;
+        // --- 步骤三：单船统计，逐玩家。可按需跳过以提速。 ---
+        if (!options.SkipShipStats)
+        {
+            await FetchShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -132,25 +140,61 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     /// <summary>
     /// 拉取账号胜率与分模式胜率。
     /// </summary>
+    /// <remarks>
+    /// WG API 单次请求的 account_id 数量有上限，通常 100 个。超过会报错或
+    /// 静默截断，因此必须分批。每批之间插入延迟避免触发限流。
+    /// </remarks>
     private async Task FetchAccountStatsAsync(
         List<PlayerRecord> group,
         string host,
         CancellationToken cancellationToken)
     {
+        const int batchSize = 100;
         var accountIds = group.Select(p => p.AccountId).Distinct().ToList();
-        string idList = string.Join("%2C", accountIds);
-        const string fields = "hidden_profile%2Cstatistics.pvp.wins%2Cstatistics.pvp.battles"
-            + "%2Cstatistics.pvp_solo.wins%2Cstatistics.pvp_solo.battles"
-            + "%2Cstatistics.pvp_div2.wins%2Cstatistics.pvp_div2.battles"
-            + "%2Cstatistics.pvp_div3.wins%2Cstatistics.pvp_div3.battles";
-        const string extra = "statistics.pvp_solo%2Cstatistics.pvp_div2%2Cstatistics.pvp_div3";
 
-        string url = $"https://{host}/wows/account/info/"
-            + $"?application_id={options.ApplicationId}&extra={extra}&fields={fields}&account_id={idList}";
+        for (int offset = 0; offset < accountIds.Count; offset += batchSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-        var statsById = WgApiParser.ParseAccountStats(json);
+            var batch = accountIds.Skip(offset).Take(batchSize).ToList();
+            string idList = string.Join("%2C", batch);
+            const string fields = "hidden_profile%2Cstatistics.pvp.wins%2Cstatistics.pvp.battles"
+                + "%2Cstatistics.pvp_solo.wins%2Cstatistics.pvp_solo.battles"
+                + "%2Cstatistics.pvp_div2.wins%2Cstatistics.pvp_div2.battles"
+                + "%2Cstatistics.pvp_div3.wins%2Cstatistics.pvp_div3.battles";
+            const string extra = "statistics.pvp_solo%2Cstatistics.pvp_div2%2Cstatistics.pvp_div3";
 
+            string url = $"https://{host}/wows/account/info/"
+                + $"?application_id={options.ApplicationId}&extra={extra}&fields={fields}&account_id={idList}";
+
+            string json;
+            try
+            {
+                json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 单批失败不影响其他批。
+                continue;
+            }
+
+            var statsById = WgApiParser.ParseAccountStats(json);
+            ApplyStats(group, statsById);
+
+            if (offset + batchSize < accountIds.Count)
+            {
+                await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 把拉到的统计写回玩家记录。
+    /// </summary>
+    private static void ApplyStats(
+        List<PlayerRecord> group,
+        Dictionary<string, WgApiParser.AccountStats> statsById)
+    {
         foreach (var player in group)
         {
             if (!statsById.TryGetValue(player.AccountId, out var stats))
@@ -172,8 +216,6 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             player.AccountWinrateDiv2 = stats.WinrateDiv2;
             player.AccountBattlesDiv3 = stats.BattlesDiv3;
             player.AccountWinrateDiv3 = stats.WinrateDiv3;
-
-            // 加权胜率沿用 ApeRadar 口径。
             player.WeightedWinrate = WeightedWinrate.Compute(player);
         }
     }
@@ -254,6 +296,15 @@ public sealed class WgPublicOptions
 
     /// <summary>遇到限流时的退避时间。</summary>
     public TimeSpan RateLimitBackoff { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// 跳过单船统计查询。
+    /// </summary>
+    /// <remarks>
+    /// 单船统计是逐玩家调用，是三步里最慢的一步。批量回测只关心账号胜率时，
+    /// 开启此项能把请求数从每玩家 1 次降到每批 1 次。
+    /// </remarks>
+    public bool SkipShipStats { get; set; }
 
     /// <summary>校验必要配置。</summary>
     public void Validate()
