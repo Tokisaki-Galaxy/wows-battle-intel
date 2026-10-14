@@ -189,6 +189,115 @@ internal static class WgApiParser
     }
 
     /// <summary>
+    /// 单船统计条目。
+    /// </summary>
+    public sealed class ShipStatsEntry
+    {
+        public double Battles { get; set; }
+        public double Wins { get; set; }
+    }
+
+    /// <summary>
+    /// 解析 ships/stats 响应，得到账号 ID 到全部船只统计的映射。
+    /// </summary>
+    /// <remarks>
+    /// 不带 ship_id 过滤时响应为该玩家的全量船只列表，逐条含 pvp 块。
+    /// 某些船没有 pvp 数据，即未打过 PvP，跳过。
+    /// </remarks>
+    public static Dictionary<string, Dictionary<string, ShipStatsEntry>> ParseAllShipStats(
+        string json)
+    {
+        var result = new Dictionary<string, Dictionary<string, ShipStatsEntry>>(StringComparer.Ordinal);
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
+        {
+            return result;
+        }
+
+        foreach (var prop in data.Properties())
+        {
+            string accountId = prop.Name;
+            if (prop.Value is not JArray ships)
+            {
+                continue;
+            }
+
+            var byShip = new Dictionary<string, ShipStatsEntry>(StringComparer.Ordinal);
+            foreach (var ship in ships)
+            {
+                string? shipId = ship["ship_id"]?.ToString();
+                if (ship["pvp"] is not JObject pvp || string.IsNullOrEmpty(shipId))
+                {
+                    continue;
+                }
+
+                double? battles = pvp["battles"]?.Value<double?>();
+                double? wins = pvp["wins"]?.Value<double?>();
+                if (battles is null || wins is null || battles.Value <= 0)
+                {
+                    continue;
+                }
+
+                byShip[shipId] = new ShipStatsEntry
+                {
+                    Battles = battles.Value,
+                    Wins = wins.Value,
+                };
+            }
+
+            if (byShip.Count > 0)
+            {
+                result[accountId] = byShip;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 解析 encyclopedia/info 响应，取舰船目录总页数。
+    /// </summary>
+    public static int ParseEncyclopediaPageTotal(string json)
+    {
+        var root = JObject.Parse(json);
+        return root["meta"]?["page_total"]?.Value<int?>() ?? 1;
+    }
+
+    /// <summary>
+    /// 解析 encyclopedia/ships 响应，得到 ship_id 到舰种字符串的映射。
+    /// </summary>
+    /// <remarks>
+    /// 舰种取 type 字段，形如 "Destroyer"、"AirCarrier"。归一化交给调用方。
+    /// </remarks>
+    public static Dictionary<string, string> ParseShipClasses(
+        string json,
+        Dictionary<string, string> into)
+    {
+        var root = JObject.Parse(json);
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
+        {
+            return into;
+        }
+
+        foreach (var prop in data.Properties())
+        {
+            if (prop.Value is not JObject entry)
+            {
+                continue;
+            }
+
+            string? type = entry["type"]?.Value<string>();
+            if (!string.IsNullOrEmpty(type))
+            {
+                into[prop.Name] = type;
+            }
+        }
+
+        return into;
+    }
+
+    /// <summary>
     /// 从服务器枚举取 API 域名。
     /// </summary>
     public static string GetApiHost(Core.Models.GameServer server) => server switch

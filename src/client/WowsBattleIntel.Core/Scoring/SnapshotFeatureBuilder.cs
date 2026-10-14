@@ -92,6 +92,7 @@ public static class SnapshotFeatureBuilder
             AccountWinrateDiv3 = snapshot.AccountWinrateDiv3,
             AccountBattlesDiv3 = snapshot.AccountBattlesDiv3,
             WeightedWinrate = snapshot.WeightedWinrate,
+            ClassStatsJson = snapshot.ClassStatsJson ?? string.Empty,
 
             // 单局表现，保持回放原值。
             DamageDealt = player.DamageDealt,

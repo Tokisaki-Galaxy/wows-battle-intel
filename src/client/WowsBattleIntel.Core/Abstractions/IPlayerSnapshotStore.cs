@@ -82,6 +82,12 @@ public sealed class PlayerSnapshot
     /// <summary>加权胜率。</summary>
     public double WeightedWinrate { get; set; } = -1;
 
+    /// <summary>
+    /// 分舰种聚合统计的 JSON，形如 {"BB":{"battles":1000,"wins":560}}。
+    /// 空字符串或 null 表示未知，旧快照无此字段。
+    /// </summary>
+    public string? ClassStatsJson { get; set; }
+
     /// <summary>数据来源。</summary>
     public string Source { get; set; } = string.Empty;
 
@@ -106,6 +112,7 @@ public sealed class PlayerSnapshot
             AccountWinrateDiv3 = player.AccountWinrateDiv3,
             AccountBattlesDiv3 = (int)Math.Max(0, player.AccountBattlesDiv3),
             WeightedWinrate = player.WeightedWinrate,
+            ClassStatsJson = player.ClassStatsJson,
         };
     }
 }

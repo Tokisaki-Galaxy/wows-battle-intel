@@ -21,6 +21,11 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     private readonly HttpClient httpClient;
     private readonly WgPublicOptions options;
 
+    // ship_id 到 WG 舰种字符串的映射，来自 encyclopedia 目录。
+    // 惰性加载并缓存，过期时间由 ClassCatalogCacheDuration 控制。
+    private Dictionary<string, string> shipClassLookup = new(StringComparer.Ordinal);
+    private DateTimeOffset shipClassLookupLoadedAt = DateTimeOffset.MinValue;
+
     /// <summary>
     /// 构造提供者。
     /// </summary>
@@ -101,7 +106,17 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         // --- 步骤三：单船统计，逐玩家。可按需跳过以提速。 ---
         if (!options.SkipShipStats)
         {
-            await FetchShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+            if (options.FetchClassStats)
+            {
+                // 全船只列表与单船查询同 endpoint，一次请求同时覆盖
+                // 单船统计与分舰种聚合，请求数不变。舰种映射先就绪。
+                await EnsureShipClassLookupAsync(host, cancellationToken).ConfigureAwait(false);
+                await FetchAllShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await FetchShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -263,6 +278,170 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         }
     }
 
+    /// <summary>
+    /// 确保 ship_id 到舰种的映射就绪。缓存 24 小时，全量拉取按页翻页。
+    /// </summary>
+    /// <remarks>
+    /// encyclopedia/ships 每页 100 条，全目录约 6 页，缓存期内零请求。
+    /// 加载失败时保留空映射，分舰种聚合退化为空，不影响账号级统计。
+    /// </remarks>
+    private async Task EnsureShipClassLookupAsync(string host, CancellationToken cancellationToken)
+    {
+        if (shipClassLookup.Count > 0
+            && DateTimeOffset.UtcNow - shipClassLookupLoadedAt < options.ClassCatalogCacheDuration)
+        {
+            return;
+        }
+
+        try
+        {
+            string infoUrl = $"https://{host}/wows/encyclopedia/info/"
+                + $"?application_id={options.ApplicationId}&fields=page_total";
+            string infoJson = await GetStringAsync(infoUrl, cancellationToken).ConfigureAwait(false);
+            int pageTotal = WgApiParser.ParseEncyclopediaPageTotal(infoJson);
+
+            var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int page = 1; page <= pageTotal; page++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string url = $"https://{host}/wows/encyclopedia/ships/"
+                    + $"?application_id={options.ApplicationId}&fields=type&page_no={page}";
+                string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+                WgApiParser.ParseShipClasses(json, lookup);
+
+                if (page < pageTotal)
+                {
+                    await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            if (lookup.Count > 0)
+            {
+                shipClassLookup = lookup;
+                shipClassLookupLoadedAt = DateTimeOffset.UtcNow;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // 目录加载失败不影响账号级统计，分舰种特征退化为未知。
+        }
+    }
+
+    /// <summary>
+    /// 逐玩家拉取全量船只统计，并同时填充单船与分舰种聚合。
+    /// </summary>
+    /// <remarks>
+    /// 一次请求返回该玩家全部船只，替代原逐玩家单船查询，请求数不变。
+    /// 舰种映射来自 encyclopedia 目录缓存，缺失映射的船只不计入聚合。
+    /// </remarks>
+    private async Task FetchAllShipStatsAsync(
+        List<PlayerRecord> group,
+        string host,
+        CancellationToken cancellationToken)
+    {
+        const string fields = "ship_id%2Cpvp.wins%2Cpvp.battles%2Cpvp.damage_dealt%2Cpvp.original_exp";
+
+        foreach (var player in group)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrEmpty(player.AccountId) || player.AccountId == "-1")
+            {
+                continue;
+            }
+
+            string url = $"https://{host}/wows/ships/stats/"
+                + $"?application_id={options.ApplicationId}&fields={fields}"
+                + $"&account_id={player.AccountId}";
+
+            try
+            {
+                string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+                var allShips = WgApiParser.ParseAllShipStats(json);
+                if (allShips.TryGetValue(player.AccountId, out var byShip))
+                {
+                    ApplyShipStats(player, byShip);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 单船查询失败不影响其他玩家。
+            }
+
+            await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 把全量船只统计写回玩家记录：单船数据取本局所开的船，分舰种聚合成
+    /// JSON 存入 ClassStatsJson。
+    /// </summary>
+    private void ApplyShipStats(
+        PlayerRecord player,
+        Dictionary<string, WgApiParser.ShipStatsEntry> byShip)
+    {
+        var classAgg = new Dictionary<string, (double Battles, double Wins)>(StringComparer.Ordinal);
+
+        foreach (var (shipId, entry) in byShip)
+        {
+            // 本局所开的船，填充单船统计。
+            if (player.ShipId == shipId)
+            {
+                player.ShipBattles = entry.Battles;
+                player.ShipWinrate = entry.Battles > 0 ? entry.Wins / entry.Battles : -1;
+            }
+
+            string? classKey = ResolveClassKey(shipId);
+            if (classKey is null)
+            {
+                continue;
+            }
+
+            var (battles, wins) = classAgg.TryGetValue(classKey, out var cur)
+                ? cur
+                : (0, 0);
+            classAgg[classKey] = (battles + entry.Battles, wins + entry.Wins);
+        }
+
+        // 保持稳定顺序，便于快照 JSON 可比对。
+        var parts = classAgg
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv =>
+            {
+                var (b, w) = kv.Value;
+                return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"\"{kv.Key}\":{{\"battles\":{b:0},\"wins\":{w:0}}}");
+            });
+
+        player.ClassStatsJson = "{" + string.Join(",", parts) + "}";
+    }
+
+    /// <summary>
+    /// 把 ship_id 解析成稳定舰种键，形如 "BB"。查不到返回 null。
+    /// </summary>
+    private string? ResolveClassKey(string shipId)
+    {
+        if (shipClassLookup.Count == 0)
+        {
+            return null;
+        }
+
+        return shipClassLookup.TryGetValue(shipId, out string? wgType) ? ToClassKey(wgType) : null;
+    }
+
+    /// <summary>
+    /// WG 舰种字符串转稳定存储键，与 ShipClassExtensions.Parse 的输入兼容。
+    /// </summary>
+    internal static string? ToClassKey(string wgType) => wgType.Trim().ToUpperInvariant() switch
+    {
+        "DESTROYER" => "DD",
+        "CRUISER" => "CA",
+        "BATTLESHIP" => "BB",
+        "AIR_CARRIER" or "AIRCARRIER" or "CARRIER" => "CV",
+        "SUBMARINE" => "SS",
+        _ => null,
+    };
+
     private async Task<string> GetStringAsync(string url, CancellationToken cancellationToken)
     {
         using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
@@ -305,6 +484,18 @@ public sealed class WgPublicOptions
     /// 开启此项能把请求数从每玩家 1 次降到每批 1 次。
     /// </remarks>
     public bool SkipShipStats { get; set; }
+
+    /// <summary>
+    /// 拉取分舰种聚合统计。
+    /// </summary>
+    /// <remarks>
+    /// 开启后用全量船只查询替代逐玩家单船查询，请求数不变，但响应体更大。
+    /// 首次启用会额外请求 encyclopedia 目录并缓存 24 小时。
+    /// </remarks>
+    public bool FetchClassStats { get; set; }
+
+    /// <summary>舰船目录缓存的时长。</summary>
+    public TimeSpan ClassCatalogCacheDuration { get; set; } = TimeSpan.FromHours(24);
 
     /// <summary>校验必要配置。</summary>
     public void Validate()

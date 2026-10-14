@@ -92,6 +92,12 @@ public sealed class PlayerRecord
     /// <summary>该船场均经验。</summary>
     public double ShipAvgExp { get; set; } = -1;
 
+    /// <summary>
+    /// 分舰种聚合统计的 JSON，形如 {"BB":{"battles":1000,"wins":560}}。
+    /// 空字符串表示未知，旧数据无此字段。
+    /// </summary>
+    public string ClassStatsJson { get; set; } = string.Empty;
+
     // --- 近期状态，来自本地累积的逐场记录 ---
 
     /// <summary>最近 20 场胜率，-1 表示样本不足。</summary>

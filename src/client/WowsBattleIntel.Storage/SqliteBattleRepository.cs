@@ -37,6 +37,10 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     /// <summary>
     /// 初始化数据库结构。幂等，可重复调用。
     /// </summary>
+    /// <remarks>
+    /// schema.sql 只覆盖建表，存量库的加列靠迁移补齐。SQLite 的
+    /// ALTER TABLE ADD COLUMN 无 IF NOT EXISTS，先查表结构再决定。
+    /// </remarks>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         string schema = await LoadSchemaAsync(cancellationToken).ConfigureAwait(false);
@@ -44,6 +48,34 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         await using var command = connection.CreateCommand();
         command.CommandText = schema;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await MigrateSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 存量库的结构迁移。逐版本加列，失败容忍重复执行。
+    /// </summary>
+    private static async Task MigrateSchemaAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA table_info(player_snapshots);";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        if (!existing.Contains("class_stats"))
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN class_stats TEXT;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -497,14 +529,14 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     account_winrate_solo, account_battles_solo,
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
-                    weighted_winrate, pr, source
+                    weighted_winrate, pr, source, class_stats
                 ) VALUES (
                     $accountId, $server, $capturedAt,
                     $battles, $winrate,
                     $wrSolo, $bSolo,
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
-                    $weighted, NULL, $source
+                    $weighted, NULL, $source, $classStats
                 )
                 ON CONFLICT(account_id, server, captured_at) DO NOTHING;
                 """;
@@ -522,6 +554,10 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$bDiv3", s.AccountBattlesDiv3);
             command.Parameters.AddWithValue("$weighted", s.WeightedWinrate);
             command.Parameters.AddWithValue("$source", s.Source ?? string.Empty);
+            var classStats = command.Parameters.Add("$classStats", SqliteType.Text);
+            classStats.Value = string.IsNullOrEmpty(s.ClassStatsJson)
+                ? DBNull.Value
+                : s.ClassStatsJson;
 
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -573,6 +609,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             AccountWinrateDiv3 = reader.GetDouble(reader.GetOrdinal("account_winrate_div3")),
             AccountBattlesDiv3 = reader.GetInt32(reader.GetOrdinal("account_battles_div3")),
             WeightedWinrate = reader.GetDouble(reader.GetOrdinal("weighted_winrate")),
+            ClassStatsJson = reader.IsDBNull(reader.GetOrdinal("class_stats"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("class_stats")),
         };
     }
 

@@ -191,4 +191,77 @@ public class WgApiParserTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => WgApiParser.GetApiHost(GameServer.Auto));
     }
+
+    [Fact]
+    public void ParseAllShipStats_ExtractsPerShipEntries()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "data": {
+                "1001": [
+                  { "ship_id": 4291, "pvp": { "battles": 100, "wins": 60 } },
+                  { "ship_id": 4292, "pvp": { "battles": 30, "wins": 12 } },
+                  { "ship_id": 4293, "pvp": null }
+                ]
+              }
+            }
+            """;
+
+        var result = WgApiParser.ParseAllShipStats(json);
+
+        Assert.True(result.ContainsKey("1001"));
+        var byShip = result["1001"];
+        Assert.Equal(2, byShip.Count);
+        Assert.Equal(100, byShip["4291"].Battles);
+        Assert.Equal(60, byShip["4291"].Wins);
+    }
+
+    [Fact]
+    public void ParseAllShipStats_ErrorStatus_ReturnsEmpty()
+    {
+        const string json = """{ "status": "error" }""";
+
+        Assert.Empty(WgApiParser.ParseAllShipStats(json));
+    }
+
+    [Fact]
+    public void ParseEncyclopediaPageTotal_ReadsMeta()
+    {
+        const string json = """{ "status": "ok", "meta": { "page_total": 6 } }""";
+
+        Assert.Equal(6, WgApiParser.ParseEncyclopediaPageTotal(json));
+    }
+
+    [Fact]
+    public void ParseShipClasses_CollectsTypesIntoMap()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "data": {
+                "4291": { "type": "Destroyer" },
+                "4292": { "type": "AirCarrier" }
+              }
+            }
+            """;
+
+        var into = new Dictionary<string, string>();
+        WgApiParser.ParseShipClasses(json, into);
+
+        Assert.Equal("Destroyer", into["4291"]);
+        Assert.Equal("AirCarrier", into["4292"]);
+    }
+
+    [Theory]
+    [InlineData("Destroyer", "DD")]
+    [InlineData("Cruiser", "CA")]
+    [InlineData("Battleship", "BB")]
+    [InlineData("AirCarrier", "CV")]
+    [InlineData("Submarine", "SS")]
+    [InlineData("UnknownType", null)]
+    public void ToClassKey_NormalizesWgTypes(string wgType, string? expected)
+    {
+        Assert.Equal(expected, WowsBattleIntel.Stats.WgPublicStatsProvider.ToClassKey(wgType));
+    }
 }

@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
     weighted_winrate    REAL,
     pr                  REAL,
     source              TEXT    NOT NULL DEFAULT '',
+    class_stats         TEXT,
     UNIQUE (account_id, server, captured_at)
 );
 
