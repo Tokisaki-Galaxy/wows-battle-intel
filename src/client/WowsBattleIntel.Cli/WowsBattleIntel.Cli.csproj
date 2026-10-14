@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WowsBattleIntel.Core\WowsBattleIntel.Core.csproj" />
     <ProjectReference Include="..\WowsBattleIntel.Replay\WowsBattleIntel.Replay.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Storage\WowsBattleIntel.Storage.csproj" />
   </ItemGroup>
 
 </Project>

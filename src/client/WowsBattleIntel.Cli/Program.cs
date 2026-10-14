@@ -34,6 +34,7 @@ internal static class Program
                 "map" => RunMap(args),
                 "backtest" => RunBacktest(args),
                 "survey" => RunSurvey(args),
+                "import" => RunImport(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -259,6 +260,67 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// import 子命令：把一批解析结果导入本地 SQLite。
+    /// </summary>
+    private static int RunImport(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("用法: wows-intel import <解析输出目录> <数据库路径>");
+            return 1;
+        }
+
+        string inputDir = args[1];
+        string dbPath = args[2];
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        repository.InitializeAsync().GetAwaiter().GetResult();
+
+        var files = Directory.GetFiles(inputDir, "*.json");
+        Console.WriteLine($"扫描到 {files.Count()} 份解析结果，导入 {dbPath}");
+
+        int imported = 0;
+        int skipped = 0;
+        int failed = 0;
+
+        foreach (string file in files)
+        {
+            ReplaysharkOutput output;
+            try
+            {
+                output = LoadOutput(file);
+            }
+            catch
+            {
+                failed++;
+                continue;
+            }
+
+            var battle = ReplaysharkMapper.Map(output, file);
+            if (battle is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                repository.SaveBattleAsync(battle).GetAwaiter().GetResult();
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"  导入失败 {Path.GetFileName(file)}: {ex.Message}");
+                failed++;
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"导入完成: 成功 {imported}, 跳过 {skipped}（无完整结果）, 失败 {failed}");
+        return 0;
+    }
+
     private static ReplaysharkOutput LoadOutput(string path)
     {
         string json = File.ReadAllText(path);
@@ -300,6 +362,7 @@ internal static class Program
         Console.WriteLine("  wows-intel map <replayshark_output.json>     单份映射为领域模型");
         Console.WriteLine("  wows-intel backtest <目录> [--csv <文件>]    批量预测与校准");
         Console.WriteLine("  wows-intel survey <目录>                     统计解析结果分布");
+        Console.WriteLine("  wows-intel import <目录> <数据库>            导入解析结果到本地库");
     }
 
     private sealed class BacktestRow

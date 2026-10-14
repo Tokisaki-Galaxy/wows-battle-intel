@@ -82,11 +82,22 @@ public static class ReplaysharkMapper
             IsBot = rp.IsBot,
             IsHidden = rp.IsHiddenProfile,
             ShipId = rp.ShipIndex,
+            ShipName = rp.ShipName,
             ShipTier = rp.ShipTier,
             ShipClass = MapShipClass(rp.ShipClass),
             DivisionSize = rp.DivisionId is long divId && divisionSizes.TryGetValue(divId, out int size)
                 ? size
                 : 1,
+
+            // 单局战斗表现，来自服务器权威结果。
+            DamageDealt = sr?.Damage ?? 0,
+            DamageTaken = sr?.ReceivedDamage ?? 0,
+            Kills = sr?.Kills ?? 0,
+            SpottingDamage = sr?.SpottingDamage ?? 0,
+            PotentialDamage = sr?.PotentialDamage ?? 0,
+            Survived = rp.Survived,
+            SurvivedSeconds = rp.TimeLivedSecs ?? 0,
+            ExpEarned = sr?.Xp ?? 0,
         };
 
         return player;

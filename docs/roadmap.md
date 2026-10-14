@@ -8,33 +8,37 @@
 
 - [x] 仓库初始化
 - [x] 文档骨架：架构、数据模型、特征工程、术语
-- [ ] 安装 .NET 10 SDK
-- [ ] .NET 解决方案与项目结构
-- [ ] 目录约定与 .gitignore
-- [ ] 首次提交
+- [x] 安装 .NET 10 SDK
+- [x] .NET 解决方案与项目结构
+- [x] 目录约定与 .gitignore
+- [x] 首次提交
 
 ## 阶段一：回放解析验证
 
-目标：证明能把回放文件解成结构化数据。不写 C#，纯验证。
+目标：证明能把回放文件解成结构化数据。
 
-- [ ] 获取 `replayshark` 二进制
-- [ ] 用本机 15.6.0.0 回放跑 `dump`
-- [ ] 摸清 JSON 输出结构：元数据、玩家列表、战斗结果
-- [ ] 确认版本匹配机制，gamedata 与游戏版本的对应
-- [ ] 产出解析结构说明文档
-- [ ] 产出 `tools/` 下的验证脚本
+- [x] 获取 `replayshark` 二进制
+- [x] 用本机 15.6.0.0 回放跑 `dump` 与 `battle-results`
+- [x] 摸清 JSON 输出结构：元数据、玩家列表、战斗结果
+- [x] 确认版本匹配机制，gamedata 与游戏版本的对应
+- [x] 产出解析结构说明文档 `docs/replay-output-format.md`
+- [x] 产出验证脚本与最小数据集下载脚本
+- [x] C# 映射层 `WowsBattleIntel.Replay`
+- [x] 端到端验证工具 `WowsBattleIntel.Cli`
+- [x] 首次回测，产出 `docs/phase1-verification-report.md`
 
-风险：回放版本与解析器版本不匹配。本机回放是 15.6.0.0，需确认 `replayshark` 与 gamedata 能对上。
+关键发现：回放提供标签（真实胜负），但不含预测所需的赛前特征。预测特征必须靠跨对局累积的历史统计，这印证了中央库的必要性。
 
-## 阶段二：本地采集
+## 阶段二：本地存储
 
-目标：客户端能自动发现回放、解析、落库。
+目标：把有效对局落进本地 SQLite，建立逐场累积的基础。
 
-- [ ] 回放观测层，监听回放目录
-- [ ] `IReplayParser` 接口与 `ReplaysharkReplayParser` 实现
-- [ ] SQLite 建表与数据访问层
-- [ ] 采集编排：发现到落库的完整链路
-- [ ] 单元测试
+- [x] `IBattleRepository` 的 SQLite 实现
+- [x] 表结构：battles、battle_players、predictions、player_snapshots
+- [x] 幂等写入，相同对局标识不产生重复
+- [x] 预测记录的保存与真实结果回填
+- [x] 单元测试
+- [ ] 批量导入已解析回放，建立本地数据集
 
 ## 阶段三：预测对照
 
