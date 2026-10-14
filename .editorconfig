@@ -1,0 +1,44 @@
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,jsonc,yml,yaml,js,ts,tsx,css,scss,html}]
+indent_size = 2
+
+[*.{md,txt}]
+trim_trailing_whitespace = false
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+# Sort using directives, place System first.
+dotnet_sort_system_directives_first = true
+# Prefer file-scoped namespaces.
+csharp_style_namespace_declarations = file_scoped:warning
+# Prefer var when the type is apparent.
+csharp_style_var_when_type_is_apparent = true:suggestion
+# Modern expression-bodied members.
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+# Null-checking preferences.
+csharp_style_throw_expression = true:suggestion
+csharp_style_prefer_null_check_over_type_check = true:suggestion
+# Unused usings are warnings, not silent.
+dotnet_diagnostic.IDE0005.severity = warning
+
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+[*.ps1]
+indent_size = 4
+
+[Makefile]
+indent_style = tab

@@ -1,0 +1,132 @@
+# ===========================================================================
+# wows-battle-intel
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# .NET / C#
+# ---------------------------------------------------------------------------
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+build/
+bld/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.cache
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+TestResults/
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+
+# ---------------------------------------------------------------------------
+# Node / Cloudflare Workers
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+.pnpm-store/
+.npm/
+
+# ---------------------------------------------------------------------------
+# Python / ML
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.onnx
+*.pt
+*.pth
+*.h5
+*.pkl
+*.joblib
+mlruns/
+data/raw/
+data/processed/
+data/interim/
+models/
+
+# ---------------------------------------------------------------------------
+# Project-specific: never commit real replay files or captured data
+# ---------------------------------------------------------------------------
+*.wowsreplay
+replays/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+local-data/
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.swp
+*~
+.DS_Store

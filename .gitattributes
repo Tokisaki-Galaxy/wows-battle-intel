@@ -1,0 +1,40 @@
+# Normalize line endings across platforms.
+* text=auto eol=lf
+
+# Explicitly declare text files.
+*.md        text
+*.txt       text
+*.json      text
+*.jsonc     text
+*.yml       text
+*.yaml      text
+*.toml      text
+*.cs        text diff=csharp
+*.csproj    text
+*.sln       text
+*.props     text
+*.targets   text
+*.ts        text
+*.js        text
+*.py        text
+*.sql       text
+
+# Windows-only scripts must keep CRLF for reliable execution.
+*.ps1       text eol=crlf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+# Binary assets.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.webp      binary
+*.onnx      binary
+*.wowsreplay binary
+
+# Keep generated files out of diffs and language stats.
+pnpm-lock.yaml linguist-generated=true
+*.min.js    linguist-generated=true
+*.min.css   linguist-generated=true

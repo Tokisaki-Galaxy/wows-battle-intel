@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Central package management. All PackageReference versions live here.
+    Projects reference packages without a Version attribute.
+  -->
+
+  <ItemGroup>
+    <!-- JSON -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="System.Text.Json" Version="10.0.0" />
+
+    <!-- Local storage -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+
+    <!-- Logging -->
+    <PackageVersion Include="log4net" Version="3.3.2" />
+
+    <!-- Machine learning inference -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+
+    <!-- UI -->
+    <PackageVersion Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.5" />
+    <PackageVersion Include="RestoreWindowPlace" Version="3.1.0" />
+
+    <!-- Testing -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="NSubstitute" Version="5.3.0" />
+  </ItemGroup>
+
+</Project>
