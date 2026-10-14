@@ -5,14 +5,19 @@
 
   <!--
     主题资源。集中定义颜色、字号、间距，界面不写死具体值。
-    配色偏深色，与游戏场景协调，减少长时间查看的视觉疲劳。
+    配色偏深色工业风，与游戏场景协调，减少长时间查看的视觉疲劳。
+    高亮色收敛为单一强调色，其余语义色只用于阵营与结果。
   -->
 
   <!-- 背景与表面 -->
   <Color x:Key="BackgroundColor">#FF1A1D21</Color>
   <Color x:Key="SurfaceColor">#FF23272E</Color>
+  <Color x:Key="SurfaceTopColor">#FF2A2F38</Color>
   <Color x:Key="SurfaceAltColor">#FF2B3038</Color>
-  <Color x:Key="BorderColor">#FF3A4048</Color>
+  <Color x:Key="SurfaceHoverColor">#FF333A45</Color>
+  <Color x:Key="SurfacePressedColor">#FF3B434F</Color>
+  <Color x:Key="ZebraColor">#FF262B32</Color>
+  <Color x:Key="BorderColor">#FF31373F</Color>
 
   <!-- 文本 -->
   <Color x:Key="TextPrimaryColor">#FFE8EAED</Color>
@@ -28,9 +33,18 @@
   <Color x:Key="PositiveColor">#FF4CC38A</Color>
   <Color x:Key="NegativeColor">#FFE85C5C</Color>
 
+  <!-- 强调色与结果色 -->
+  <Color x:Key="AccentColor">#FF2BD9C7</Color>
+  <Color x:Key="WinColor">#FF4CC38A</Color>
+  <Color x:Key="LossColor">#FFE85C5C</Color>
+
   <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
   <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
+  <SolidColorBrush x:Key="SurfaceTopBrush" Color="{StaticResource SurfaceTopColor}" />
   <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}" />
+  <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{StaticResource SurfaceHoverColor}" />
+  <SolidColorBrush x:Key="SurfacePressedBrush" Color="{StaticResource SurfacePressedColor}" />
+  <SolidColorBrush x:Key="ZebraBrush" Color="{StaticResource ZebraColor}" />
   <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
   <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
   <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
@@ -42,12 +56,22 @@
   <SolidColorBrush x:Key="HiddenBrush" Color="{StaticResource HiddenColor}" />
   <SolidColorBrush x:Key="PositiveBrush" Color="{StaticResource PositiveColor}" />
   <SolidColorBrush x:Key="NegativeBrush" Color="{StaticResource NegativeColor}" />
+  <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+  <SolidColorBrush x:Key="WinBrush" Color="{StaticResource WinColor}" />
+  <SolidColorBrush x:Key="LossBrush" Color="{StaticResource LossColor}" />
+
+  <!-- 卡片底色：顶部略亮的纵向渐变，形成 1px 量级的顶边高光 -->
+  <LinearGradientBrush x:Key="CardBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+    <GradientStop Offset="0" Color="{StaticResource SurfaceTopColor}" />
+    <GradientStop Offset="1" Color="{StaticResource SurfaceColor}" />
+  </LinearGradientBrush>
 
   <!-- 字号 -->
-  <sys:Double x:Key="FontSizeTitle">20</sys:Double>
-  <sys:Double x:Key="FontSizeHeading">16</sys:Double>
+  <sys:Double x:Key="FontSizeTitle">22</sys:Double>
+  <sys:Double x:Key="FontSizeHeading">15</sys:Double>
   <sys:Double x:Key="FontSizeBody">13</sys:Double>
   <sys:Double x:Key="FontSizeSmall">11</sys:Double>
+  <sys:Double x:Key="FontSizeDisplay">34</sys:Double>
 
   <!-- 间距 -->
   <Thickness x:Key="PaddingSmall">4</Thickness>
@@ -59,6 +83,13 @@
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeTitle}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- 大号指标数字，用于预测胜率等核心读数 -->
+  <Style x:Key="DisplayTextStyle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="FontSize" Value="{StaticResource FontSizeDisplay}" />
+    <Setter Property="FontWeight" Value="Bold" />
   </Style>
 
   <Style x:Key="HeadingTextStyle" TargetType="TextBlock">
@@ -83,12 +114,12 @@
     <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
   </Style>
 
-  <!-- 分组卡片：浅一档的底色加圆角边框 -->
+  <!-- 分组卡片：浅一档的渐变底色，圆角加大，描边压低对比 -->
   <Style x:Key="CardStyle" TargetType="Border">
-    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="CornerRadius" Value="8" />
   </Style>
 
   <Style TargetType="Button">
@@ -111,6 +142,19 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      </Trigger>
+      <Trigger Property="IsPressed" Value="True">
+        <Setter Property="Background" Value="{StaticResource SurfacePressedBrush}" />
+      </Trigger>
+      <Trigger Property="IsEnabled" Value="False">
+        <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <Style TargetType="TextBlock">
@@ -128,7 +172,7 @@
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Style.Triggers>
       <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter Property="BorderBrush" Value="{StaticResource AllyBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
       </Trigger>
     </Style.Triggers>
   </Style>
@@ -162,7 +206,7 @@
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsSelected" Value="True">
-              <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AllyBrush}" />
+              <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
               <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
             </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
@@ -174,10 +218,10 @@
     </Setter>
   </Style>
 
-  <!-- 列表项选中态：默认蓝色在深色背景上过于刺眼，换成低饱和高亮 -->
+  <!-- 列表项：左侧预留 3px 指示条，选中时点亮为强调色 -->
   <Style TargetType="ListBoxItem">
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-    <Setter Property="Padding" Value="6,4" />
+    <Setter Property="Padding" Value="0,2" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ListBoxItem">
@@ -185,7 +229,19 @@
                   Background="Transparent"
                   CornerRadius="4"
                   Padding="{TemplateBinding Padding}">
-            <ContentPresenter />
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Border Name="Indicator"
+                      Grid.Column="0"
+                      Width="3"
+                      Margin="0,0,4,0"
+                      CornerRadius="1"
+                      Background="Transparent" />
+              <ContentPresenter Grid.Column="1" />
+            </Grid>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
@@ -193,8 +249,7 @@
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
               <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceAltBrush}" />
-              <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AllyBrush}" />
-              <Setter TargetName="Root" Property="BorderThickness" Value="1" />
+              <Setter TargetName="Indicator" Property="Background" Value="{StaticResource AccentBrush}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -202,7 +257,7 @@
     </Setter>
   </Style>
 
-  <!-- 数据表格：深色背景下的表头与网格线 -->
+  <!-- 数据表格：深色背景下的表头与网格线，行高加大并配弱斑马纹 -->
   <Style TargetType="DataGrid">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
@@ -210,27 +265,29 @@
     <Setter Property="GridLinesVisibility" Value="Horizontal" />
     <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BorderBrush}" />
     <Setter Property="RowBackground" Value="Transparent" />
-    <Setter Property="AlternatingRowBackground" Value="Transparent" />
+    <Setter Property="AlternatingRowBackground" Value="{StaticResource ZebraBrush}" />
     <Setter Property="HeadersVisibility" Value="Column" />
     <Setter Property="IsReadOnly" Value="True" />
     <Setter Property="AutoGenerateColumns" Value="False" />
     <Setter Property="CanUserAddRows" Value="False" />
   </Style>
 
+  <!-- 表头：小型加粗的辅助色文字，形成与正文的层级差 -->
   <Style TargetType="DataGridColumnHeader">
-    <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}" />
+    <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
     <Setter Property="BorderThickness" Value="0,0,1,1" />
-    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="Padding" Value="10,7" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeSmall}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <Style TargetType="DataGridCell">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="Padding" Value="10,6" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="DataGridCell">
@@ -246,7 +303,7 @@
   <!-- 进度条：不确定态，用于忙碌指示 -->
   <Style TargetType="ProgressBar">
     <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}" />
-    <Setter Property="Foreground" Value="{StaticResource AllyBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Height" Value="3" />
   </Style>
@@ -259,5 +316,14 @@
 
   <!-- 颜色键名到画刷，供视图模型按语义指定颜色 -->
   <views:ResourceKeyToBrushConverter x:Key="BrushKeyConverter" />
+
+  <!-- 布尔值到可见性，控制空态提示 -->
+  <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
+  <!-- 布尔值取反到可见性，与上面的转换器配套使用 -->
+  <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+
+  <!-- 预测概率占比转列宽，友方与敌方各占一侧 -->
+  <views:ProbabilityToGridLengthConverter x:Key="ProbabilityToGridLengthConverter" />
 
 </ResourceDictionary>
