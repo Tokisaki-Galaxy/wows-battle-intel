@@ -63,6 +63,18 @@ public sealed class BattleIngestionService
             return IngestionResult.Failed(ex.Message);
         }
 
+        return await IngestParsedAsync(battle, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 对已解析的对局执行收敛判定、落库与预测。供 <see cref="IngestAsync"/> 与测试复用。
+    /// </summary>
+    internal async Task<IngestionResult> IngestParsedAsync(
+        BattleRecord battle,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(battle);
+
         // 同局收敛：同一局的战斗会被场上多个玩家的回放各解析一次，
         // battle_id 互不相同，按 battle_id 的幂等挡不住。这里按参战者
         // 集合、地图与时间窗识别等价对局，命中则跳过落库。

@@ -343,4 +343,62 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
 
         Assert.Equal(2, await repository.CountBattlesAsync());
     }
+
+    [Fact]
+    public async Task FindEquivalentBattle_MatchesSameBattleFromAnotherReplay()
+    {
+        var first = MakeBattle("battle-a");
+        await repository.SaveBattleAsync(first);
+
+        // 同一局另一名玩家的回放：battle_id 不同，参战者与地图相同，开始时间差 5 分钟。
+        var second = MakeBattle("battle-b");
+        second.StartedAt = first.StartedAt.AddMinutes(5);
+
+        var found = await repository.FindEquivalentBattleAsync(second);
+
+        Assert.NotNull(found);
+        Assert.Equal("battle-a", found.BattleId);
+    }
+
+    [Fact]
+    public async Task FindEquivalentBattle_DifferentRoster_ReturnsNull()
+    {
+        var first = MakeBattle("battle-a");
+        await repository.SaveBattleAsync(first);
+
+        var second = MakeBattle("battle-b");
+        second.Players = second.Players.Select(p => new PlayerRecord
+        {
+            AccountId = p.AccountId == "1001" ? "9999" : p.AccountId,
+            Server = p.Server,
+            IsAlly = p.IsAlly,
+        }).ToList();
+
+        Assert.Null(await repository.FindEquivalentBattleAsync(second));
+    }
+
+    [Fact]
+    public async Task FindEquivalentBattle_BeyondTimeWindow_ReturnsNull()
+    {
+        var first = MakeBattle("battle-a");
+        await repository.SaveBattleAsync(first);
+
+        // 差 800 秒，超出 760 秒窗口。
+        var second = MakeBattle("battle-b");
+        second.StartedAt = first.StartedAt.AddSeconds(800);
+
+        Assert.Null(await repository.FindEquivalentBattleAsync(second));
+    }
+
+    [Fact]
+    public async Task FindEquivalentBattle_DifferentMap_ReturnsNull()
+    {
+        var first = MakeBattle("battle-a");
+        await repository.SaveBattleAsync(first);
+
+        var second = MakeBattle("battle-b");
+        second.MapId = "spaces/17_NI_farmer";
+
+        Assert.Null(await repository.FindEquivalentBattleAsync(second));
+    }
 }
