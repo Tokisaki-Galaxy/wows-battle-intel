@@ -10,6 +10,7 @@
     <Project Path="src/client/WowsBattleIntel.Storage/WowsBattleIntel.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WowsBattleIntel.Client.Tests/WowsBattleIntel.Client.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Core.Tests/WowsBattleIntel.Core.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Prediction.Tests/WowsBattleIntel.Prediction.Tests.csproj" />
     <Project Path="tests/WowsBattleIntel.Replay.Tests/WowsBattleIntel.Replay.Tests.csproj" />
