@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支的重复推送取消旧任务，节省额度。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: .NET 客户端
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: 还原依赖
+        run: dotnet restore WowsBattleIntel.slnx
+
+      - name: 构建
+        run: dotnet build WowsBattleIntel.slnx -c Release --no-restore
+
+      - name: 测试
+        run: dotnet test WowsBattleIntel.slnx -c Release --no-build --verbosity normal
+
+  python:
+    name: Python 模型管线
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/ml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: 安装依赖
+        run: uv pip install --system -e ".[dev]"
+
+      - name: 代码检查
+        run: ruff check src tests
+
+      - name: 测试
+        run: pytest -q
+
+  edge:
+    name: Cloudflare Workers
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/edge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: src/edge/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 测试
+        run: pnpm test
