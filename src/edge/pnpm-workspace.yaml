@@ -5,7 +5,7 @@
 # - workerd: Cloudflare Workers 运行时，被 vitest-pool-workers 与 wrangler 使用
 # - esbuild: 打包依赖
 # - sharp: wrangler 的图片处理依赖
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
-  - workerd
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
