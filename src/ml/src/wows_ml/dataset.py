@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,10 @@ class DatasetStats:
     future_snapshots_used: int = 0
     # 因对局类型不在白名单而被跳过的对局数。
     skipped_battle_type: int = 0
+    # 近期状态回算覆盖的玩家记录数。大于 0 说明 recent20_winrate 有真实值。
+    recent_form_computed: int = 0
+    # 回算近期状态时，历史不足最小样本数的玩家记录数。
+    recent_form_insufficient: int = 0
 
 
 # 默认参与训练的 PvP 对局类型。
@@ -126,6 +131,16 @@ def load_battles(
                 if is_future:
                     future_used += 1
                 players.append(_build_player(row, snapshot))
+
+            # 快照不携带 recent 字段，近期状态从本地对局历史回算。
+            # 见 compute_recent_form 的口径注释。
+            compute_recent_form(conn, players, battle["started_at"])
+            stats.recent_form_computed += sum(
+                1 for p in players if p.recent20_winrate >= 0
+            )
+            stats.recent_form_insufficient += sum(
+                1 for p in players if p.recent20_winrate < 0
+            )
 
             ally = [p for p in players if p.is_ally]
             enemy = [p for p in players if not p.is_ally]
@@ -253,3 +268,80 @@ def _num(value: object, default: float) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
+
+
+# 近期状态的最小历史样本数，与 C# 端 RecentFormCalculator.MinimumSamples 一致。
+# 少于该数时不产出 recent 特征，保持 UNKNOWN 哨兵，由聚合层过滤。
+RECENT_FORM_MIN_SAMPLES = 5
+
+# 近期状态窗口场次，与 C# 端 RecentFormCalculator.DefaultShortWindow 一致。
+RECENT_FORM_WINDOW = 20
+
+# 参与近期状态回算的对局类型，与训练白名单同口径，只算 PvP。
+RECENT_FORM_BATTLE_TYPES: tuple[str, ...] = ("Random", "Ranked")
+
+
+def compute_recent_form(
+    conn: sqlite3.Connection,
+    players: Iterable[PlayerFeatures],
+    battle_started_ms: int,
+    *,
+    window: int = RECENT_FORM_WINDOW,
+    min_samples: int = RECENT_FORM_MIN_SAMPLES,
+) -> None:
+    """从本地对局历史回算每个玩家的近期状态，原位填充 recent 字段。
+
+    口径与 C# 端 RecentFormCalculator 一致：玩家在目标对局开始之前，
+    最近 window 场有结果 PvP 对局的胜率。对局类型过滤 Random 与 Ranked，
+    只算有 Win 或 Loss 结果的局。
+
+    时间边界用 started_at 严格早于目标局，同一秒开始的对局不计入，
+    保证同批开局的样本之间互不借用信息。
+
+    个人胜负的判定依据：battles.result 是录制者视角的结果，team 0 是
+    录制者所在队伍。玩家个人胜负为 result 与其队伍的异或组合：
+    录制者胜利且玩家在 team 0，或录制者失败且玩家不在 team 0，均判胜。
+    依据与客户端友敌判定修复一致，见 docs/phase-data-expansion-report.md。
+
+    战绩隐藏的玩家同样回算：隐藏只遮蔽 WG API 统计，本地逐场历史仍可见。
+    无任何早于目标局历史的玩家保持 UNKNOWN，由聚合层按哨兵值过滤。
+    """
+    pending = [p for p in players if p.recent20_winrate < 0]
+    if not pending:
+        return
+
+    type_clause = ""
+    params: list[object] = []
+    if RECENT_FORM_BATTLE_TYPES:
+        placeholders = ", ".join("?" for _ in RECENT_FORM_BATTLE_TYPES)
+        type_clause = f"AND b.battle_type IN ({placeholders})"
+        params.extend(RECENT_FORM_BATTLE_TYPES)
+
+    sql = f"""
+        SELECT bp.team AS team, b.result AS result
+        FROM battle_players bp
+        JOIN battles b ON b.battle_id = bp.battle_id
+        WHERE bp.account_id = ?
+          AND b.started_at < ?
+          AND b.result IN ('Win', 'Loss')
+          {type_clause}
+        ORDER BY b.started_at DESC
+        LIMIT ?
+    """
+    params_window = [*params, window]
+
+    for player in pending:
+        rows = conn.execute(
+            sql, [player.account_id, battle_started_ms, *params_window]
+        ).fetchall()
+
+        if len(rows) < min_samples:
+            # 样本不足，保持 UNKNOWN 哨兵，聚合层会跳过。
+            continue
+
+        wins = 0
+        for entry in rows:
+            won = (entry["result"] == "Win") == (entry["team"] == 0)
+            wins += 1 if won else 0
+        player.recent20_winrate = wins / len(rows)
+        player.recent20_battles = len(rows)
