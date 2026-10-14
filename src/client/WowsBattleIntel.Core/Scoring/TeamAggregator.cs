@@ -20,6 +20,22 @@ public static class TeamAggregator
     /// <summary>默认的海王场次阈值，避免小样本误判。</summary>
     public const double DefaultUnicumBattlesThreshold = 500;
 
+    /// <summary>经验贝叶斯收缩的先验等效场次，与 Python 端 SHRINKAGE_M 一致。</summary>
+    public const double ShrinkageM = 40.0;
+
+    /// <summary>单船白板判定阈值，与 Python 端 FRESH_SHIP_BATTLES 一致。</summary>
+    public const double FreshShipBattles = 10.0;
+
+    /// <summary>
+    /// 经验贝叶斯收缩胜率。shrunk = (wins + m * prior) / (battles + m)。
+    /// 先验用账号自身胜率，缺失时取 0.5。口径见 src/ml/docs/features-v2-design.md。
+    /// </summary>
+    public static double ShrunkWinrate(double battles, double wins, double accountWinrate)
+    {
+        double prior = accountWinrate >= 0 ? accountWinrate : 0.5;
+        return (wins + ShrinkageM * prior) / (battles + ShrinkageM);
+    }
+
     /// <summary>
     /// 聚合一个队伍的特征。
     /// </summary>
@@ -75,6 +91,37 @@ public static class TeamAggregator
 
         result.Div2Groups = humanPlayers.Count(p => p.DivisionSize == 2) / 2;
         result.Div3Groups = humanPlayers.Count(p => p.DivisionSize == 3) / 3;
+
+        // 分舰种对位特征。舰种数量来自对局名单，不依赖快照。
+        result.DdCount = humanPlayers.Count(p => p.ShipClass == ShipClass.Destroyer);
+        result.CvCount = humanPlayers.Count(p => p.ShipClass == ShipClass.Carrier);
+
+        // 收缩胜率类特征只聚合有分舰种统计的玩家，与 Python 端
+        // aggregate_team 的口径一致。全队无数据时保持 0。
+        var withClass = withStats.Where(p =>
+            p.ClassBattles >= 0 && p.ClassWins >= 0).ToList();
+        if (withClass.Count > 0)
+        {
+            result.AvgClassWr = withClass.Average(p =>
+                ShrunkWinrate(p.ClassBattles, p.ClassWins, p.AccountWinrate));
+
+            var ddPlayers = withClass.Where(p => p.ShipClass == ShipClass.Destroyer).ToList();
+            if (ddPlayers.Count > 0)
+            {
+                result.DdWr = ddPlayers.Average(p =>
+                    ShrunkWinrate(p.ClassBattles, p.ClassWins, p.AccountWinrate));
+            }
+
+            var cvPlayers = withClass.Where(p => p.ShipClass == ShipClass.Carrier).ToList();
+            if (cvPlayers.Count > 0)
+            {
+                result.CvWr = cvPlayers.Average(p =>
+                    ShrunkWinrate(p.ClassBattles, p.ClassWins, p.AccountWinrate));
+            }
+        }
+
+        result.FreshShipCount = humanPlayers.Count(p =>
+            p.ShipBattles >= 0 && p.ShipBattles < FreshShipBattles);
 
         return result;
     }
@@ -147,6 +194,24 @@ public sealed class TeamFeatures
 
     /// <summary>三排组数。</summary>
     public int Div3Groups { get; set; }
+
+    /// <summary>本局舰种的收缩胜率均值。无分舰种数据时为 0。</summary>
+    public double AvgClassWr { get; set; }
+
+    /// <summary>队伍中 DD 玩家的收缩胜率均值。无数据时为 0。</summary>
+    public double DdWr { get; set; }
+
+    /// <summary>队伍中 CV 玩家的收缩胜率均值。无数据时为 0。</summary>
+    public double CvWr { get; set; }
+
+    /// <summary>队伍中 DD 数量，来自对局名单，不依赖快照。</summary>
+    public int DdCount { get; set; }
+
+    /// <summary>队伍中 CV 数量，来自对局名单，不依赖快照。</summary>
+    public int CvCount { get; set; }
+
+    /// <summary>队伍中白板船人数，本局船只场次低于阈值。</summary>
+    public int FreshShipCount { get; set; }
 }
 
 /// <summary>

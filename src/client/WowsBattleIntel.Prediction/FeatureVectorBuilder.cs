@@ -18,6 +18,10 @@ public static class FeatureVectorBuilder
     /// <summary>
     /// 特征名有序列表。顺序即模型的输入顺序。
     /// </summary>
+    /// <remarks>
+    /// 后 12 维为分舰种熟练度特征，v2 追加，旧 20 维顺序不变。
+    /// 口径见 src/ml/docs/features-v2-design.md。
+    /// </remarks>
     public static readonly string[] FeatureNames =
     [
         "winrate_diff",
@@ -40,6 +44,18 @@ public static class FeatureVectorBuilder
         "enemy_ape_count",
         "ally_unicum_count",
         "enemy_unicum_count",
+        "ally_class_wr",
+        "enemy_class_wr",
+        "class_wr_diff",
+        "ally_dd_wr",
+        "enemy_dd_wr",
+        "dd_wr_diff",
+        "ally_cv_wr",
+        "enemy_cv_wr",
+        "cv_wr_diff",
+        "dd_count_diff",
+        "cv_count_diff",
+        "fresh_ship_diff",
     ];
 
     /// <summary>
@@ -94,6 +110,18 @@ public static class FeatureVectorBuilder
             enemy.ApeCount,
             ally.UnicumCount,
             enemy.UnicumCount,
+            ally.AvgClassWr,
+            enemy.AvgClassWr,
+            ally.AvgClassWr - enemy.AvgClassWr,
+            ally.DdWr,
+            enemy.DdWr,
+            ally.DdWr - enemy.DdWr,
+            ally.CvWr,
+            enemy.CvWr,
+            ally.CvWr - enemy.CvWr,
+            ally.DdCount - enemy.DdCount,
+            ally.CvCount - enemy.CvCount,
+            ally.FreshShipCount - enemy.FreshShipCount,
         ];
 
         // ONNX 使用 float32，这里显式转换。数量与顺序由 FeatureNames 保证。

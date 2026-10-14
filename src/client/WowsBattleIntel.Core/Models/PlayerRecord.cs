@@ -98,6 +98,14 @@ public sealed class PlayerRecord
     /// </summary>
     public string ClassStatsJson { get; set; } = string.Empty;
 
+    // --- 分舰种统计，由 ClassStatsJson 按本局舰种解析而来，-1 表示未知 ---
+
+    /// <summary>本局舰种的总场次。</summary>
+    public double ClassBattles { get; set; } = -1;
+
+    /// <summary>本局舰种的总胜场。</summary>
+    public double ClassWins { get; set; } = -1;
+
     // --- 近期状态，来自本地累积的逐场记录 ---
 
     /// <summary>最近 20 场胜率，-1 表示样本不足。</summary>

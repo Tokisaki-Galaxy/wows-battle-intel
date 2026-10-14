@@ -18,6 +18,21 @@ public class FeatureVectorBuilderTests
         };
     }
 
+    private static PlayerRecord MakeClassPlayer(
+        string id,
+        bool isAlly,
+        ShipClass shipClass,
+        double classBattles,
+        double classWins,
+        double winrate = 0.50)
+    {
+        var player = MakePlayer(id, isAlly, winrate, 1000);
+        player.ShipClass = shipClass;
+        player.ClassBattles = classBattles;
+        player.ClassWins = classWins;
+        return player;
+    }
+
     [Fact]
     public void FeatureNames_MatchesPythonContract()
     {
@@ -45,15 +60,27 @@ public class FeatureVectorBuilderTests
             "enemy_ape_count",
             "ally_unicum_count",
             "enemy_unicum_count",
+            "ally_class_wr",
+            "enemy_class_wr",
+            "class_wr_diff",
+            "ally_dd_wr",
+            "enemy_dd_wr",
+            "dd_wr_diff",
+            "ally_cv_wr",
+            "enemy_cv_wr",
+            "cv_wr_diff",
+            "dd_count_diff",
+            "cv_count_diff",
+            "fresh_ship_diff",
         ];
 
         Assert.Equal(expected, FeatureVectorBuilder.FeatureNames);
     }
 
     [Fact]
-    public void FeatureCount_IsTwenty()
+    public void FeatureCount_IsThirtyTwo()
     {
-        Assert.Equal(20, FeatureVectorBuilder.FeatureCount);
+        Assert.Equal(32, FeatureVectorBuilder.FeatureCount);
     }
 
     [Fact]
@@ -135,6 +162,51 @@ public class FeatureVectorBuilderTests
 
         Assert.Equal(FeatureVectorBuilder.FeatureCount, vector.Values.Length);
         Assert.All(vector.Values, v => Assert.Equal(0f, v, precision: 5));
+    }
+
+    [Fact]
+    public void FromBattle_ClassCountsFromRoster()
+    {
+        // 舰种数量来自对局名单，不依赖快照分舰种数据。
+        var ally = MakePlayer("1", true, 0.55, 1000);
+        ally.ShipClass = ShipClass.Destroyer;
+        var enemy = MakePlayer("2", false, 0.55, 1000);
+        enemy.ShipClass = ShipClass.Carrier;
+
+        var vector = FeatureVectorBuilder.FromBattle(new BattleRecord { Players = [ally, enemy] });
+
+        // dd_count_diff = 1 - 0，cv_count_diff = 0 - 1。
+        Assert.Equal(1f, vector.Values[29], precision: 5);
+        Assert.Equal(-1f, vector.Values[30], precision: 5);
+    }
+
+    [Fact]
+    public void FromBattle_ClassWrAggregatesShrunkWinrate()
+    {
+        // 收缩口径与 Python 端一致：(wins + 40 * prior) / (battles + 40)。
+        var ally = MakeClassPlayer("1", true, ShipClass.Battleship, 1000, 600, winrate: 0.60);
+        var enemy = MakePlayer("2", false, 0.50, 1000);
+
+        var vector = FeatureVectorBuilder.FromBattle(new BattleRecord { Players = [ally, enemy] });
+
+        // 敌方无分舰种数据，enemy_class_wr 为 0，class_wr_diff 等于友方值。
+        double expected = (600 + 40 * 0.60) / (1000 + 40);
+        Assert.Equal((float)expected, vector.Values[20], precision: 5);
+        Assert.Equal(0f, vector.Values[21], precision: 5);
+        Assert.Equal((float)expected, vector.Values[22], precision: 5);
+    }
+
+    [Fact]
+    public void FromBattle_FreshShipDiffCountsLowBattles()
+    {
+        var ally = MakePlayer("1", true, 0.55, 1000);
+        ally.ShipBattles = 5;
+        var enemy = MakePlayer("2", false, 0.55, 1000);
+        enemy.ShipBattles = 100;
+
+        var vector = FeatureVectorBuilder.FromBattle(new BattleRecord { Players = [ally, enemy] });
+
+        Assert.Equal(1f, vector.Values[31], precision: 5);
     }
 }
 

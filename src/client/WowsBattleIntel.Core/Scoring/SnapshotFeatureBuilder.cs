@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 
@@ -66,6 +68,9 @@ public static class SnapshotFeatureBuilder
     /// </remarks>
     private static PlayerRecord Merge(PlayerRecord player, PlayerSnapshot snapshot)
     {
+        string classStatsJson = snapshot.ClassStatsJson ?? string.Empty;
+        var parsedClass = ParseClassStats(player, classStatsJson);
+
         return new PlayerRecord
         {
             // 身份与对局信息，保持回放原值。
@@ -94,6 +99,16 @@ public static class SnapshotFeatureBuilder
             WeightedWinrate = snapshot.WeightedWinrate,
             ClassStatsJson = snapshot.ClassStatsJson ?? string.Empty,
 
+            // 单船统计，来自快照。
+            ShipBattles = player.ShipBattles,
+            ShipWinrate = player.ShipWinrate,
+            ShipAvgDamage = player.ShipAvgDamage,
+            ShipAvgExp = player.ShipAvgExp,
+
+            // 分舰种统计，从快照 JSON 按本局舰种解析。
+            ClassBattles = parsedClass.Battles,
+            ClassWins = parsedClass.Wins,
+
             // 单局表现，保持回放原值。
             DamageDealt = player.DamageDealt,
             DamageTaken = player.DamageTaken,
@@ -104,5 +119,38 @@ public static class SnapshotFeatureBuilder
             SurvivedSeconds = player.SurvivedSeconds,
             ExpEarned = player.ExpEarned,
         };
+    }
+
+    /// <summary>
+    /// 从快照的分舰种 JSON 解析本局舰种的场次与胜场。
+    /// </summary>
+    /// <remarks>
+    /// JSON 缺失、损坏或无本局舰种条目时返回 -1，与负数哨兵语义一致。
+    /// </remarks>
+    private static (double Battles, double Wins) ParseClassStats(
+        PlayerRecord player,
+        string? json)
+    {
+        if (string.IsNullOrEmpty(json) || player.ShipClass == ShipClass.Unknown)
+        {
+            return (-1, -1);
+        }
+
+        try
+        {
+            var data = JObject.Parse(json);
+            if (data[player.ShipClass.ToStorageString()] is not JObject entry)
+            {
+                return (-1, -1);
+            }
+
+            double? battles = entry["battles"]?.Value<double?>();
+            double? wins = entry["wins"]?.Value<double?>();
+            return battles.HasValue && wins.HasValue ? (battles.Value, wins.Value) : (-1, -1);
+        }
+        catch (JsonReaderException)
+        {
+            return (-1, -1);
+        }
     }
 }
