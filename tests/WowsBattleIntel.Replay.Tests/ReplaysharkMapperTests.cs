@@ -211,12 +211,33 @@ public class ReplaysharkMapperTests
     [InlineData("RandomBattle", BattleType.Random)]
     [InlineData("RankedBattle", BattleType.Ranked)]
     [InlineData("CoopBattle", BattleType.Coop)]
+    [InlineData("CooperativeBattle", BattleType.Coop)]
     [InlineData("ClanBattle", BattleType.Clan)]
     [InlineData("UnknownType", BattleType.Unknown)]
     public void MapBattleType_MapsKnownTypes(string gameType, BattleType expected)
     {
         var actual = ReplaysharkMapper.MapBattleType(gameType, "pvp");
         Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("brawl")]
+    [InlineData("event")]
+    public void MapBattleType_UnrecognizedGameTypeWithSpecialGroup_FallsBackToUnknown(
+        string matchGroup)
+    {
+        // Brawl 与 Event 等特殊模式没有对应枚举，归 Unknown 交给上游过滤，
+        // 不应被误判成 Random 之类的主流模式。
+        var actual = ReplaysharkMapper.MapBattleType("BrawlBattle", matchGroup);
+        Assert.Equal(BattleType.Unknown, actual);
+    }
+
+    [Fact]
+    public void MapBattleType_UnknownGameType_UsesMatchGroupFallback()
+    {
+        // game_type 缺失时靠 match_group 兜底。
+        var actual = ReplaysharkMapper.MapBattleType(string.Empty, "cooperative");
+        Assert.Equal(BattleType.Coop, actual);
     }
 
     [Theory]
