@@ -422,6 +422,46 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     }
 
     /// <inheritdoc />
+    public async Task<PredictionResult?> GetPredictionAsync(
+        string battleId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(battleId);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        // 同一局可能有多次预测，取最新一条，与界面展示的语义一致。
+        command.CommandText = """
+            SELECT battle_id, predicted_at, model_version, model_hash,
+                   ally_win_prob, confidence, feature_json, features_available
+            FROM predictions
+            WHERE battle_id = $id
+            ORDER BY predicted_at DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$id", battleId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new PredictionResult
+        {
+            BattleId = reader.GetString(0),
+            PredictedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
+            ModelVersion = reader.GetString(2),
+            ModelHash = reader.GetString(3),
+            AllyWinProbability = reader.GetDouble(4),
+            Confidence = reader.GetDouble(5),
+            FeatureSnapshotJson = reader.IsDBNull(6) ? "{}" : reader.GetString(6),
+            FeaturesAvailable = reader.GetInt32(7) != 0,
+        };
+    }
+
+    /// <inheritdoc />
     public async Task SaveSnapshotAsync(
         PlayerSnapshot snapshot,
         CancellationToken cancellationToken = default)

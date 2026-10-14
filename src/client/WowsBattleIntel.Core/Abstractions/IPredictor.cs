@@ -85,6 +85,16 @@ public interface IBattleRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 读取某局最新的一条预测记录。
+    /// </summary>
+    /// <param name="battleId">对局标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>预测记录，该局无预测时返回 null。</returns>
+    Task<PredictionResult?> GetPredictionAsync(
+        string battleId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 统计库中已解析出结果的对局总数。
     /// </summary>
     Task<int> CountBattlesAsync(CancellationToken cancellationToken = default);
