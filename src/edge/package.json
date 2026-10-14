@@ -10,8 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:init": "wrangler d1 execute wows-battle-intel --local --file=./src/db/schema.sql",
-    "db:init:remote": "wrangler d1 execute wows-battle-intel --remote --file=./src/db/schema.sql"
+    "db:migrate:local": "wrangler d1 migrations apply wows-battle-intel --local",
+    "db:migrate:remote": "wrangler d1 migrations apply wows-battle-intel --remote",
+    "db:list": "wrangler d1 migrations list wows-battle-intel --remote"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.6.0",
