@@ -8,28 +8,27 @@
     "enabled": true
   },
   "vars": {
-    "ENVIRONMENT": "development"
+    "ENVIRONMENT": "production"
   },
   "kv_namespaces": [
     {
       "binding": "STATS_CACHE",
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID",
-      "preview_id": "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
+      "id": "280cc520506c4772a3f2e0b1b7bacbad",
+      "preview_id": "280cc520506c4772a3f2e0b1b7bacbad"
     }
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "wows-battle-intel",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "a9d14c05-93b1-4065-9b2a-03dc666baad4",
       "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [
     {
       "binding": "MODELS",
-      "bucket_name": "wows-battle-intel-models",
-      "preview_bucket_name": "wows-battle-intel-models-preview"
+      "bucket_name": "wows-battle-intel-models"
     }
   ]
 }
