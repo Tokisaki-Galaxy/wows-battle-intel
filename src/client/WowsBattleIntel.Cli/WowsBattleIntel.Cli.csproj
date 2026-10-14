@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Command line tool for end-to-end validation and offline analysis.
+    Reads replayshark output, maps to domain model, predicts, calibrates.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>WowsBattleIntel.Cli</RootNamespace>
+    <AssemblyName>wows-intel</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WowsBattleIntel.Core\WowsBattleIntel.Core.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Replay\WowsBattleIntel.Replay.csproj" />
+  </ItemGroup>
+
+</Project>
