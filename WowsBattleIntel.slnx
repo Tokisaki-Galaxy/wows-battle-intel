@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/client/">
+    <Project Path="src/client/WowsBattleIntel.Core/WowsBattleIntel.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WowsBattleIntel.Core.Tests/WowsBattleIntel.Core.Tests.csproj" />
+  </Folder>
+</Solution>
