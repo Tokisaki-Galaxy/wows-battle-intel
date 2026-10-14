@@ -7,7 +7,7 @@
         WindowStartupLocation="CenterScreen">
 
   <Window.Resources>
-    <!-- 列表项模板：两行信息加右侧竖排结果徽章，选中指示条由 ListBoxItem 样式提供 -->
+    <!-- 列表项模板：两行信息加右侧胶囊结果徽章，选中指示条由 ListBoxItem 样式提供 -->
     <DataTemplate x:Key="BattleItemTemplate">
       <Grid Margin="4,5">
         <Grid.ColumnDefinitions>
@@ -30,20 +30,18 @@
                      Margin="0,3,0,0" />
           <TextBlock Text="{Binding PredictionText}"
                      Style="{StaticResource SecondaryTextStyle}"
-                     Foreground="{StaticResource AccentBrush}"
+                     Foreground="{StaticResource PrimaryFgBrush}"
                      Margin="0,2,0,0" />
         </StackPanel>
 
-        <!-- 右侧结果徽章：竖排单字，胜绿负红，未知灰 -->
+        <!-- 右侧结果徽章：胶囊形，柔底加同族描边加同色文字三件套 -->
         <Border Grid.Column="1"
-                Background="{Binding ResultBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                Opacity="0.16"
-                CornerRadius="4"
-                Padding="7,4"
+                Style="{StaticResource BadgeBorderStyle}"
+                Background="{Binding ResultBrushKey, Converter={StaticResource BrushKeyConverter}, ConverterParameter=soft}"
+                BorderBrush="{Binding ResultBrushKey, Converter={StaticResource BrushKeyConverter}, ConverterParameter=bd}"
                 VerticalAlignment="Center">
           <TextBlock Text="{Binding ResultLabel}"
-                     FontSize="{StaticResource FontSizeHeading}"
-                     FontWeight="Bold">
+                     Style="{StaticResource BadgeTextStyle}">
             <TextBlock.Foreground>
               <Binding Path="ResultBrushKey" Converter="{StaticResource BrushKeyConverter}" />
             </TextBlock.Foreground>
@@ -53,7 +51,7 @@
     </DataTemplate>
   </Window.Resources>
 
-  <Grid Margin="{StaticResource PaddingLarge}">
+  <Grid Margin="{StaticResource SpacingLg}">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
@@ -69,16 +67,14 @@
       </Grid.ColumnDefinitions>
 
       <StackPanel Grid.Column="0" Orientation="Horizontal">
-        <TextBlock Text="战斗情报" Style="{StaticResource TitleTextStyle}" />
-        <Border Background="{StaticResource AccentBrush}"
-                Opacity="0.15"
-                CornerRadius="3"
-                Padding="6,2"
-                Margin="12,0,0,0"
-                VerticalAlignment="Center">
+        <TextBlock Text="战斗情报" Style="{StaticResource BrandTextStyle}" />
+        <Border Style="{StaticResource BadgeBorderStyle}"
+                Background="{StaticResource PrimarySoftBrush}"
+                BorderBrush="{StaticResource PrimaryBdBrush}"
+                Margin="12,0,0,0">
           <TextBlock Text="{Binding ModelVersionText}"
-                     Style="{StaticResource SecondaryTextStyle}"
-                     Foreground="{StaticResource AccentBrush}" />
+                     Style="{StaticResource BadgeTextStyle}"
+                     Foreground="{StaticResource PrimaryFgBrush}" />
         </Border>
       </StackPanel>
 
@@ -97,7 +93,7 @@
                    Margin="0,0,12,0" />
         <Button Content="{Binding ObservationButtonText}"
                 Command="{Binding ToggleObservationCommand}" />
-        <Button Content="刷新列表" Command="{Binding RefreshCommand}" Margin="8,0,0,0" />
+        <Button Content="刷新列表" Command="{Binding RefreshCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" />
       </StackPanel>
     </Grid>
 
@@ -118,47 +114,43 @@
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="对局记录"
                          Style="{StaticResource HeadingTextStyle}"
-                         Margin="{StaticResource PaddingMedium}" />
+                         Margin="{StaticResource SpacingSm}" />
 
-              <!-- 实时对局区：观测会话内入库，强调色左边条标记 -->
-              <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PaddingMedium}">
+              <!-- 实时对局区：观测会话内入库，主色左边条标记 -->
+              <StackPanel DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                   <Border Width="3"
                           Height="12"
                           CornerRadius="1"
-                          Background="{StaticResource AccentBrush}"
+                          Background="{StaticResource PrimaryBrush}"
                           VerticalAlignment="Center" />
                   <TextBlock Text="实时对局"
                              Style="{StaticResource SecondaryTextStyle}"
-                             Foreground="{StaticResource AccentBrush}"
+                             Foreground="{StaticResource PrimaryFgBrush}"
                              FontWeight="SemiBold"
                              Margin="6,0,0,0" />
                 </StackPanel>
                 <ListBox x:Name="LiveBattlesList"
                          ItemsSource="{Binding LiveBattles}"
                          SelectedItem="{Binding SelectedBattleSummary}"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         Foreground="{StaticResource TextPrimaryBrush}"
                          ItemTemplate="{StaticResource BattleItemTemplate}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          MaxHeight="220"
                          Visibility="{Binding HasLiveBattles, Converter={StaticResource BoolToVisibilityConverter}}" />
                 <TextBlock Text="暂无实时对局，开启观测后入库的对局会出现在这里"
-                           Style="{StaticResource SecondaryTextStyle}"
-                           Foreground="{StaticResource TextDisabledBrush}"
+                           Style="{StaticResource EmptyHintTextStyle}"
                            Margin="0,2,0,0"
                            Visibility="{Binding HasLiveBattles, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
               </StackPanel>
 
-              <!-- 分隔线 -->
+              <!-- 分隔线：发丝线 -->
               <Border DockPanel.Dock="Top"
                       Height="1"
-                      Background="{StaticResource BorderBrush}"
-                      Margin="{StaticResource PaddingMedium}" />
+                      Background="{StaticResource HairlineBrush}"
+                      Margin="{StaticResource SpacingSm}" />
 
               <!-- 历史对局区 -->
-              <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PaddingMedium}">
+              <StackPanel DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                   <Border Width="3"
                           Height="12"
@@ -172,9 +164,6 @@
               </StackPanel>
               <ListBox ItemsSource="{Binding HistoryBattles}"
                        SelectedItem="{Binding SelectedBattleSummary}"
-                       Background="Transparent"
-                       BorderThickness="0"
-                       Foreground="{StaticResource TextPrimaryBrush}"
                        ItemTemplate="{StaticResource BattleItemTemplate}"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
             </DockPanel>
@@ -189,7 +178,7 @@
 
             <!-- 预测对照仪表 -->
             <Border Grid.Row="0" Style="{StaticResource CardStyle}" Margin="0,0,0,12">
-              <StackPanel Margin="{StaticResource PaddingLarge}">
+              <StackPanel Margin="{StaticResource SpacingLg}">
 
                 <!-- 大号胜率读数与概率条 -->
                 <StackPanel Orientation="Horizontal">
@@ -235,10 +224,7 @@
                     <ColumnDefinition Width="*" />
                   </Grid.ColumnDefinitions>
 
-                  <Border Grid.Column="0"
-                          Background="{StaticResource SurfaceAltBrush}"
-                          CornerRadius="6"
-                          Padding="10,8">
+                  <Border Grid.Column="0" Style="{StaticResource InsetPanelStyle}" Padding="10,8">
                     <StackPanel>
                       <TextBlock Text="数据完整度"
                                  Style="{StaticResource SecondaryTextStyle}" />
@@ -248,24 +234,18 @@
                     </StackPanel>
                   </Border>
 
-                  <Border Grid.Column="2"
-                          Background="{StaticResource SurfaceAltBrush}"
-                          CornerRadius="6"
-                          Padding="10,8">
+                  <Border Grid.Column="2" Style="{StaticResource InsetPanelStyle}" Padding="10,8">
                     <StackPanel>
                       <TextBlock Text="模型置信度"
                                  Style="{StaticResource SecondaryTextStyle}" />
                       <TextBlock Text="{Binding ModelConfidenceText}"
                                  Style="{StaticResource HeadingTextStyle}"
-                                 Foreground="{StaticResource AccentBrush}"
+                                 Foreground="{StaticResource PrimaryFgBrush}"
                                  Margin="0,2,0,0" />
                     </StackPanel>
                   </Border>
 
-                  <Border Grid.Column="4"
-                          Background="{StaticResource SurfaceAltBrush}"
-                          CornerRadius="6"
-                          Padding="10,8">
+                  <Border Grid.Column="4" Style="{StaticResource InsetPanelStyle}" Padding="10,8">
                     <StackPanel>
                       <TextBlock Text="局势评估"
                                  Style="{StaticResource SecondaryTextStyle}" />
@@ -302,12 +282,12 @@
                   </Grid.RowDefinitions>
                   <Border Grid.Row="0" Height="3"
                           Background="{StaticResource AllyBrush}"
-                          CornerRadius="8,8,0,0" />
+                          CornerRadius="16,16,0,0" />
                   <DockPanel Grid.Row="1">
                     <TextBlock DockPanel.Dock="Top" Text="友方"
                                Style="{StaticResource HeadingTextStyle}"
                                Foreground="{StaticResource AllyBrush}"
-                               Margin="{StaticResource PaddingMedium}" />
+                               Margin="{StaticResource SpacingSm}" />
                     <DataGrid ItemsSource="{Binding Allies}">
                       <DataGrid.Columns>
                         <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
@@ -336,12 +316,12 @@
                   </Grid.RowDefinitions>
                   <Border Grid.Row="0" Height="3"
                           Background="{StaticResource EnemyBrush}"
-                          CornerRadius="8,8,0,0" />
+                          CornerRadius="16,16,0,0" />
                   <DockPanel Grid.Row="1">
                     <TextBlock DockPanel.Dock="Top" Text="敌方"
                                Style="{StaticResource HeadingTextStyle}"
                                Foreground="{StaticResource EnemyBrush}"
-                               Margin="{StaticResource PaddingMedium}" />
+                               Margin="{StaticResource SpacingSm}" />
                     <DataGrid ItemsSource="{Binding Enemies}">
                       <DataGrid.Columns>
                         <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
@@ -382,7 +362,7 @@
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
 
-              <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+              <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}">
                 <StackPanel>
                   <TextBlock Text="Brier 分数" Style="{StaticResource SecondaryTextStyle}" />
                   <TextBlock Text="{Binding BrierScoreText}"
@@ -395,7 +375,7 @@
                 </StackPanel>
               </Border>
 
-              <Border Grid.Column="2" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+              <Border Grid.Column="2" Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}">
                 <StackPanel>
                   <TextBlock Text="对数损失" Style="{StaticResource SecondaryTextStyle}" />
                   <TextBlock Text="{Binding LogLossText}"
@@ -408,7 +388,7 @@
                 </StackPanel>
               </Border>
 
-              <Border Grid.Column="4" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+              <Border Grid.Column="4" Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}">
                 <StackPanel>
                   <TextBlock Text="判别准确率" Style="{StaticResource SecondaryTextStyle}" />
                   <TextBlock Text="{Binding AccuracyText}"
@@ -421,7 +401,7 @@
                 </StackPanel>
               </Border>
 
-              <Border Grid.Column="6" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+              <Border Grid.Column="6" Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}">
                 <StackPanel>
                   <TextBlock Text="样本规模" Style="{StaticResource SecondaryTextStyle}" />
                   <TextBlock Text="{Binding SampleCount}"
@@ -436,7 +416,7 @@
             </Grid>
 
             <!-- 结论与刷新 -->
-            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingMedium}" Margin="0,12,0,0">
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingSm}" Margin="0,12,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
@@ -457,7 +437,7 @@
               <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="校准曲线"
                            Style="{StaticResource HeadingTextStyle}"
-                           Margin="{StaticResource PaddingMedium}" />
+                           Margin="{StaticResource SpacingSm}" />
                 <TextBlock DockPanel.Dock="Top"
                            Text="柱长代表该概率区间的实际胜率，与预测均值越接近越好。柱为红色表示偏差超过 0.1。"
                            Style="{StaticResource SecondaryTextStyle}"
@@ -529,7 +509,7 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
           <StackPanel DataContext="{Binding Settings}" MaxWidth="900" HorizontalAlignment="Left">
 
-            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}">
               <StackPanel>
                 <TextBlock Text="路径配置" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
                 <TextBlock Text="路径在启动时被各服务读取，修改后需保存才会生效。"
@@ -596,7 +576,7 @@
               </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}" Margin="0,12,0,0">
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
               <StackPanel>
                 <TextBlock Text="模型与观测" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,12" />
 
