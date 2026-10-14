@@ -35,6 +35,7 @@ internal static class Program
                 "backtest" => RunBacktest(args),
                 "survey" => RunSurvey(args),
                 "import" => RunImport(args),
+                "predict" => RunPredict(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -321,6 +322,129 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// predict 子命令：解析回放名单，拉真实统计，预测，再与真实结果对照。
+    /// </summary>
+    /// <remarks>
+    /// 这是验证预测有效性的核心命令。它演示完整链路：
+    /// 回放取名单 → WG API 补历史特征 → 预测 → 与回放真实结果对照。
+    /// 只有补上历史特征后，预测才可能优于无信息基线。
+    /// </remarks>
+    private static int RunPredict(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel predict <解析输出目录> [--limit N] [--delay MS]");
+            return 1;
+        }
+
+        string dir = args[1];
+        int limit = 0;
+        int delayMs = 120;
+        for (int i = 2; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--limit" && int.TryParse(args[i + 1], out int l))
+            {
+                limit = l;
+            }
+            else if (args[i] == "--delay" && int.TryParse(args[i + 1], out int d))
+            {
+                delayMs = d;
+            }
+        }
+
+        var files = Directory.GetFiles(dir, "*.json");
+        if (limit > 0)
+        {
+            files = files.Take(limit).ToArray();
+        }
+
+        var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
+        {
+            DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+        });
+        var predictor = new BaselinePredictor();
+
+        Console.WriteLine($"待评估 {files.Length} 局，开始拉取玩家统计（限流需时间）");
+
+        var pairs = new List<(PredictionResult Prediction, BattleOutcome Outcome)>();
+        var detail = new List<(string Name, double Pred, string Actual, string Result)>();
+        int processed = 0;
+
+        foreach (string file in files)
+        {
+            ReplaysharkOutput output;
+            try
+            {
+                output = LoadOutput(file);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var battle = ReplaysharkMapper.Map(output, file);
+            if (battle is null || battle.Outcome == BattleOutcome.Unknown)
+            {
+                continue;
+            }
+
+            processed++;
+            Console.Write($"\r[{processed}/{files.Length}] {Path.GetFileName(file)[..24]}  ");
+
+            // 关键：用 WG API 补上历史统计特征。
+            try
+            {
+                provider.FetchStatsAsync(battle.Players).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"\n  统计拉取失败: {ex.Message}");
+                continue;
+            }
+
+            var prediction = predictor.PredictAsync(battle).GetAwaiter().GetResult();
+            pairs.Add((prediction, battle.Outcome));
+            detail.Add((battle.BattleId[..8], prediction.AllyWinProbability,
+                battle.Outcome.ToString(), Path.GetFileName(file)[..20]));
+        }
+
+        Console.WriteLine();
+
+        if (pairs.Count == 0)
+        {
+            Console.WriteLine("没有可用样本。");
+            return 0;
+        }
+
+        var report = CalibrationMetrics.BuildReport(pairs);
+        Console.WriteLine();
+        Console.WriteLine("=== 带历史特征的基线预测回测 ===");
+        Console.WriteLine($"样本数: {report.SampleCount}");
+        Console.WriteLine($"Brier 分数: {report.BrierScore:F4}  (无信息基线 0.25)");
+        Console.WriteLine($"对数损失:   {report.LogLoss:F4}  (无信息基线 0.6931)");
+        Console.WriteLine($"判别准确率: {report.Accuracy:P2}");
+        Console.WriteLine();
+        Console.WriteLine("=== 校准曲线 ===");
+        Console.WriteLine($"{"概率区间",-14} {"样本",6} {"预测均值",10} {"实际胜率",10} {"偏差",10}");
+        foreach (var bucket in report.Curve)
+        {
+            Console.WriteLine(
+                $"{bucket.LowerBound:F1}-{bucket.UpperBound:F1}      {bucket.SampleCount,6} " +
+                $"{bucket.PredictedMean,10:F3} {bucket.ActualWinrate,10:F3} {bucket.CalibrationError,10:+0.000;-0.000}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("=== 逐局明细（前 15）===");
+        Console.WriteLine($"{"对局",-10} {"预测",8} {"真实",8}");
+        foreach (var d in detail.Take(15))
+        {
+            Console.WriteLine($"{d.Name,-10} {d.Pred,8:F3} {d.Actual,8}");
+        }
+
+        return 0;
+    }
+
     private static ReplaysharkOutput LoadOutput(string path)
     {
         string json = File.ReadAllText(path);
@@ -363,6 +487,7 @@ internal static class Program
         Console.WriteLine("  wows-intel backtest <目录> [--csv <文件>]    批量预测与校准");
         Console.WriteLine("  wows-intel survey <目录>                     统计解析结果分布");
         Console.WriteLine("  wows-intel import <目录> <数据库>            导入解析结果到本地库");
+        Console.WriteLine("  wows-intel predict <目录> [--limit N]        拉历史特征预测并对照真实结果");
     }
 
     private sealed class BacktestRow
