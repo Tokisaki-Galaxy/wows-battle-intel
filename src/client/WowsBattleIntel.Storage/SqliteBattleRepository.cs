@@ -598,6 +598,57 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         return (0, 0);
     }
 
+    /// <inheritdoc />
+    public async Task<BattleRecord?> FindEquivalentBattleAsync(
+        BattleRecord battle,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(battle);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        // 时间窗为开区间端点的候选：started_at 落在 (本局 - 窗口, 本局 + 窗口)。
+        // started_at 有索引，窗口两端的记录由 IsEquivalentTo 精确复核。
+        long windowMs = BattleFingerprint.EquivalentWindowSeconds * 1000L;
+        long startedMs = battle.StartedAt.ToUnixTimeMilliseconds();
+
+        var candidates = new List<string>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT battle_id FROM battles
+                WHERE map_id = $map
+                  AND started_at > $windowStart
+                  AND started_at < $windowEnd
+                ORDER BY started_at;
+                """;
+            command.Parameters.AddWithValue("$map", battle.MapId ?? string.Empty);
+            command.Parameters.AddWithValue("$windowStart", startedMs - windowMs);
+            command.Parameters.AddWithValue("$windowEnd", startedMs + windowMs);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                candidates.Add(reader.GetString(0));
+            }
+        }
+
+        // SQL 只能筛时间与地图，参战者集合一致性在 C# 侧精查。
+        // 命中一个即返回，按 started_at 升序取最早的那局作为收敛目标。
+        foreach (string battleId in candidates)
+        {
+            var existing = await GetBattleAsync(battleId, cancellationToken)
+                .ConfigureAwait(false);
+            if (existing is not null && BattleFingerprint.IsEquivalentTo(battle, existing))
+            {
+                return existing;
+            }
+        }
+
+        return null;
+    }
+
     private static BattleRecord ReadBattle(SqliteDataReader reader)
     {
         return new BattleRecord

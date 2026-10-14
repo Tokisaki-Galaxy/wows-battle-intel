@@ -63,8 +63,26 @@ public sealed class BattleIngestionService
             return IngestionResult.Failed(ex.Message);
         }
 
+        // 同局收敛：同一局的战斗会被场上多个玩家的回放各解析一次，
+        // battle_id 互不相同，按 battle_id 的幂等挡不住。这里按参战者
+        // 集合、地图与时间窗识别等价对局，命中则跳过落库。
+        var equivalent = await repository
+            .FindEquivalentBattleAsync(battle, cancellationToken)
+            .ConfigureAwait(false);
+        if (equivalent is not null)
+        {
+            return IngestionResult.Duplicate(battle, equivalent.BattleId);
+        }
+
         // 落库。相同对局标识幂等。
         await repository.SaveBattleAsync(battle, cancellationToken).ConfigureAwait(false);
+
+        // 非 PvP 对局不出预测。Coop 全 bot、Unknown 无法定性，预测只会
+        // 产出无意义数字，与训练端的类型白名单保持同一口径。
+        if (!battle.BattleType.IsPvpType())
+        {
+            return IngestionResult.Succeeded(battle, $"非 PvP 对局不出预测（类型 {battle.BattleType}）");
+        }
 
         // 生成预测记录。此时真实结果已从回放得知，但预测器不使用它，
         // 特征仅来自赛前可见的统计数据。
@@ -130,6 +148,9 @@ public sealed class IngestionResult
     /// <summary>是否成功。</summary>
     public bool Success { get; init; }
 
+    /// <summary>是否因同局重复被跳过。跳过视为成功，但界面可区分提示。</summary>
+    public bool IsDuplicate { get; init; }
+
     /// <summary>解析出的对局，失败时为空。</summary>
     public BattleRecord? Battle { get; init; }
 
@@ -139,6 +160,16 @@ public sealed class IngestionResult
     /// <summary>构造成功结果。</summary>
     public static IngestionResult Succeeded(BattleRecord battle, string? warning) =>
         new() { Success = true, Battle = battle, Message = warning };
+
+    /// <summary>构造同局重复结果。与已有记录收敛，不再落库。</summary>
+    public static IngestionResult Duplicate(BattleRecord battle, string existingBattleId) =>
+        new()
+        {
+            Success = true,
+            Battle = battle,
+            IsDuplicate = true,
+            Message = $"同局重复，已收敛到 {existingBattleId}",
+        };
 
     /// <summary>构造失败结果。</summary>
     public static IngestionResult Failed(string message) =>

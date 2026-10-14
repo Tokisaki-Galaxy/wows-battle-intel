@@ -57,4 +57,14 @@ public static class BattleTypeExtensions
 
     /// <summary>把枚举转回稳定的存储字符串。</summary>
     public static string ToStorageString(this BattleType type) => type.ToString();
+
+    /// <summary>
+    /// 是否为训练与预测允许的 PvP 类型。
+    /// </summary>
+    /// <remarks>
+    /// 训练端的白名单是 Random 与 Ranked。Coop 全 bot、Unknown 无法定性，
+    /// 这类对局进预测只会产出无意义的数字，预测端与训练端保持同一口径。
+    /// </remarks>
+    public static bool IsPvpType(this BattleType type) =>
+        type is BattleType.Random or BattleType.Ranked;
 }

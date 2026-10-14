@@ -408,7 +408,9 @@ public sealed class MainViewModel : ViewModelBase
         {
             string name = result.Battle?.MapId ?? "新对局";
             string suffix = result.Message is null ? string.Empty : $"（{result.Message}）";
-            StatusMessage = $"已入库 {name}{suffix}";
+            StatusMessage = result.IsDuplicate
+                ? $"已跳过 {name}{suffix}"
+                : $"已入库 {name}{suffix}";
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
         });

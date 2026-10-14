@@ -98,4 +98,18 @@ public interface IBattleRepository
     /// 统计库中已解析出结果的对局总数。
     /// </summary>
     Task<int> CountBattlesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 查找与指定对局等价的已入库记录。
+    /// </summary>
+    /// <remarks>
+    /// 等价口径见 <see cref="BattleFingerprint"/>：参战玩家集合一致、地图一致、
+    /// 开始时间差在窗口内。用于入库前的同局收敛，与 battle_id 幂等形成两层去重。
+    /// </remarks>
+    /// <param name="battle">待比对的对局。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>命中的已有对局，无等价记录时返回 null。</returns>
+    Task<BattleRecord?> FindEquivalentBattleAsync(
+        BattleRecord battle,
+        CancellationToken cancellationToken = default);
 }
