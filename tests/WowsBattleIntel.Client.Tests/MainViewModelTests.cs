@@ -264,4 +264,39 @@ public class MainViewModelTests
         Assert.NotNull(vm.SelectedBattleSummary);
         Assert.Equal("battle-001", vm.SelectedBattle!.BattleId);
     }
+
+    [Fact]
+    public async Task SelectBattle_ExtremeProbability_ClampsDisplayAndShowsTier()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 入库 0.997 的极端概率，展示层必须夹到 95% 且不得出现 100%。
+        await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.997);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
+
+        Assert.Equal("95.0%", vm.PredictedWinrateText);
+        Assert.Equal("5.0%", vm.EnemyWinrateText);
+        Assert.Equal("明显优势", vm.TierText);
+        Assert.Equal("WinBrush", vm.TierBrushKey);
+        // 概率条保持原始值，截断只发生在展示读数。
+        Assert.Equal(0.997, vm.AllyProbabilityRatio, precision: 10);
+    }
+
+    [Fact]
+    public async Task SelectBattle_MidProbability_ShowsEvenTier()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.5);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
+
+        Assert.Equal("势均力敌", vm.TierText);
+        Assert.Equal("50.0%", vm.PredictedWinrateText);
+    }
 }
