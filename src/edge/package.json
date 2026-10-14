@@ -4,6 +4,7 @@
   "private": true,
   "description": "中央协调库边缘后端：玩家统计缓存、对局采集、模型分发",
   "type": "module",
+  "packageManager": "pnpm@11.22.0",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

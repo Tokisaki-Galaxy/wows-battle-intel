@@ -1,10 +1,26 @@
 # pnpm 工作区配置。
 #
-# pnpm 10 起，允许运行安装脚本的依赖白名单从 package.json 移到本文件。
-# 这里显式列出需要构建的包：
-# - workerd: Cloudflare Workers 运行时，被 vitest-pool-workers 与 wrangler 使用
-# - esbuild: 打包依赖
+# 本仓库的 edge 是单包项目，但仍使用工作区配置文件承载构建设置，
+# 原因是 pnpm 10 起把「允许运行安装脚本的依赖」从这里读取。
+#
+# packages 字段必须存在，否则 pnpm 10 会报
+# `packages field missing or empty` 并中止安装。
+# 声明根目录自身为唯一包即可，不影响依赖解析。
+packages:
+  - "."
+
+# 允许运行安装脚本的依赖：
+# - workerd: Cloudflare Workers 运行时，vitest 与 wrangler 需要
+# - esbuild: 打包依赖，wrangler 使用
 # - sharp: wrangler 的图片处理依赖
+#
+# 两个键名并存以兼容不同 pnpm 大版本：
+# - onlyBuiltDependencies 是 pnpm 10 的键名
+# - allowBuilds 是 pnpm 11 的键名
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd
 allowBuilds:
   esbuild: true
   sharp: true
