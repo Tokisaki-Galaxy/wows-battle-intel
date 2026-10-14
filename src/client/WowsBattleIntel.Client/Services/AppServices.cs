@@ -32,6 +32,8 @@ public sealed class AppServices : IDisposable
         Predictor = predictor;
         PredictionInfo = predictionInfo;
         ReplayParser = new ReplayService(config);
+        Ingestion = new BattleIngestionService(ReplayParser, repository, predictor);
+        Observer = new ReplayObserver(config);
     }
 
     /// <summary>当前配置。</summary>
@@ -51,6 +53,12 @@ public sealed class AppServices : IDisposable
 
     /// <summary>回放解析服务。</summary>
     public ReplayService ReplayParser { get; }
+
+    /// <summary>战斗入库服务。</summary>
+    public BattleIngestionService Ingestion { get; }
+
+    /// <summary>回放目录观测器。</summary>
+    public ReplayObserver Observer { get; }
 
     /// <summary>
     /// 创建并初始化全部服务。
@@ -91,6 +99,7 @@ public sealed class AppServices : IDisposable
             return;
         }
 
+        Observer.Dispose();
         (Predictor as IDisposable)?.Dispose();
         disposed = true;
     }
