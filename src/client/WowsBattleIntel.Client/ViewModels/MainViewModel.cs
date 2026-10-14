@@ -138,15 +138,15 @@ public sealed class MainViewModel : ViewModelBase
           + $"时长 {DisplayLabels.Duration(selectedBattle.DurationSeconds)} · "
           + $"结果 {DisplayLabels.Outcome(actualOutcome)}";
 
-    /// <summary>预测概率显示文本。</summary>
+    /// <summary>预测概率显示文本。展示层夹到 [0.05, 0.95]，入库值保持原始。</summary>
     public string PredictedWinrateText => currentPrediction is null
         ? "-"
-        : currentPrediction.AllyWinProbability.ToString("P1");
+        : DisplayCalibration.ClampForDisplay(currentPrediction.AllyWinProbability).ToString("P1");
 
-    /// <summary>敌方胜率显示文本，即 1 减友方。</summary>
+    /// <summary>敌方胜率显示文本，同样夹到展示区间。</summary>
     public string EnemyWinrateText => currentPrediction is null
         ? "-"
-        : currentPrediction.EnemyWinProbability.ToString("P1");
+        : DisplayCalibration.ClampForDisplay(currentPrediction.EnemyWinProbability).ToString("P1");
 
     /// <summary>
     /// 友方概率条占比，0 到 1。概率条用两列网格分割，此值决定友方列的宽度。
@@ -154,6 +154,16 @@ public sealed class MainViewModel : ViewModelBase
     public double AllyProbabilityRatio => currentPrediction is null
         ? 0.5
         : Math.Clamp(currentPrediction.AllyWinProbability, 0.0, 1.0);
+
+    /// <summary>友方视角的态势分层文案，由展示层概率分档得出。</summary>
+    public string TierText => currentPrediction is null
+        ? "-"
+        : DisplayCalibration.TierText(currentPrediction.AllyWinProbability);
+
+    /// <summary>态势分层文案的强调色资源键。</summary>
+    public string TierBrushKey => currentPrediction is null
+        ? "TextSecondaryBrush"
+        : DisplayCalibration.TierBrushKey(currentPrediction.AllyWinProbability);
 
     /// <summary>真实结果是否与预测方向一致。</summary>
     public string PredictionVerdict
@@ -475,6 +485,8 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(PredictedWinrateText));
         OnPropertyChanged(nameof(EnemyWinrateText));
         OnPropertyChanged(nameof(AllyProbabilityRatio));
+        OnPropertyChanged(nameof(TierText));
+        OnPropertyChanged(nameof(TierBrushKey));
         OnPropertyChanged(nameof(PredictionVerdict));
         OnPropertyChanged(nameof(DataCoverageText));
         OnPropertyChanged(nameof(ModelConfidenceText));

@@ -262,12 +262,26 @@
                     </StackPanel>
                   </Border>
 
-                  <StackPanel Grid.Column="4" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding BattleSubtitle}"
-                               Style="{StaticResource SecondaryTextStyle}"
-                               TextWrapping="Wrap" />
-                  </StackPanel>
+                  <Border Grid.Column="4"
+                          Background="{StaticResource SurfaceAltBrush}"
+                          CornerRadius="6"
+                          Padding="10,8">
+                    <StackPanel>
+                      <TextBlock Text="局势评估"
+                                 Style="{StaticResource SecondaryTextStyle}" />
+                      <TextBlock Text="{Binding TierText}"
+                                 Style="{StaticResource HeadingTextStyle}"
+                                 Foreground="{Binding TierBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                 Margin="0,2,0,0" />
+                    </StackPanel>
+                  </Border>
                 </Grid>
+
+                <!-- 副标题单独一行，避免挤占指标卡宽度 -->
+                <TextBlock Text="{Binding BattleSubtitle}"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,0" />
               </StackPanel>
             </Border>
 
