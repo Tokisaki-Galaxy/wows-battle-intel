@@ -32,7 +32,7 @@ CREATE TABLE player_snapshots (
     account_winrate_solo REAL, account_battles_solo INTEGER,
     account_winrate_div2 REAL, account_battles_div2 INTEGER,
     account_winrate_div3 REAL, account_battles_div3 INTEGER,
-    weighted_winrate REAL, pr REAL, source TEXT
+    weighted_winrate REAL, pr REAL, source TEXT, class_stats TEXT
 );
 """
 
@@ -347,3 +347,86 @@ class TestRecentForm:
 
         assert len(matches) == 1
         assert set(matches[0].participant_account_ids) == {"1001", "2001"}
+
+
+class TestClassStats:
+    """快照分舰种 JSON 的解析与特征填充测试。"""
+
+    def _fill_snapshots_with_class(
+        self,
+        conn: sqlite3.Connection,
+        class_json_1001: str | None,
+        class_json_2001: str | None = None,
+    ) -> None:
+        for account, class_json in (("1001", class_json_1001), ("2001", class_json_2001)):
+            conn.execute(
+                "INSERT INTO player_snapshots (account_id, server, captured_at, "
+                "account_battles, account_winrate, weighted_winrate, class_stats) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (account, "Asia", 900_000, 1000, 0.50, 0.50, class_json),
+            )
+
+    def test_class_stats_parsed_into_features(self, db: str) -> None:
+        """快照带分舰种 JSON 时，收缩胜率进聚合。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots_with_class(
+            conn,
+            '{"BB": {"battles": 1000, "wins": 600}}',
+        )
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        ally = matches[0].ally
+        # 玩家 1001 开 Battleship，收缩胜率约 (600+20)/1040。
+        assert ally.avg_class_wr == pytest.approx(620 / 1040, abs=1e-6)
+
+    def test_missing_class_json_stays_unknown(self, db: str) -> None:
+        """旧快照无 class_stats 时特征保持哨兵，聚合为 0。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots_with_class(conn, None, None)
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert matches[0].ally.avg_class_wr == 0.0
+        assert matches[0].enemy.avg_class_wr == 0.0
+
+    def test_class_json_without_current_class_ignored(self, db: str) -> None:
+        """JSON 里没有本局舰种的条目时保持未知。"""
+        conn = sqlite3.connect(db)
+        # 1001 开 Battleship，但 JSON 只有 DD。
+        self._fill_snapshots_with_class(conn, '{"DD": {"battles": 500, "wins": 250}}')
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert matches[0].ally.avg_class_wr == 0.0
+
+    def test_corrupted_class_json_degrades_silently(self, db: str) -> None:
+        """JSON 损坏时降级为未知，不阻断数据集构造。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots_with_class(conn, "{not-json")
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert matches[0].ally.avg_class_wr == 0.0
+
+    def test_count_diffs_available_on_legacy_data(self, db: str) -> None:
+        """舰种数量差分不依赖快照分舰种数据，只依赖对局名单。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots_with_class(conn, None, None)
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        vector = matches[0].to_vector()
+        # 1001 开 Battleship，2001 开 Cruiser，DD 与 CV 数量都为 0。
+        assert vector["dd_count_diff"] == 0.0
+        assert vector["cv_count_diff"] == 0.0

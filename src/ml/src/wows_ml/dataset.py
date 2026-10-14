@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -194,7 +195,7 @@ def _resolve_snapshot(
         """
         SELECT account_battles, account_winrate, account_winrate_solo, account_battles_solo,
                account_winrate_div2, account_battles_div2, account_winrate_div3,
-               account_battles_div3, weighted_winrate, captured_at
+               account_battles_div3, weighted_winrate, class_stats, captured_at
         FROM player_snapshots
         WHERE account_id = ? AND server = ?
         ORDER BY captured_at DESC
@@ -224,7 +225,7 @@ def _latest_snapshot_before(
         """
         SELECT account_battles, account_winrate, account_winrate_solo, account_battles_solo,
                account_winrate_div2, account_battles_div2, account_winrate_div3,
-               account_battles_div3, weighted_winrate
+               account_battles_div3, weighted_winrate, class_stats
         FROM player_snapshots
         WHERE account_id = ? AND server = ? AND captured_at <= ?
         ORDER BY captured_at DESC
@@ -259,8 +260,49 @@ def _build_player(row: sqlite3.Row, snapshot: sqlite3.Row | None) -> PlayerFeatu
         player.account_winrate_div3 = _num(snapshot["account_winrate_div3"], UNKNOWN)
         player.account_battles_div3 = _num(snapshot["account_battles_div3"], UNKNOWN)
         player.weighted_winrate = _num(snapshot["weighted_winrate"], UNKNOWN)
+        _apply_class_stats(player, snapshot["class_stats"])
 
     return player
+
+
+# 分舰种统计 JSON 的键与采集端 ClassStatsJson 一致。
+_CLASS_KEYS = ("BB", "CA", "DD", "CV", "SS")
+
+# battle_players.ship_type 存储值到分舰种键的映射，与采集端 ToClassKey 一致。
+_SHIP_TYPE_TO_KEY = {
+    "Battleship": "BB",
+    "Cruiser": "CA",
+    "Destroyer": "DD",
+    "Carrier": "CV",
+    "Submarine": "SS",
+}
+
+
+def _apply_class_stats(player: PlayerFeatures, raw: object) -> None:
+    """解析快照的分舰种 JSON，按本局舰种填充 class 字段。
+
+    旧快照无该列或 JSON 缺本局舰种时保持 UNKNOWN，聚合层会跳过。
+    JSON 损坏时静默降级为未知，不阻断数据集构造。
+    """
+    if not raw:
+        return
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return
+
+    key = _SHIP_TYPE_TO_KEY.get(player.ship_class)
+    if key is None:
+        return
+    entry = data.get(key)
+    if not isinstance(entry, dict):
+        return
+
+    battles = entry.get("battles")
+    wins = entry.get("wins")
+    if isinstance(battles, (int, float)) and isinstance(wins, (int, float)):
+        player.class_battles = float(battles)
+        player.class_wins = float(wins)
 
 
 def _num(value: object, default: float) -> float:

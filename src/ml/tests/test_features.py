@@ -202,3 +202,155 @@ class TestPlayerFeatures:
     def test_has_stats_false_when_unknown(self) -> None:
         player = PlayerFeatures(account_id="1", server="Asia")
         assert not player.has_stats
+
+
+class TestShrinkage:
+    """经验贝叶斯收缩测试。口径见 src/ml/docs/features-v2-design.md。"""
+
+    def test_shrunk_winrate_pulls_small_samples_to_prior(self) -> None:
+        """小样本向先验收缩：10 场全胜不等于 1.0。"""
+        from wows_ml.features import shrunk_winrate
+
+        wr = shrunk_winrate(10, 10, 0.5)
+        assert 0.5 < wr < 0.8
+
+    def test_shrunk_winrate_converges_for_large_samples(self) -> None:
+        """大样本趋近真实胜率。"""
+        from wows_ml.features import shrunk_winrate
+
+        # (3000 + 40*0.5) / (5000 + 40)。
+        wr = shrunk_winrate(5000, 3000, 0.5)
+        assert wr == pytest.approx(3020 / 5040, abs=1e-6)
+
+    def test_class_wr_unknown_without_class_stats(self) -> None:
+        player = make_player("1", 0.55, 1000)
+        assert player.class_wr_shrunk == UNKNOWN
+        assert player.class_specialty == UNKNOWN
+
+    def test_class_wr_shrinks_toward_account_winrate(self) -> None:
+        """舰种收缩胜率以账号胜率为先验。"""
+        player = make_player("1", 0.50, 1000)
+        player.class_battles = 0
+        player.class_wins = 0
+        # 未玩过该舰种时等于先验，即账号胜率。
+        assert player.class_wr_shrunk == pytest.approx(0.50)
+
+        player.class_battles = 100
+        player.class_wins = 70
+        # 大样本趋近 (70 + 40*0.5) / (100 + 40) = 0.6429。
+        assert player.class_wr_shrunk == pytest.approx(90 / 140, abs=1e-6)
+
+    def test_class_specialty_positive_for_specialist(self) -> None:
+        player = make_player("1", 0.50, 1000)
+        player.class_battles = 1000
+        player.class_wins = 600
+        assert player.class_specialty > 0
+
+    def test_ship_is_fresh_flags_low_battles(self) -> None:
+        player = make_player("1", 0.55, 1000)
+        player.ship_battles = 5
+        assert player.ship_is_fresh == 1.0
+
+        player.ship_battles = 50
+        assert player.ship_is_fresh == 0.0
+
+        player.ship_battles = UNKNOWN
+        assert player.ship_is_fresh == UNKNOWN
+
+
+class TestClassAwareAggregation:
+    """分舰种对位聚合测试。"""
+
+    def _make_class_player(
+        self,
+        account_id: str,
+        is_ally: bool,
+        ship_class: str,
+        class_battles: float,
+        class_wins: float,
+        winrate: float = 0.50,
+    ) -> PlayerFeatures:
+        player = make_player(account_id, winrate, 1000, is_ally=is_ally)
+        player.ship_class = ship_class
+        player.class_battles = class_battles
+        player.class_wins = class_wins
+        return player
+
+    def test_counts_from_roster_work_without_snapshots(self) -> None:
+        """舰种数量来自对局名单，存量无快照数据也可用。"""
+        players = [
+            self._make_class_player("1", True, "Destroyer", UNKNOWN, UNKNOWN),
+            self._make_class_player("2", True, "Destroyer", UNKNOWN, UNKNOWN),
+            self._make_class_player("3", False, "Carrier", UNKNOWN, UNKNOWN),
+        ]
+
+        ally = aggregate_team(players[:2])
+        enemy = aggregate_team(players[2:])
+
+        assert ally.dd_count == 2
+        assert enemy.cv_count == 1
+
+    def test_class_wr_averages_known_players_only(self) -> None:
+        """收缩胜率均值只含有分舰种数据的玩家。"""
+        known = self._make_class_player("1", True, "Battleship", 100, 60)
+        unknown = self._make_class_player("2", True, "Battleship", UNKNOWN, UNKNOWN)
+
+        team = aggregate_team([known, unknown])
+
+        assert team.avg_class_wr == pytest.approx(known.class_wr_shrunk)
+
+    def test_all_unknown_class_wr_is_zero(self) -> None:
+        """全员无分舰种数据时聚合为 0，差分两侧同为 0。"""
+        ally = aggregate_team(
+            [self._make_class_player("1", True, "Battleship", UNKNOWN, UNKNOWN)]
+        )
+        enemy = aggregate_team(
+            [self._make_class_player("2", False, "Battleship", UNKNOWN, UNKNOWN)]
+        )
+
+        match = MatchFeatures(battle_id="t", ally=ally, enemy=enemy, label=1.0)
+        vector = match.to_vector()
+
+        assert vector["ally_class_wr"] == 0.0
+        assert vector["class_wr_diff"] == 0.0
+
+    def test_dd_wr_diff_enters_vector(self) -> None:
+        """DD 对位差分正确进入向量。"""
+        ally_dd = self._make_class_player("1", True, "Destroyer", 100, 65)
+        enemy_dd = self._make_class_player("2", False, "Destroyer", 100, 40)
+
+        ally = aggregate_team([ally_dd])
+        enemy = aggregate_team([enemy_dd])
+        match = MatchFeatures(battle_id="t", ally=ally, enemy=enemy, label=1.0)
+        vector = match.to_vector()
+
+        assert vector["dd_wr_diff"] == pytest.approx(
+            ally_dd.class_wr_shrunk - enemy_dd.class_wr_shrunk
+        )
+
+    def test_new_features_appended_after_legacy(self) -> None:
+        """新特征追加在旧 20 维之后，旧顺序不变。"""
+        names = MatchFeatures.feature_names()
+        assert len(names) == 32
+        assert names[:20] == [
+            "winrate_diff",
+            "weighted_winrate_diff",
+            "recent_winrate_diff",
+            "battles_diff",
+            "unicum_diff",
+            "ape_diff",
+            "tier_diff",
+            "player_count_diff",
+            "ally_winrate",
+            "enemy_winrate",
+            "ally_weighted",
+            "enemy_weighted",
+            "ally_battles",
+            "enemy_battles",
+            "ally_top_winrate",
+            "enemy_top_winrate",
+            "ally_ape_count",
+            "enemy_ape_count",
+            "ally_unicum_count",
+            "enemy_unicum_count",
+        ]
