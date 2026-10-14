@@ -24,15 +24,24 @@ public static class ReplaysharkMapper
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        // 未完成对局：无结果或时长为零，跳过以免污染训练数据。
-        if (output.Metadata.BattleResult is null
-            || output.Metadata.PlayedDuration is not double playedDuration
-            || playedDuration <= 0)
+        // 结果字段有两个来源：battle_result 与 results_battle_result。
+        // 不同游戏版本填充的字段不同，15.6 常用前者，15.7 起前者可能为 null。
+        // 二者取先非空者，都为空才判定为未完成对局。
+        var result = output.Metadata.BattleResult ?? output.Metadata.ResultsBattleResult;
+        if (result is null)
         {
             return null;
         }
 
-        int recorderTeamId = output.Metadata.BattleResult.TeamId;
+        // 时长在部分版本为 null，不再作为硬性条件。
+        // 缺失时记 0，由对局结果的有无决定是否接纳。
+        double playedDuration = output.Metadata.PlayedDuration ?? 0;
+        if (playedDuration < 0)
+        {
+            playedDuration = 0;
+        }
+
+        int recorderTeamId = result.TeamId;
         var divisionSizes = ComputeDivisionSizes(output.Players);
 
         var players = new List<PlayerRecord>(output.Players.Count);
@@ -51,7 +60,7 @@ public static class ReplaysharkMapper
             GameVersion = output.Metadata.Version.ToVersionString(),
             Server = MapServer(output.Players.FirstOrDefault(p => p.IsSelf)?.Realm
                 ?? output.Players.FirstOrDefault()?.Realm),
-            Outcome = MapOutcome(output.Metadata.BattleResult.Type),
+            Outcome = MapOutcome(result.Type),
             DurationSeconds = (int)Math.Round(playedDuration),
             Players = players,
             ReplayPath = replayPath,

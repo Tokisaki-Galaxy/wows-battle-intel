@@ -91,10 +91,23 @@ public class ReplaysharkMapperTests
     }
 
     [Fact]
-    public void Map_IncompleteBattle_ReturnsNull()
+    public void Map_ZeroDuration_StillAccepts_WhenResultPresent()
     {
-        // 时长为零代表未完成对局。
+        // 时长缺失不应导致丢弃，部分游戏版本的 played_duration 为 null。
         var output = MakeOutput(duration: 0);
+
+        var battle = ReplaysharkMapper.Map(output);
+
+        Assert.NotNull(battle);
+        Assert.Equal(0, battle.DurationSeconds);
+    }
+
+    [Fact]
+    public void Map_MissingBothResultFields_ReturnsNull()
+    {
+        var output = MakeOutput();
+        output.Metadata.BattleResult = null;
+        output.Metadata.ResultsBattleResult = null;
 
         var battle = ReplaysharkMapper.Map(output);
 
@@ -102,14 +115,21 @@ public class ReplaysharkMapperTests
     }
 
     [Fact]
-    public void Map_MissingBattleResult_ReturnsNull()
+    public void Map_FallsBackToResultsBattleResult()
     {
+        // 15.7 起 battle_result 可能为 null，结果落在 results_battle_result。
         var output = MakeOutput();
         output.Metadata.BattleResult = null;
+        output.Metadata.ResultsBattleResult = new ReplaysharkBattleResult
+        {
+            Type = "Win",
+            TeamId = 0,
+        };
 
         var battle = ReplaysharkMapper.Map(output);
 
-        Assert.Null(battle);
+        Assert.NotNull(battle);
+        Assert.Equal(BattleOutcome.Win, battle.Outcome);
     }
 
     [Fact]
