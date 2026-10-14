@@ -17,6 +17,7 @@ namespace WowsBattleIntel.Client.Services;
 /// </remarks>
 public sealed class AppServices : IDisposable
 {
+    private readonly object reconfigureLock = new();
     private bool disposed;
 
     private AppServices(
@@ -24,7 +25,8 @@ public sealed class AppServices : IDisposable
         SqliteBattleRepository repository,
         IPlayerStatsProvider statsProvider,
         IPredictor predictor,
-        PredictionFallbackInfo predictionInfo)
+        PredictionFallbackInfo predictionInfo,
+        ReplayObserver observer)
     {
         Config = config;
         Repository = repository;
@@ -33,32 +35,39 @@ public sealed class AppServices : IDisposable
         PredictionInfo = predictionInfo;
         ReplayParser = new ReplayService(config);
         Ingestion = new BattleIngestionService(ReplayParser, repository, predictor);
-        Observer = new ReplayObserver(config);
+        Observer = observer;
+        // 委托在调用时读取 Ingestion 属性，重配置后自动指向新实例。
+        Monitor = new LiveBattleMonitor(
+            (path, token) => Ingestion.IngestAsync(path, token),
+            observer);
     }
 
-    /// <summary>当前配置。</summary>
-    public AppConfig Config { get; }
+    /// <summary>当前配置。配置变更后会被替换。</summary>
+    public AppConfig Config { get; private set; }
 
     /// <summary>本地库仓储。</summary>
-    public SqliteBattleRepository Repository { get; }
+    public SqliteBattleRepository Repository { get; private set; }
 
     /// <summary>玩家统计来源。</summary>
-    public IPlayerStatsProvider StatsProvider { get; }
+    public IPlayerStatsProvider StatsProvider { get; private set; }
 
     /// <summary>预测器。ONNX 可用时为模型，否则为基线。</summary>
-    public IPredictor Predictor { get; }
+    public IPredictor Predictor { get; private set; }
 
     /// <summary>预测器装配信息，含是否降级及原因。</summary>
-    public PredictionFallbackInfo PredictionInfo { get; }
+    public PredictionFallbackInfo PredictionInfo { get; private set; }
 
     /// <summary>回放解析服务。</summary>
-    public ReplayService ReplayParser { get; }
+    public ReplayService ReplayParser { get; private set; }
 
     /// <summary>战斗入库服务。</summary>
-    public BattleIngestionService Ingestion { get; }
+    public BattleIngestionService Ingestion { get; private set; }
 
     /// <summary>回放目录观测器。</summary>
-    public ReplayObserver Observer { get; }
+    public ReplayObserver Observer { get; private set; }
+
+    /// <summary>实时战斗监控，串联观测与解析。</summary>
+    public LiveBattleMonitor Monitor { get; private set; }
 
     /// <summary>
     /// 创建并初始化全部服务。
@@ -74,13 +83,7 @@ public sealed class AppServices : IDisposable
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         // 统计来源。
-        var statsOptions = new WgPublicOptions();
-        if (!string.IsNullOrWhiteSpace(config.WgApplicationId))
-        {
-            statsOptions.ApplicationId = config.WgApplicationId;
-        }
-
-        IPlayerStatsProvider statsProvider = new WgPublicStatsProvider(statsOptions);
+        var statsProvider = CreateStatsProvider(config);
 
         // 预测器。模型不可用时自动降级到基线。
         var createResult = PredictorFactory.Create(config.ModelPath, config.ModelVersion);
@@ -88,7 +91,77 @@ public sealed class AppServices : IDisposable
             createResult.UsedFallback,
             createResult.FallbackReason);
 
-        return new AppServices(config, repository, statsProvider, createResult.Predictor, info);
+        var observer = new ReplayObserver(config);
+        return new AppServices(config, repository, statsProvider, createResult.Predictor, info, observer);
+    }
+
+    /// <summary>
+    /// 按配置启动回放观测。已启动时先停止再启动，用于配置变更后重启。
+    /// </summary>
+    public void StartObservation()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        Monitor.Start();
+    }
+
+    /// <summary>
+    /// 应用新配置并重建受影响的组件。
+    /// </summary>
+    /// <remarks>
+    /// 配置里的路径在构造时就被各组件捕获，改配置必须重建组件才生效。
+    /// 数据库路径变化会新建库文件，但旧库数据保留在原路径，不会迁移。
+    /// </remarks>
+    /// <param name="updated">新配置，已写盘。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task ReconfigureAsync(
+        AppConfig updated,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(updated);
+        ObjectDisposedException.ThrowIf(disposed, this);
+
+        // 重建期间先停止观测，避免旧观测器继续投递路径。
+        Monitor.Dispose();
+        (Predictor as IDisposable)?.Dispose();
+
+        var repository = new SqliteBattleRepository(updated.DatabasePath);
+        await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+        var createResult = PredictorFactory.Create(updated.ModelPath, updated.ModelVersion);
+
+        lock (reconfigureLock)
+        {
+            Config = updated;
+            Repository = repository;
+            StatsProvider = CreateStatsProvider(updated);
+            Predictor = createResult.Predictor;
+            PredictionInfo = new PredictionFallbackInfo(
+                createResult.UsedFallback,
+                createResult.FallbackReason);
+            ReplayParser = new ReplayService(updated);
+            Ingestion = new BattleIngestionService(ReplayParser, repository, Predictor);
+            Observer = new ReplayObserver(updated);
+
+            // 旧监控随旧观测器一起销毁，重建以绑定新的观测器与配置。
+            Monitor = new LiveBattleMonitor(
+                (path, token) => Ingestion.IngestAsync(path, token),
+                Observer);
+        }
+    }
+
+    private static IPlayerStatsProvider CreateStatsProvider(AppConfig config)
+    {
+        var options = new WgPublicOptions();
+        if (!string.IsNullOrWhiteSpace(config.WgApplicationId))
+        {
+            options.ApplicationId = config.WgApplicationId;
+        }
+
+        return new WgPublicStatsProvider(options);
     }
 
     /// <inheritdoc />
@@ -99,9 +172,10 @@ public sealed class AppServices : IDisposable
             return;
         }
 
+        disposed = true;
+        Monitor.Dispose();
         Observer.Dispose();
         (Predictor as IDisposable)?.Dispose();
-        disposed = true;
     }
 }
 
