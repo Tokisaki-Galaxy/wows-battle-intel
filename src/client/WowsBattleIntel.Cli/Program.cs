@@ -7,7 +7,6 @@ using WowsBattleIntel.Core.Prediction;
 using WowsBattleIntel.Core.Scoring;
 using WowsBattleIntel.Replay;
 using WowsBattleIntel.Replay.Dtos;
-
 namespace WowsBattleIntel.Cli;
 
 /// <summary>
@@ -42,6 +41,7 @@ internal static class Program
                 "onnx" => RunOnnx(args),
                 "history-backtest" => RunHistoryBacktest(args),
                 "snapshot-backtest" => RunSnapshotBacktest(args),
+                "dedupe-battles" => RunDedupeBattles(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -1088,6 +1088,193 @@ internal static class Program
     }
 
     /// <summary>
+    /// dedupe-battles 子命令：清理历史重复对局与无效预测。
+    /// </summary>
+    /// <remarks>
+    /// 两类清理对象：
+    /// 1. 同局重复。早期入库没有同局收敛，同一局战斗被多个玩家的回放各录
+    ///    一次，判定口径与在线链路一致：参战玩家集合相同、地图相同、开始
+    ///    时间差小于 760 秒。每组保留 started_at 最早的一条。
+    /// 2. 非 PvP 预测。训练端只认 Random 与 Ranked，历史入库时对 Coop 与
+    ///    Unknown 类型照常出了预测，这些记录对校准只有噪声价值。
+    ///
+    /// 默认 dry-run，只报计数不动库；加 --apply 才真删。删除按外键级联
+    /// （battle_players 有 ON DELETE CASCADE），predictions 无外键约束，
+    /// 需手动删。
+    /// </remarks>
+    private static int RunDedupeBattles(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel dedupe-battles <数据库> [--apply]");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        bool apply = args.Contains("--apply");
+
+        if (!File.Exists(dbPath))
+        {
+            Console.Error.WriteLine($"数据库不存在: {dbPath}");
+            return 1;
+        }
+
+        var battles = LoadAllBattlesWithPlayers(dbPath);
+        Console.WriteLine($"库中对局总数: {battles.Count}");
+
+        // 同局分组：按时间推进，已保留的对局作为收敛锚点。
+        // 组内保留最早 started_at，其余标记删除。
+        var ordered = battles.OrderBy(b => b.StartedAt.ToUnixTimeMilliseconds()).ToList();
+        var kept = new List<BattleRecord>();
+        var duplicateIds = new HashSet<string>();
+        int groups = 0;
+
+        foreach (var battle in ordered)
+        {
+            var anchor = kept.FirstOrDefault(k => BattleFingerprint.IsEquivalentTo(battle, k));
+            if (anchor is null)
+            {
+                kept.Add(battle);
+            }
+            else
+            {
+                duplicateIds.Add(battle.BattleId);
+                groups++;
+            }
+        }
+
+        // 非 PvP 预测：对局本身保留，仅清掉它的预测记录。
+        var nonPvpWithPrediction = battles
+            .Where(b => !b.BattleType.IsPvpType() && !duplicateIds.Contains(b.BattleId))
+            .Select(b => b.BattleId)
+            .ToList();
+
+        Console.WriteLine();
+        Console.WriteLine("=== 同局重复 ===");
+        Console.WriteLine($"重复对局: {duplicateIds.Count} 局，涉及 {groups} 组");
+        foreach (string id in duplicateIds.Take(20))
+        {
+            var dup = battles.First(b => b.BattleId == id);
+            Console.WriteLine($"  删除 {id[..Math.Min(16, id.Length)]} {dup.StartedAt:u} {dup.MapId}");
+        }
+        if (duplicateIds.Count > 20)
+        {
+            Console.WriteLine($"  ... 其余 {duplicateIds.Count - 20} 局略");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("=== 非 PvP 预测 ===");
+        Console.WriteLine($"待清理预测: {nonPvpWithPrediction.Count} 条（对局保留）");
+
+        if (!apply)
+        {
+            Console.WriteLine();
+            Console.WriteLine("dry-run 模式，未修改数据库。加 --apply 执行删除。");
+            return 0;
+        }
+
+        int deletedBattles = 0;
+        int deletedPredictions = 0;
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            conn.Open();
+            using var transaction = conn.BeginTransaction();
+
+            // battle_players 有级联删除，snapshots 表与对局无关联，无需处理。
+            foreach (string battleId in duplicateIds)
+            {
+                using (var predCmd = conn.CreateCommand())
+                {
+                    predCmd.Transaction = transaction;
+                    predCmd.CommandText = "DELETE FROM predictions WHERE battle_id = $id;";
+                    predCmd.Parameters.AddWithValue("$id", battleId);
+                    deletedPredictions += predCmd.ExecuteNonQuery();
+                }
+
+                using var battleCmd = conn.CreateCommand();
+                battleCmd.Transaction = transaction;
+                battleCmd.CommandText = "DELETE FROM battles WHERE battle_id = $id;";
+                battleCmd.Parameters.AddWithValue("$id", battleId);
+                deletedBattles += battleCmd.ExecuteNonQuery();
+            }
+
+            foreach (string battleId in nonPvpWithPrediction)
+            {
+                using var predCmd = conn.CreateCommand();
+                predCmd.Transaction = transaction;
+                predCmd.CommandText = "DELETE FROM predictions WHERE battle_id = $id;";
+                predCmd.Parameters.AddWithValue("$id", battleId);
+                deletedPredictions += predCmd.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"删除完成: 对局 {deletedBattles} 局，预测 {deletedPredictions} 条");
+        return 0;
+    }
+
+    /// <summary>
+    /// 载入库中全部对局与参战者，供同局分组判定。
+    /// </summary>
+    private static List<BattleRecord> LoadAllBattlesWithPlayers(string dbPath)
+    {
+        var battles = new List<BattleRecord>();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+
+        var playersByBattle = new Dictionary<string, List<PlayerRecord>>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT battle_id, account_id, server FROM battle_players;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string battleId = reader.GetString(0);
+                if (!playersByBattle.TryGetValue(battleId, out var list))
+                {
+                    list = [];
+                    playersByBattle[battleId] = list;
+                }
+
+                list.Add(new PlayerRecord
+                {
+                    AccountId = reader.GetString(1),
+                    Server = Enum.TryParse<GameServer>(reader.GetString(2), out var sv)
+                        ? sv : GameServer.Auto,
+                });
+            }
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT battle_id, started_at, map_id, battle_type FROM battles;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string battleId = reader.GetString(0);
+                battles.Add(new BattleRecord
+                {
+                    BattleId = battleId,
+                    StartedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
+                    MapId = reader.GetString(2),
+                    BattleType = Enum.TryParse<BattleType>(reader.GetString(3), out var bt)
+                        ? bt : BattleType.Unknown,
+                    Players = playersByBattle.TryGetValue(battleId, out var list)
+                        ? list : [],
+                });
+            }
+        }
+
+        return battles;
+    }
+
+    /// <summary>
     /// onnx 子命令：用 ONNX 模型对一批对局做预测并校准。
     /// </summary>
     /// <remarks>
@@ -1207,6 +1394,7 @@ internal static class Program
         Console.WriteLine("  wows-intel predict <目录> [--limit N]        拉历史特征预测并对照真实结果");
         Console.WriteLine("  wows-intel history-backtest <数据库>         用近期状态特征回测, 无时间泄漏");
         Console.WriteLine("  wows-intel snapshot-backtest <数据库>        用账号胜率快照特征回测");
+        Console.WriteLine("  wows-intel dedupe-battles <数据库> [--apply] 清理同局重复与非PvP预测, 默认dry-run");
         Console.WriteLine("  wows-intel onnx <模型.onnx> <目录>            用 ONNX 模型推理并回测");
     }
 
