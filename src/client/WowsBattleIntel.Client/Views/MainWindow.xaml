@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="wows-battle-intel · 战斗情报与胜负预测"
-        Height="760" Width="1180"
-        MinHeight="560" MinWidth="900"
+        Height="800" Width="1280"
+        MinHeight="600" MinWidth="1000"
         WindowStartupLocation="CenterScreen">
 
   <Grid Margin="{StaticResource PaddingLarge}">
@@ -14,175 +14,488 @@
     </Grid.RowDefinitions>
 
     <!-- 标题栏 -->
-    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-      <TextBlock Text="战斗情报" Style="{StaticResource TitleTextStyle}" />
-      <TextBlock Text="{Binding ModelVersionText}"
-                 Style="{StaticResource SecondaryTextStyle}"
-                 VerticalAlignment="Bottom"
-                 Margin="12,0,0,3" />
-      <Button Content="刷新列表" Command="{Binding RefreshCommand}"
-              HorizontalAlignment="Right" Margin="16,0,0,0" />
-    </StackPanel>
-
-    <!-- 主体三栏 -->
-    <Grid Grid.Row="1">
+    <Grid Grid.Row="0" Margin="0,0,0,12">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="320" />
-        <ColumnDefinition Width="12" />
+        <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
 
-      <!-- 左栏：对局列表 -->
-      <Border Grid.Column="0"
-              Background="{StaticResource SurfaceBrush}"
-              BorderBrush="{StaticResource BorderBrush}"
-              BorderThickness="1"
-              CornerRadius="6">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="最近对局"
-                     Style="{StaticResource HeadingTextStyle}"
-                     Margin="{StaticResource PaddingMedium}" />
-          <ListBox ItemsSource="{Binding RecentBattles}"
-                   SelectedItem="{Binding SelectedBattleSummary}"
-                   Background="Transparent"
-                   BorderThickness="0"
-                   Foreground="{StaticResource TextPrimaryBrush}">
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding DisplayText}" Margin="4,3" />
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-        </DockPanel>
-      </Border>
+      <StackPanel Grid.Column="0" Orientation="Horizontal">
+        <TextBlock Text="战斗情报" Style="{StaticResource TitleTextStyle}" />
+        <TextBlock Text="{Binding ModelVersionText}"
+                   Style="{StaticResource SecondaryTextStyle}"
+                   VerticalAlignment="Bottom"
+                   Margin="12,0,0,3" />
+      </StackPanel>
 
-      <!-- 右栏 -->
-      <Grid Grid.Column="2">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+      <TextBlock Grid.Column="1"
+                 Text="{Binding PredictorStatusText}"
+                 Style="{StaticResource SecondaryTextStyle}"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Bottom"
+                 Margin="16,0,16,3"
+                 TextTrimming="CharacterEllipsis" />
 
-        <!-- 预测对照面板 -->
-        <Border Grid.Row="0"
-                Background="{StaticResource SurfaceBrush}"
-                BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="1"
-                CornerRadius="6"
-                Margin="0,0,0,12">
-          <Grid Margin="{StaticResource PaddingLarge}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+      <StackPanel Grid.Column="2" Orientation="Horizontal">
+        <TextBlock Text="{Binding ObservationStatusText}"
+                   Style="{StaticResource SecondaryTextStyle}"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,0" />
+        <Button Content="{Binding ObservationButtonText}"
+                Command="{Binding ToggleObservationCommand}" />
+        <Button Content="刷新列表" Command="{Binding RefreshCommand}" Margin="8,0,0,0" />
+      </StackPanel>
+    </Grid>
 
-            <StackPanel Grid.Column="0">
-              <TextBlock Text="赛前预测胜率" Style="{StaticResource SecondaryTextStyle}" />
-              <TextBlock Text="{Binding PredictedWinrateText}"
-                         Style="{StaticResource TitleTextStyle}"
-                         Margin="0,4,0,0" />
-            </StackPanel>
+    <!-- 主标签页 -->
+    <TabControl Grid.Row="1">
 
-            <StackPanel Grid.Column="1">
-              <TextBlock Text="对照结果" Style="{StaticResource SecondaryTextStyle}" />
-              <TextBlock Text="{Binding PredictionVerdict}"
-                         Style="{StaticResource TitleTextStyle}"
-                         Margin="0,4,0,0" />
-            </StackPanel>
-
-            <StackPanel Grid.Column="2">
-              <TextBlock Text="特征完整度" Style="{StaticResource SecondaryTextStyle}" />
-              <TextBlock Text="{Binding ConfidenceText}"
-                         Style="{StaticResource HeadingTextStyle}"
-                         Margin="0,4,0,0" />
-              <TextBlock Text="{Binding BattleSubtitle}"
-                         Style="{StaticResource SecondaryTextStyle}"
-                         Margin="0,6,0,0" />
-            </StackPanel>
-          </Grid>
-        </Border>
-
-        <!-- 双方名单 -->
-        <Grid Grid.Row="1">
+      <!-- 对局情报 -->
+      <TabItem Header="对局情报">
+        <Grid Margin="0,12,0,0">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="340" />
             <ColumnDefinition Width="12" />
             <ColumnDefinition Width="*" />
           </Grid.ColumnDefinitions>
 
-          <Border Grid.Column="0"
-                  Background="{StaticResource SurfaceBrush}"
-                  BorderBrush="{StaticResource AllyBrush}"
-                  BorderThickness="1"
-                  CornerRadius="6">
+          <!-- 左栏：对局列表 -->
+          <Border Grid.Column="0" Style="{StaticResource CardStyle}">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="友方"
+              <TextBlock DockPanel.Dock="Top" Text="最近对局"
                          Style="{StaticResource HeadingTextStyle}"
                          Margin="{StaticResource PaddingMedium}" />
-              <DataGrid ItemsSource="{Binding Allies}"
-                        AutoGenerateColumns="False"
-                        IsReadOnly="True"
-                        HeadersVisibility="Column"
-                        GridLinesVisibility="Horizontal"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        RowBackground="Transparent"
-                        AlternatingRowBackground="Transparent"
-                        Foreground="{StaticResource TextPrimaryBrush}">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
-                  <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
-                  <DataGridTextColumn Header="船" Binding="{Binding ShipText}" Width="Auto" />
-                  <DataGridTextColumn Header="舰种" Binding="{Binding ShipTypeText}" Width="Auto" />
-                  <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto" />
-                  <DataGridTextColumn Header="水平" Binding="{Binding TierLabel}" Width="Auto" />
-                  <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
-                  <DataGridTextColumn Header="伤害" Binding="{Binding DamageText}" Width="Auto" />
-                </DataGrid.Columns>
-              </DataGrid>
+              <ListBox ItemsSource="{Binding RecentBattles}"
+                       SelectedItem="{Binding SelectedBattleSummary}"
+                       Background="Transparent"
+                       BorderThickness="0"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel>
+                      <TextBlock Text="{Binding DisplayText}" Margin="4,3,4,0" />
+                      <TextBlock Text="{Binding SecondaryText}"
+                                 Style="{StaticResource SecondaryTextStyle}"
+                                 Margin="4,0,4,3" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
             </DockPanel>
           </Border>
 
-          <Border Grid.Column="2"
-                  Background="{StaticResource SurfaceBrush}"
-                  BorderBrush="{StaticResource EnemyBrush}"
-                  BorderThickness="1"
-                  CornerRadius="6">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="敌方"
-                         Style="{StaticResource HeadingTextStyle}"
-                         Margin="{StaticResource PaddingMedium}" />
-              <DataGrid ItemsSource="{Binding Enemies}"
-                        AutoGenerateColumns="False"
-                        IsReadOnly="True"
-                        HeadersVisibility="Column"
-                        GridLinesVisibility="Horizontal"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        RowBackground="Transparent"
-                        AlternatingRowBackground="Transparent"
-                        Foreground="{StaticResource TextPrimaryBrush}">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
-                  <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
-                  <DataGridTextColumn Header="船" Binding="{Binding ShipText}" Width="Auto" />
-                  <DataGridTextColumn Header="舰种" Binding="{Binding ShipTypeText}" Width="Auto" />
-                  <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto" />
-                  <DataGridTextColumn Header="水平" Binding="{Binding TierLabel}" Width="Auto" />
-                  <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
-                  <DataGridTextColumn Header="伤害" Binding="{Binding DamageText}" Width="Auto" />
-                </DataGrid.Columns>
-              </DataGrid>
-            </DockPanel>
-          </Border>
+          <!-- 右栏 -->
+          <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- 预测对照面板 -->
+            <Border Grid.Row="0" Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+              <Grid Margin="{StaticResource PaddingLarge}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="2*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                  <TextBlock Text="友方预测胜率" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding PredictedWinrateText}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Foreground="{StaticResource AllyBrush}"
+                             Margin="0,4,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                  <TextBlock Text="敌方预测胜率" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding EnemyWinrateText}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Foreground="{StaticResource EnemyBrush}"
+                             Margin="0,4,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                  <TextBlock Text="对照结果" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding PredictionVerdict}"
+                             Style="{StaticResource HeadingTextStyle}"
+                             Margin="0,8,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="3">
+                  <TextBlock Text="特征完整度" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding ConfidenceText}"
+                             Style="{StaticResource HeadingTextStyle}"
+                             Margin="0,8,0,0" />
+                  <TextBlock Text="{Binding BattleSubtitle}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,6,0,0" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <!-- 双方名单 -->
+            <Grid Grid.Row="1">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+
+              <Border Grid.Column="0" Style="{StaticResource CardStyle}"
+                      BorderBrush="{StaticResource AllyBrush}">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Text="友方"
+                             Style="{StaticResource HeadingTextStyle}"
+                             Margin="{StaticResource PaddingMedium}" />
+                  <DataGrid ItemsSource="{Binding Allies}">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
+                      <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
+                      <DataGridTextColumn Header="船" Binding="{Binding ShipText}" Width="Auto" />
+                      <DataGridTextColumn Header="舰种" Binding="{Binding ShipTypeText}" Width="Auto" />
+                      <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto" />
+                      <DataGridTextColumn Header="水平" Binding="{Binding TierLabel}" Width="Auto" />
+                      <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
+                      <DataGridTextColumn Header="伤害" Binding="{Binding DamageText}" Width="Auto" />
+                      <DataGridTextColumn Header="击杀" Binding="{Binding KillsText}" Width="Auto" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+
+              <Border Grid.Column="2" Style="{StaticResource CardStyle}"
+                      BorderBrush="{StaticResource EnemyBrush}">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Text="敌方"
+                             Style="{StaticResource HeadingTextStyle}"
+                             Margin="{StaticResource PaddingMedium}" />
+                  <DataGrid ItemsSource="{Binding Enemies}">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
+                      <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
+                      <DataGridTextColumn Header="船" Binding="{Binding ShipText}" Width="Auto" />
+                      <DataGridTextColumn Header="舰种" Binding="{Binding ShipTypeText}" Width="Auto" />
+                      <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto" />
+                      <DataGridTextColumn Header="水平" Binding="{Binding TierLabel}" Width="Auto" />
+                      <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
+                      <DataGridTextColumn Header="伤害" Binding="{Binding DamageText}" Width="Auto" />
+                      <DataGridTextColumn Header="击杀" Binding="{Binding KillsText}" Width="Auto" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+            </Grid>
+          </Grid>
         </Grid>
-      </Grid>
-    </Grid>
+      </TabItem>
+
+      <!-- 校准统计 -->
+      <TabItem Header="校准统计">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+          <StackPanel DataContext="{Binding Calibration}">
+
+            <!-- 指标卡 -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+
+              <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+                <StackPanel>
+                  <TextBlock Text="Brier 分数" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding BrierScoreText}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Margin="0,6,0,0" />
+                  <TextBlock Text="{Binding BrierComparisonText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,6,0,0" />
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Column="2" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+                <StackPanel>
+                  <TextBlock Text="对数损失" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding LogLossText}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Margin="0,6,0,0" />
+                  <TextBlock Text="{Binding LogLossComparisonText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,6,0,0" />
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Column="4" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+                <StackPanel>
+                  <TextBlock Text="判别准确率" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding AccuracyText}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Margin="0,6,0,0" />
+                  <TextBlock Text="预测方向与结果一致的比例"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,6,0,0" />
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Column="6" Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+                <StackPanel>
+                  <TextBlock Text="样本规模" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Text="{Binding SampleCount}"
+                             Style="{StaticResource TitleTextStyle}"
+                             Margin="0,6,0,0" />
+                  <TextBlock Text="{Binding SampleCountText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,6,0,0" />
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <!-- 结论与刷新 -->
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingMedium}" Margin="0,12,0,0">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="{Binding QualityText}"
+                           Style="{StaticResource BodyTextStyle}"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="重新统计"
+                        Command="{Binding RefreshCommand}" />
+              </Grid>
+            </Border>
+
+            <!-- 校准曲线 -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="校准曲线"
+                           Style="{StaticResource HeadingTextStyle}"
+                           Margin="{StaticResource PaddingMedium}" />
+                <TextBlock DockPanel.Dock="Top"
+                           Text="柱长代表该概率区间的实际胜率，与预测均值越接近越好。柱为红色表示偏差超过 0.1。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           Margin="8,0,8,8"
+                           TextWrapping="Wrap" />
+
+                <ItemsControl ItemsSource="{Binding Buckets}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="8,4">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="70" />
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding RangeText}"
+                                   Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" />
+
+                        <Grid Grid.Column="1" VerticalAlignment="Center">
+                          <Border Height="18"
+                                  Width="{Binding BarWidth}"
+                                  HorizontalAlignment="Left"
+                                  CornerRadius="3"
+                                  Background="{Binding BarBrushKey, Converter={StaticResource BrushKeyConverter}}" />
+                        </Grid>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                          <TextBlock Text="样本 " Style="{StaticResource SecondaryTextStyle}" />
+                          <TextBlock Text="{Binding SampleCountText}"
+                                     Style="{StaticResource SecondaryTextStyle}"
+                                     Width="46"
+                                     TextAlignment="Right" />
+                          <TextBlock Text="  实际 " Style="{StaticResource SecondaryTextStyle}" />
+                          <TextBlock Text="{Binding ActualWinrateText}"
+                                     Style="{StaticResource SecondaryTextStyle}"
+                                     Width="52"
+                                     TextAlignment="Right" />
+                          <TextBlock Text="  预测 " Style="{StaticResource SecondaryTextStyle}" />
+                          <TextBlock Text="{Binding PredictedMeanText}"
+                                     Style="{StaticResource SecondaryTextStyle}"
+                                     Width="46"
+                                     TextAlignment="Right" />
+                          <TextBlock Text="  偏差 " Style="{StaticResource SecondaryTextStyle}" />
+                          <TextBlock Text="{Binding CalibrationErrorText}"
+                                     Style="{StaticResource SecondaryTextStyle}"
+                                     Width="60"
+                                     TextAlignment="Right" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </DockPanel>
+            </Border>
+
+            <TextBlock Text="{Binding StatusMessage}"
+                       Style="{StaticResource SecondaryTextStyle}"
+                       Margin="4,8,0,0"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- 设置 -->
+      <TabItem Header="设置">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+          <StackPanel DataContext="{Binding Settings}" MaxWidth="900" HorizontalAlignment="Left">
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}">
+              <StackPanel>
+                <TextBlock Text="路径配置" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="路径在启动时被各服务读取，修改后需保存才会生效。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="游戏目录"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding GamePath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="0" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseGamePathCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="数据库路径"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DatabasePath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="1" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseDatabasePathCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="replayshark"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ReplaysharkPath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="2" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseReplaysharkPathCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Text="游戏数据目录"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ExtractedDataPath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="3" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseExtractedDataPathCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="4" Grid.Column="0" Text="constants 根目录"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ConstantsRootPath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="4" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseConstantsRootPathCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="5" Grid.Column="0" Text="模型路径"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ModelPath, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,0" />
+                  <Button Grid.Row="5" Grid.Column="2" Content="浏览"
+                          Command="{Binding BrowseModelPathCommand}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource PaddingLarge}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="模型与观测" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="模型版本"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="0" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Left"
+                           Text="{Binding ModelVersion, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="WG API 应用 ID"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="1" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Left"
+                           Text="{Binding WgApplicationId, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="轮询间隔秒"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="120" HorizontalAlignment="Left"
+                           Text="{Binding PollIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                </Grid>
+
+                <CheckBox Content="启动时自动观测回放目录"
+                          IsChecked="{Binding AutoObserve}"
+                          Margin="0,12,0,0" />
+              </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+              <Button Content="保存并应用" Command="{Binding SaveCommand}" />
+              <TextBlock Text="{Binding StatusMessage}"
+                         Style="{StaticResource SecondaryTextStyle}"
+                         VerticalAlignment="Center"
+                         Margin="12,0,0,0"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
 
     <!-- 状态栏 -->
     <StatusBar Grid.Row="2" Margin="0,12,0,0" Background="Transparent">
       <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource SecondaryTextStyle}" />
+      <ProgressBar IsIndeterminate="True"
+                   Width="80"
+                   Margin="12,0,0,0"
+                   VerticalAlignment="Center">
+        <ProgressBar.Style>
+          <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                <Setter Property="Visibility" Value="Visible" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </ProgressBar.Style>
+      </ProgressBar>
     </StatusBar>
   </Grid>
 </Window>
