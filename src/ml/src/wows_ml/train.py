@@ -8,12 +8,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -76,6 +77,105 @@ def build_matrix(matches: list[MatchFeatures]) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(rows, dtype=float), np.asarray(labels, dtype=float)
 
 
+# 分组折的组数下限。组数低于 folds 两倍时 StratifiedGroupKFold 无法
+# 保证每折都有训练与测试样本，退回普通 KFold。
+MIN_GROUPS_FOR_GROUPED_CV = 20
+
+
+def group_keys(matches: list[MatchFeatures]) -> np.ndarray:
+    """按局参战玩家集合生成交叉验证分组键。
+
+    分组键设计：把本局全部参战者的 account_id 去重排序后用竖线拼接，
+    经 SHA256 压成定长字符串。同一玩家出现在两局时，两局的玩家集合
+    大概率不同，哈希键也随之不同。
+
+    注意该方案只保证账号层面的隔离近似：键相等意味着两局参战者完全
+    相同，键不同但共享部分玩家的两局仍会分属不同组。要把共玩对局
+    归入同组需按账号做连通分量合并，见 group_keys_connected。
+
+    普通交叉验证用随机切分，同一老玩家的高胜率样本会同时出现在
+    训练与测试集，AUC 虚高。分组折按玩家集合隔离，消除这条泄漏路径。
+    """
+    keys = []
+    for m in matches:
+        ids = sorted(set(m.participant_account_ids))
+        digest = hashlib.sha256("|".join(ids).encode("utf-8")).hexdigest()
+        keys.append(digest)
+    return np.asarray(keys, dtype=object)
+
+
+def group_keys_connected(matches: list[MatchFeatures]) -> np.ndarray:
+    """按账号连通分量生成分组键。
+
+    两局共享任一账号即归入同组，组内递归合并，保证同一账号绝不跨
+    训练与测试集。实现用并查集：账号为节点，对局内参战者两两并起，
+    对局键取其参战者根节点的最小值。
+
+    分组键设计：最终键是组内最小账号标识拼接的哈希，稳定可复现。
+
+    已知局限：若库内存在一个横跨大量对局的高频玩家（例如录制者本人），
+    连通分量会塌缩成单组，分组折退化为整体切分。此时应改用
+    group_keys 的按局近似键，见 make_cv_splits 的降级逻辑。
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        parent.setdefault(a, a)
+        parent.setdefault(b, b)
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for m in matches:
+        ids = sorted(set(m.participant_account_ids))
+        for account_id in ids:
+            parent.setdefault(account_id, account_id)
+        for other in ids[1:]:
+            union(ids[0], other)
+
+    # 对局键取组内最小账号的哈希，保证同一分量的对局键一致。
+    keys = []
+    for m in matches:
+        roots = sorted({find(a) for a in set(m.participant_account_ids)})
+        digest = hashlib.sha256("|".join(roots).encode("utf-8")).hexdigest()
+        keys.append(digest)
+    return np.asarray(keys, dtype=object)
+
+
+def make_cv_splits(
+    x: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    folds: int,
+    random_state: int = 42,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """构造交叉验证切分，按组数可用性自动降级。
+
+    传入按账号连通分量生成的键时，理论上保证同一账号不跨训练与
+    测试集。但连通分量可能塌缩成极少数组（例如录制者出现在所有局），
+    分组折失去意义，此时退回普通随机折并保持原调用方式兼容。
+    组数充足时用 StratifiedGroupKFold，在隔离玩家之外保持各折
+    胜负标签比例接近。
+    """
+    n_groups = len(set(groups))
+    if n_groups >= max(folds * 2, MIN_GROUPS_FOR_GROUPED_CV):
+        splitter = StratifiedGroupKFold(
+            n_splits=folds, shuffle=True, random_state=random_state
+        )
+        return list(splitter.split(x, y, groups))
+
+    kf = KFold(n_splits=folds, shuffle=True, random_state=random_state)
+    return list(kf.split(x))
+
+
 def train_logistic(
     matches: list[MatchFeatures],
     folds: int = 5,
@@ -93,11 +193,16 @@ def train_logistic(
     if len(y) < folds:
         raise ValueError(f"样本不足，至少需要 {folds} 条，实际 {len(y)} 条。")
 
-    kf = KFold(n_splits=folds, shuffle=True, random_state=random_state)
+    # 分组键先按账号连通分量生成，塌缩成单组时退回按局玩家集合的
+    # 近似键，保证评估不因组数枯竭而整体失效。
+    groups = group_keys_connected(matches)[valid]
+    if len(set(groups)) < 2 * folds:
+        groups = group_keys(matches)[valid]
+    splits = make_cv_splits(x, y, groups, folds, random_state)
     reports = []
     all_importance: dict[str, list[float]] = {}
 
-    for train_idx, test_idx in kf.split(x):
+    for train_idx, test_idx in splits:
         model = _make_logistic()
         model.fit(x[train_idx], y[train_idx])
         probs = model.predict_proba(x[test_idx])[:, 1]
@@ -166,11 +271,15 @@ def train_lightgbm(
     if len(y) < folds:
         raise ValueError(f"样本不足，至少需要 {folds} 条，实际 {len(y)} 条。")
 
-    kf = KFold(n_splits=folds, shuffle=True, random_state=random_state)
+    # 分组键策略与 train_logistic 一致：连通分量优先，塌缩退回近似键。
+    groups = group_keys_connected(matches)[valid]
+    if len(set(groups)) < 2 * folds:
+        groups = group_keys(matches)[valid]
+    splits = make_cv_splits(x, y, groups, folds, random_state)
     reports = []
     importance_sum: dict[str, float] = {}
 
-    for train_idx, test_idx in kf.split(x):
+    for train_idx, test_idx in splits:
         model = _make_lightgbm(lgb, random_state)
         model.fit(x[train_idx], y[train_idx])
         probs = model.predict_proba(x[test_idx])[:, 1]

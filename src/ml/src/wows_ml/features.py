@@ -88,6 +88,9 @@ class MatchFeatures:
     enemy: TeamFeatures = field(default_factory=TeamFeatures)
     # 标签：1 表示友方获胜，0 表示失败，None 表示未知。
     label: float | None = None
+    # 本局全部参战者的账号标识，用于按玩家分组交叉验证。
+    # 与特征向量无关，导出与推理不使用。
+    participant_account_ids: tuple[str, ...] = ()
 
     def to_vector(self) -> dict[str, float]:
         """展平成可用于训练的数值向量。

@@ -153,6 +153,9 @@ def load_battles(
                 ally=aggregate_team(ally),
                 enemy=aggregate_team(enemy),
                 label=1.0 if battle["result"] == "Win" else 0.0,
+                participant_account_ids=tuple(
+                    row["account_id"] for row in player_rows
+                ),
             )
 
             # 若双方均无有效统计，该局对训练无价值。
@@ -280,6 +283,19 @@ RECENT_FORM_WINDOW = 20
 # 参与近期状态回算的对局类型，与训练白名单同口径，只算 PvP。
 RECENT_FORM_BATTLE_TYPES: tuple[str, ...] = ("Random", "Ranked")
 
+# 近期状态回算的 SQL。参数依次为账号、目标局开始时间、类型白名单、窗口上限。
+_RECENT_FORM_SQL = """
+    SELECT bp.team AS team, b.result AS result
+    FROM battle_players bp
+    JOIN battles b ON b.battle_id = bp.battle_id
+    WHERE bp.account_id = ?
+      AND b.started_at < ?
+      AND b.result IN ('Win', 'Loss')
+      {type_clause}
+    ORDER BY b.started_at DESC
+    LIMIT ?
+"""
+
 
 def compute_recent_form(
     conn: sqlite3.Connection,
@@ -317,17 +333,7 @@ def compute_recent_form(
         type_clause = f"AND b.battle_type IN ({placeholders})"
         params.extend(RECENT_FORM_BATTLE_TYPES)
 
-    sql = f"""
-        SELECT bp.team AS team, b.result AS result
-        FROM battle_players bp
-        JOIN battles b ON b.battle_id = bp.battle_id
-        WHERE bp.account_id = ?
-          AND b.started_at < ?
-          AND b.result IN ('Win', 'Loss')
-          {type_clause}
-        ORDER BY b.started_at DESC
-        LIMIT ?
-    """
+    sql = _RECENT_FORM_SQL.format(type_clause=type_clause)
     params_window = [*params, window]
 
     for player in pending:
