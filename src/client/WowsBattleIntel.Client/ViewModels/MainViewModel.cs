@@ -239,6 +239,11 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 刷新观测状态显示。待处理数量由后台协程更新，界面需要主动拉取。
+    /// </summary>
+    public void RefreshObservationStatus() => OnPropertyChanged(nameof(ObservationStatusText));
+
+    /// <summary>
     /// 从本地库读取最近对局并填充列表。
     /// </summary>
     public async Task LoadRecentBattlesAsync(CancellationToken cancellationToken = default)
@@ -375,13 +380,18 @@ public sealed class MainViewModel : ViewModelBase
             string name = result.Battle?.MapId ?? "新对局";
             string suffix = result.Message is null ? string.Empty : $"（{result.Message}）";
             StatusMessage = $"已入库 {name}{suffix}";
+            OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
         });
     }
 
     private void OnIngestionFailed(string replayPath, string message)
     {
-        Post(() => StatusMessage = $"回放处理失败: {message}");
+        Post(() =>
+        {
+            StatusMessage = $"回放处理失败: {message}";
+            OnPropertyChanged(nameof(ObservationStatusText));
+        });
     }
 
     private async Task RefreshAfterIngestionAsync()

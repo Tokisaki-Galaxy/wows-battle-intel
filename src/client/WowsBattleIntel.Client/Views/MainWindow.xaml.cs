@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using WowsBattleIntel.Client.ViewModels;
 
 namespace WowsBattleIntel.Client.Views;
@@ -9,6 +10,7 @@ namespace WowsBattleIntel.Client.Views;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel viewModel;
+    private DispatcherTimer? pendingTimer;
 
     /// <summary>
     /// 构造主窗口。
@@ -40,6 +42,11 @@ public partial class MainWindow : Window
         // 首次加载对局列表与校准报告。
         await viewModel.LoadRecentBattlesAsync().ConfigureAwait(true);
         await viewModel.Calibration.LoadAsync().ConfigureAwait(true);
+
+        // 待处理数量由后台协程推进，界面没有事件可挂，靠定时拉取。
+        pendingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        pendingTimer.Tick += (_, _) => viewModel.RefreshObservationStatus();
+        pendingTimer.Start();
     }
 
     private async void OnBattleListChanged()
