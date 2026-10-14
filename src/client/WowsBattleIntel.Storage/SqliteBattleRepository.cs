@@ -14,7 +14,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore
+public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider
 {
     private readonly string connectionString;
 
@@ -519,6 +519,74 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         return connection;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// 关键查询：关联 battles 与 battle_players，取该玩家在指定时间点之前的
+    /// 逐场记录。胜负由他所在队伍与对局结果共同决定：team 为 0 时对局获胜
+    /// 即该玩家获胜，team 为 1 时相反。
+    ///
+    /// 索引 (account_id, battle_id) 与 battles.started_at 支撑此查询。
+    /// </remarks>
+    public async Task<IReadOnlyList<PlayerBattleHistoryEntry>> GetRecentBattlesAsync(
+        string accountId,
+        GameServer server,
+        DateTimeOffset before,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT b.battle_id, b.started_at, b.result, p.team,
+                   p.damage_dealt, p.ship_id, p.division_size
+            FROM battle_players p
+            INNER JOIN battles b ON b.battle_id = p.battle_id
+            WHERE p.account_id = $accountId
+              AND p.server = $server
+              AND b.started_at < $before
+              AND b.result IN ('Win', 'Loss')
+            ORDER BY b.started_at DESC
+            LIMIT $limit;
+            """;
+
+        command.Parameters.AddWithValue("$accountId", accountId);
+        command.Parameters.AddWithValue("$server", server.ToString());
+        command.Parameters.AddWithValue("$before", before.ToUnixTimeMilliseconds());
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var entries = new List<PlayerBattleHistoryEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            string battleResult = reader.GetString(2);
+            int team = reader.GetInt32(3);
+
+            // team 0 是对局结果持有方，team 1 相反。
+            bool won = (battleResult == "Win" && team == 0)
+                || (battleResult == "Loss" && team == 1);
+
+            entries.Add(new PlayerBattleHistoryEntry
+            {
+                BattleId = reader.GetString(0),
+                StartedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
+                Won = won,
+                DamageDealt = (int)reader.GetInt64(4),
+                ShipId = reader.GetString(5),
+                DivisionSize = reader.GetInt32(6),
+            });
+        }
+
+        return entries;
     }
 
     private static async Task<string> LoadSchemaAsync(CancellationToken cancellationToken)

@@ -4,6 +4,7 @@ using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Calibration;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Prediction;
+using WowsBattleIntel.Core.Scoring;
 using WowsBattleIntel.Replay;
 using WowsBattleIntel.Replay.Dtos;
 
@@ -39,6 +40,7 @@ internal static class Program
                 "snapshot" => RunSnapshot(args),
                 "predict" => RunPredict(args),
                 "onnx" => RunOnnx(args),
+                "history-backtest" => RunHistoryBacktest(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -604,6 +606,297 @@ internal static class Program
         string json = File.ReadAllText(path);
         return JsonConvert.DeserializeObject<ReplaysharkOutput>(json)
             ?? throw new InvalidOperationException($"反序列化失败: {path}");
+    }
+
+    /// <summary>
+    /// history-backtest 子命令：用积累的对局历史算近期状态特征并回测。
+    /// </summary>
+    /// <remarks>
+    /// 与 predict 子命令的关键差别：不依赖 WG API 的历史统计，而是从
+    /// 本地已入库的逐场对局算出近期胜率。每场对局都有结果，玩家所在队伍
+    /// 的结果即他的胜负，所以近期状态可以纯本地计算。
+    ///
+    /// 严格按时间顺序回放：预测第 N 场时只用前 N-1 场的历史，
+    /// 天然无时间泄漏。这是本项目第一次能在无泄漏前提下评估预测能力。
+    /// </remarks>
+    private static int RunHistoryBacktest(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel history-backtest <数据库> [--csv <文件>]");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        string? csvPath = null;
+        for (int i = 2; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--csv")
+            {
+                csvPath = args[i + 1];
+            }
+        }
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        repository.InitializeAsync().GetAwaiter().GetResult();
+
+        var battles = LoadBattlesOrdered(dbPath);
+        Console.WriteLine($"按时间排序的有效对局: {battles.Count} 局");
+
+        var pairs = new List<(PredictionResult Prediction, BattleOutcome Outcome)>();
+        var rows = new List<HistoryBacktestRow>();
+        int skipped = 0;
+
+        // 维护每个玩家的历史，按时间推进逐步累积。
+        // 预测某场时，玩家历史只含该场之前的对局，天然无泄漏。
+        var historyByPlayer = new Dictionary<string, List<PlayerBattleHistoryEntry>>();
+        int index = 0;
+
+        foreach (var battle in battles)
+        {
+            index++;
+            if (index % 100 == 0)
+            {
+                Console.Write($"\r[{index}/{battles.Count}] 回测中...   ");
+            }
+
+            var features = new Dictionary<string, RecentForm>();
+            foreach (var player in battle.Players.Where(p => !p.IsBot))
+            {
+                string key = PlayerKey(player);
+                if (historyByPlayer.TryGetValue(key, out var history) && history.Count > 0)
+                {
+                    features[key] = RecentFormCalculator.Compute(history);
+                }
+            }
+
+            var prediction = PredictFromRecentForm(battle, features);
+            if (prediction is null)
+            {
+                skipped++;
+            }
+            else
+            {
+                pairs.Add((prediction, battle.Outcome));
+                rows.Add(new HistoryBacktestRow
+                {
+                    BattleId = battle.BattleId,
+                    StartedAt = battle.StartedAt,
+                    Predicted = prediction.AllyWinProbability,
+                    Actual = battle.Outcome == BattleOutcome.Win ? 1.0 : 0.0,
+                    Outcome = battle.Outcome.ToString(),
+                });
+            }
+
+            // 本场结束后把结果计入历史，供后续对局使用。
+            foreach (var player in battle.Players.Where(p => !p.IsBot))
+            {
+                string key = PlayerKey(player);
+                if (!historyByPlayer.TryGetValue(key, out var history))
+                {
+                    history = [];
+                    historyByPlayer[key] = history;
+                }
+
+                bool won = (battle.Outcome == BattleOutcome.Win && player.IsAlly)
+                    || (battle.Outcome == BattleOutcome.Loss && !player.IsAlly);
+
+                history.Add(new PlayerBattleHistoryEntry
+                {
+                    BattleId = battle.BattleId,
+                    StartedAt = battle.StartedAt,
+                    Won = won,
+                    DamageDealt = (int)player.DamageDealt,
+                    ShipId = player.ShipId,
+                    DivisionSize = player.DivisionSize,
+                });
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"参与回测的玩家: {historyByPlayer.Count}");
+
+        if (pairs.Count == 0)
+        {
+            Console.WriteLine("没有可用样本。需要玩家在多局中出现才能算近期状态。");
+            return 0;
+        }
+
+        var report = CalibrationMetrics.BuildReport(pairs);
+        Console.WriteLine();
+        Console.WriteLine("=== 近期状态特征回测（无时间泄漏）===");
+        Console.WriteLine($"样本数: {report.SampleCount}, 跳过: {skipped}");
+        Console.WriteLine($"Brier 分数: {report.BrierScore:F4}  (无信息基线 0.25)");
+        Console.WriteLine($"对数损失:   {report.LogLoss:F4}  (无信息基线 0.6931)");
+        Console.WriteLine($"判别准确率: {report.Accuracy:P2}");
+        Console.WriteLine();
+        Console.WriteLine("=== 校准曲线 ===");
+        Console.WriteLine($"{"概率区间",-14} {"样本",6} {"预测均值",10} {"实际胜率",10} {"偏差",10}");
+        foreach (var bucket in report.Curve)
+        {
+            Console.WriteLine(
+                $"{bucket.LowerBound:F1}-{bucket.UpperBound:F1}      {bucket.SampleCount,6} " +
+                $"{bucket.PredictedMean,10:F3} {bucket.ActualWinrate,10:F3} {bucket.CalibrationError,10:+0.000;-0.000}");
+        }
+
+        if (csvPath is not null)
+        {
+            using var writer = new StreamWriter(csvPath);
+            writer.WriteLine("battle_id,started_at,predicted,actual,outcome");
+            foreach (var r in rows)
+            {
+                writer.WriteLine(
+                    $"{r.BattleId},{r.StartedAt.ToUnixTimeMilliseconds()}," +
+                    $"{r.Predicted.ToString("F6", CultureInfo.InvariantCulture)}," +
+                    $"{r.Actual.ToString("F0", CultureInfo.InvariantCulture)},{r.Outcome}");
+            }
+            Console.WriteLine();
+            Console.WriteLine($"明细已写入: {csvPath}");
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// 从数据库按时间顺序读出有效对局。
+    /// </summary>
+    private static List<BattleRecord> LoadBattlesOrdered(string dbPath)
+    {
+        var battles = new List<BattleRecord>();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+
+        var battleMeta = new Dictionary<string, (long Started, string Result)>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT battle_id, started_at, result FROM battles
+                WHERE result IN ('Win', 'Loss')
+                ORDER BY started_at;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                battleMeta[reader.GetString(0)] = (reader.GetInt64(1), reader.GetString(2));
+            }
+        }
+
+        var playersByBattle = new Dictionary<string, List<PlayerRecord>>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT battle_id, account_id, server, player_name, clan_tag, ship_id,
+                       ship_tier, ship_type, team, division_size, is_bot, is_hidden,
+                       damage_dealt, kills, survived
+                FROM battle_players;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string battleId = reader.GetString(0);
+                if (!battleMeta.ContainsKey(battleId))
+                {
+                    continue;
+                }
+
+                if (!playersByBattle.TryGetValue(battleId, out var list))
+                {
+                    list = [];
+                    playersByBattle[battleId] = list;
+                }
+
+                list.Add(new PlayerRecord
+                {
+                    AccountId = reader.GetString(1),
+                    Server = Enum.TryParse<GameServer>(reader.GetString(2), out var sv)
+                        ? sv : GameServer.Auto,
+                    PlayerName = reader.GetString(3),
+                    ClanTag = reader.GetString(4),
+                    ShipId = reader.GetString(5),
+                    ShipTier = reader.GetInt32(6),
+                    ShipClass = Enum.TryParse<ShipClass>(reader.GetString(7), out var sc)
+                        ? sc : ShipClass.Unknown,
+                    IsAlly = reader.GetInt32(8) == 0,
+                    DivisionSize = reader.GetInt32(9),
+                    IsBot = reader.GetInt32(10) != 0,
+                    IsHidden = reader.GetInt32(11) != 0,
+                    DamageDealt = reader.GetInt64(12),
+                    Kills = reader.GetInt64(13),
+                    Survived = reader.GetInt32(14) != 0,
+                });
+            }
+        }
+
+        foreach (var (battleId, (started, result)) in battleMeta.OrderBy(kv => kv.Value.Started))
+        {
+            battles.Add(new BattleRecord
+            {
+                BattleId = battleId,
+                StartedAt = DateTimeOffset.FromUnixTimeMilliseconds(started),
+                Outcome = result == "Win" ? BattleOutcome.Win : BattleOutcome.Loss,
+                Players = playersByBattle.TryGetValue(battleId, out var list) ? list : [],
+            });
+        }
+
+        return battles;
+    }
+
+    /// <summary>
+    /// 用近期状态特征预测。
+    /// </summary>
+    private static PredictionResult? PredictFromRecentForm(
+        BattleRecord battle,
+        Dictionary<string, RecentForm> features)
+    {
+        var allyForms = battle.Allies
+            .Where(p => !p.IsBot)
+            .Select(p => features.GetValueOrDefault(PlayerKey(p)))
+            .Where(f => f is not null && f.HasEnoughSamples)
+            .Select(f => f!)
+            .ToList();
+
+        var enemyForms = battle.Enemies
+            .Where(p => !p.IsBot)
+            .Select(p => features.GetValueOrDefault(PlayerKey(p)))
+            .Where(f => f is not null && f.HasEnoughSamples)
+            .Select(f => f!)
+            .ToList();
+
+        if (allyForms.Count == 0 || enemyForms.Count == 0)
+        {
+            return null;
+        }
+
+        double allyAvg = allyForms.Average(f => f.RecentWinrate);
+        double enemyAvg = enemyForms.Average(f => f.RecentWinrate);
+        double diff = allyAvg - enemyAvg;
+        double probability = 1.0 / (1.0 + Math.Exp(-diff * 4.0));
+
+        int totalWithFeatures = allyForms.Count + enemyForms.Count;
+        int totalHumans = battle.HumanPlayers.Count();
+
+        return new PredictionResult
+        {
+            BattleId = battle.BattleId,
+            PredictedAt = battle.StartedAt,
+            AllyWinProbability = probability,
+            Confidence = totalHumans > 0 ? (double)totalWithFeatures / totalHumans : 0,
+            ModelVersion = "recent-form-logistic-v1",
+            FeatureSnapshotJson = "{}",
+            FeaturesAvailable = totalWithFeatures == totalHumans,
+        };
+    }
+
+    private static string PlayerKey(PlayerRecord player) =>
+        $"{player.Server}:{player.AccountId}";
+
+    private sealed class HistoryBacktestRow
+    {
+        public string BattleId { get; set; } = string.Empty;
+        public DateTimeOffset StartedAt { get; set; }
+        public double Predicted { get; set; }
+        public double Actual { get; set; }
+        public string Outcome { get; set; } = string.Empty;
     }
 
     /// <summary>

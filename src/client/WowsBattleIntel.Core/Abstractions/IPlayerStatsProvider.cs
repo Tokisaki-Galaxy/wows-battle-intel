@@ -35,15 +35,20 @@ public interface IPlayerStatsProvider
 public interface IPlayerHistoryProvider
 {
     /// <summary>
-    /// 获取某玩家最近的若干场战绩，按时间倒序。
+    /// 获取某玩家在指定时间点之前的若干场战绩，按时间倒序。
     /// </summary>
     /// <param name="accountId">账号 ID。</param>
     /// <param name="server">服务器。</param>
+    /// <param name="before">
+    /// 时间上界，只返回早于该时刻的对局。这个参数是防止时间泄漏的关键：
+    /// 预测某场对局时，只能用该场开始之前的历史。
+    /// </param>
     /// <param name="limit">最多返回多少场。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<IReadOnlyList<PlayerBattleHistoryEntry>> GetRecentBattlesAsync(
         string accountId,
         GameServer server,
+        DateTimeOffset before,
         int limit,
         CancellationToken cancellationToken = default);
 }
@@ -67,4 +72,7 @@ public sealed class PlayerBattleHistoryEntry
 
     /// <summary>该场使用的船 ID。</summary>
     public string ShipId { get; set; } = string.Empty;
+
+    /// <summary>该场的组队规模。</summary>
+    public int DivisionSize { get; set; } = 1;
 }
