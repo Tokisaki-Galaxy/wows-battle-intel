@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.IO;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Models;
 
@@ -9,12 +8,16 @@ namespace WowsBattleIntel.Client.ViewModels;
 /// 主窗口视图模型。
 /// </summary>
 /// <remarks>
-/// 承载三块数据：最近对局列表、选中对局的双方名单、预测与真实结果的对照。
-/// 预测来自 IPredictor，真实结果来自回放解析，两者在选中对局时合并展示。
+/// 承载最近对局列表、选中对局的双方名单、预测与真实结果的对照，并持有
+/// 校准与配置两个子视图模型。
+///
+/// 观测事件在后台线程触发，这里用构造时捕获的同步上下文回投到界面线程，
+/// 避免视图模型自己依赖 Dispatcher，也便于在无界面的单元测试里运行。
 /// </remarks>
 public sealed class MainViewModel : ViewModelBase
 {
     private readonly AppServices services;
+    private readonly SynchronizationContext? syncContext;
 
     private BattleRecord? selectedBattle;
     private BattleSummaryViewModel? selectedSummary;
@@ -22,25 +25,46 @@ public sealed class MainViewModel : ViewModelBase
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
     private string statusMessage = "就绪";
     private bool isBusy;
+    private bool isObserving;
 
     /// <summary>
     /// 构造视图模型。
     /// </summary>
-    public MainViewModel(AppServices services)
+    /// <param name="services">应用服务。</param>
+    /// <param name="pathPicker">配置界面的路径选择器。为空时配置项只能手动输入。</param>
+    public MainViewModel(AppServices services, IPathPicker? pathPicker = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         this.services = services;
+
+        syncContext = SynchronizationContext.Current;
+        Calibration = new CalibrationViewModel(services);
+        Settings = new SettingsViewModel(services, pathPicker ?? new NullPathPicker());
+        Settings.SettingsApplied += OnSettingsApplied;
 
         RefreshCommand = new RelayCommand(
             async _ => await LoadRecentBattlesAsync().ConfigureAwait(true),
             _ => !IsBusy);
 
-        // 降级提示放在状态栏，不静默。
-        if (services.PredictionInfo.UsedFallback)
-        {
-            StatusMessage = $"使用基线预测器: {services.PredictionInfo.Reason}";
-        }
+        ToggleObservationCommand = new RelayCommand(
+            _ =>
+            {
+                ToggleObservation();
+                return Task.CompletedTask;
+            },
+            _ => !IsBusy);
+
+        services.Monitor.BattleIngested += OnBattleIngested;
+        services.Monitor.IngestionFailed += OnIngestionFailed;
+
+        UpdatePredictionStatus();
     }
+
+    /// <summary>校准统计子视图模型。</summary>
+    public CalibrationViewModel Calibration { get; }
+
+    /// <summary>配置子视图模型。</summary>
+    public SettingsViewModel Settings { get; }
 
     /// <summary>友方名单。</summary>
     public ObservableCollection<PlayerRowViewModel> Allies { get; } = [];
@@ -48,14 +72,17 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>敌方名单。</summary>
     public ObservableCollection<PlayerRowViewModel> Enemies { get; } = [];
 
-    /// <summary>最近解析出的对局。</summary>
+    /// <summary>最近对局，按开始时间倒序。</summary>
     public ObservableCollection<BattleSummaryViewModel> RecentBattles { get; } = [];
+
+    /// <summary>一局新回放入库后触发，供视图刷新校准等派生数据。</summary>
+    public event Action? BattleListChanged;
 
     /// <summary>当前选中的对局。</summary>
     public BattleRecord? SelectedBattle
     {
         get => selectedBattle;
-        set
+        private set
         {
             if (SetField(ref selectedBattle, value))
             {
@@ -84,25 +111,31 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>刷新列表命令。</summary>
     public System.Windows.Input.ICommand RefreshCommand { get; }
 
+    /// <summary>开始或停止实时观测命令。</summary>
+    public System.Windows.Input.ICommand ToggleObservationCommand { get; }
+
     /// <summary>对局标题。</summary>
     public string BattleTitle => selectedBattle is null
         ? "未选择对局"
-        : $"{selectedBattle.MapId} · {selectedBattle.BattleType}";
+        : $"{selectedBattle.MapId} · {DisplayLabels.BattleType(selectedBattle.BattleType)}";
 
-    /// <summary>对局副标题，含时间与结果。</summary>
+    /// <summary>对局副标题，含时间、服务器、时长与结果。</summary>
     public string BattleSubtitle => selectedBattle is null
         ? string.Empty
         : $"{selectedBattle.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm} · "
-          + $"版本 {selectedBattle.GameVersion} · "
-          + $"结果 {OutcomeLabel(actualOutcome)}";
-
-    /// <summary>预测的友方胜率，未预测时为 -1。</summary>
-    public double PredictedWinrate => currentPrediction?.AllyWinProbability ?? -1;
+          + $"{DisplayLabels.Server(selectedBattle.Server)} · "
+          + $"时长 {DisplayLabels.Duration(selectedBattle.DurationSeconds)} · "
+          + $"结果 {DisplayLabels.Outcome(actualOutcome)}";
 
     /// <summary>预测概率显示文本。</summary>
     public string PredictedWinrateText => currentPrediction is null
         ? "-"
         : currentPrediction.AllyWinProbability.ToString("P1");
+
+    /// <summary>敌方胜率显示文本，即 1 减友方。</summary>
+    public string EnemyWinrateText => currentPrediction is null
+        ? "-"
+        : currentPrediction.EnemyWinProbability.ToString("P1");
 
     /// <summary>真实结果是否与预测方向一致。</summary>
     public string PredictionVerdict
@@ -129,27 +162,84 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>置信度显示文本。</summary>
     public string ConfidenceText => currentPrediction is null
         ? "-"
-        : $"{currentPrediction.Confidence:P0} 数据完整度";
+        : $"{currentPrediction.Confidence:P0}";
 
     /// <summary>模型版本显示。</summary>
     public string ModelVersionText => currentPrediction?.ModelVersion ?? services.Predictor.ModelVersion;
+
+    /// <summary>预测器装配状态说明。</summary>
+    public string PredictorStatusText => services.PredictionInfo.UsedFallback
+        ? $"基线预测器 · {services.PredictionInfo.Reason}"
+        : $"模型推理 · {services.Predictor.ModelVersion}";
 
     /// <summary>状态栏消息。</summary>
     public string StatusMessage
     {
         get => statusMessage;
-        set => SetField(ref statusMessage, value);
+        private set => SetField(ref statusMessage, value);
     }
 
     /// <summary>是否正在处理。</summary>
     public bool IsBusy
     {
         get => isBusy;
-        set => SetField(ref isBusy, value);
+        private set => SetField(ref isBusy, value);
+    }
+
+    /// <summary>是否正在实时观测。</summary>
+    public bool IsObserving
+    {
+        get => isObserving;
+        private set
+        {
+            if (SetField(ref isObserving, value))
+            {
+                OnPropertyChanged(nameof(ObservationButtonText));
+                OnPropertyChanged(nameof(ObservationStatusText));
+            }
+        }
+    }
+
+    /// <summary>观测按钮文本。</summary>
+    public string ObservationButtonText => isObserving ? "停止观测" : "开始观测";
+
+    /// <summary>观测状态说明。</summary>
+    public string ObservationStatusText => isObserving
+        ? $"观测中 · 待处理 {services.Monitor.PendingCount}"
+        : "未观测";
+
+    /// <summary>
+    /// 启动实时观测。
+    /// </summary>
+    public void StartObservation()
+    {
+        if (isObserving)
+        {
+            return;
+        }
+
+        services.StartObservation();
+        IsObserving = true;
+        StatusMessage = "已开始观测回放目录";
     }
 
     /// <summary>
-    /// 扫描解析产物目录，构建对局列表。
+    /// 停止实时观测。
+    /// </summary>
+    public void StopObservation()
+    {
+        if (!isObserving)
+        {
+            return;
+        }
+
+        services.Monitor.Dispose();
+        IsObserving = false;
+        StatusMessage = "已停止观测";
+    }
+
+    /// <summary>
+    /// 从本地库读取最近对局并填充列表。
     /// </summary>
     public async Task LoadRecentBattlesAsync(CancellationToken cancellationToken = default)
     {
@@ -158,34 +248,41 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            string parsedDir = ResolveParsedDirectory();
-            if (!Directory.Exists(parsedDir))
-            {
-                StatusMessage = $"解析产物目录不存在: {parsedDir}";
-                return;
-            }
+            var battles = await services.Repository
+                .GetRecentBattlesAsync(limit: 300, cancellationToken)
+                .ConfigureAwait(true);
 
-            var files = Directory.GetFiles(parsedDir, "*.json")
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .Take(200)
-                .ToList();
-
-            var summaries = new List<BattleSummaryViewModel>();
-            foreach (string file in files)
+            // 逐局取预测胜率，列表上直接显示对照所需的关键数字。
+            var summaries = new List<BattleSummaryViewModel>(battles.Count);
+            foreach (var battle in battles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var prediction = await services.Repository
+                    .GetPredictionAsync(battle.BattleId, cancellationToken)
+                    .ConfigureAwait(true);
 
-                var battle = await TryMapAsync(file, cancellationToken).ConfigureAwait(true);
-                if (battle is not null)
-                {
-                    summaries.Add(BattleSummaryViewModel.FromBattle(battle, file));
-                }
+                summaries.Add(BattleSummaryViewModel.FromBattle(
+                    battle,
+                    sourcePath: string.Empty,
+                    predictedWinProbability: prediction?.AllyWinProbability));
             }
 
+            string? keepId = selectedBattle?.BattleId;
+
             RecentBattles.Clear();
-            foreach (var s in summaries.OrderByDescending(x => x.StartedAt))
+            foreach (var summary in summaries)
             {
-                RecentBattles.Add(s);
+                RecentBattles.Add(summary);
+            }
+
+            // 尽量保持原选中项，刷新后不跳走。
+            if (keepId is not null)
+            {
+                var reselect = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == keepId);
+                if (reselect is not null)
+                {
+                    SelectedBattleSummary = reselect;
+                }
             }
 
             StatusMessage = $"已加载 {RecentBattles.Count} 局";
@@ -205,7 +302,7 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 加载选中对局详情：填名单，跑预测，对照真实结果。
+    /// 加载选中对局详情：填名单，读取该局预测，对照真实结果。
     /// </summary>
     private async Task LoadBattleDetailsAsync(BattleRecord? battle)
     {
@@ -223,36 +320,107 @@ public sealed class MainViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            actualOutcome = battle.Outcome;
+            // 列表查询不加载参战者，详情按标识补一次完整读取。
+            var full = await services.Repository.GetBattleAsync(battle.BattleId).ConfigureAwait(true)
+                ?? battle;
 
-            foreach (var p in battle.Allies.OrderByDescending(p => p.AccountWinrate))
+            actualOutcome = full.Outcome;
+
+            foreach (var p in full.Allies.OrderByDescending(p => p.AccountWinrate))
             {
                 Allies.Add(PlayerRowViewModel.FromPlayer(p));
             }
 
-            foreach (var p in battle.Enemies.OrderByDescending(p => p.AccountWinrate))
+            foreach (var p in full.Enemies.OrderByDescending(p => p.AccountWinrate))
             {
                 Enemies.Add(PlayerRowViewModel.FromPlayer(p));
             }
 
-            // 跑预测。真实结果此时已知，但预测器不使用它。
-            var prediction = await services.Predictor.PredictAsync(battle).ConfigureAwait(true);
-
-            // 回填真实结果用于对照显示。
-            var outcome = await services.Repository.GetBattleAsync(battle.BattleId)
+            // 预测取自已入库记录。入库时算过，这里不重算，保证展示的是当时那一版。
+            currentPrediction = await services.Repository
+                .GetPredictionAsync(full.BattleId)
                 .ConfigureAwait(true);
 
-            currentPrediction = prediction;
-            StatusMessage = $"预测完成 · {PredictionVerdict}";
+            StatusMessage = currentPrediction is null
+                ? "该局没有预测记录"
+                : $"预测对照 · {PredictionVerdict}";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"预测失败: {ex.Message}";
+            StatusMessage = $"加载详情失败: {ex.Message}";
         }
         finally
         {
             IsBusy = false;
             NotifyDetailsChanged();
+        }
+    }
+
+    private void ToggleObservation()
+    {
+        if (isObserving)
+        {
+            StopObservation();
+        }
+        else
+        {
+            StartObservation();
+        }
+    }
+
+    private void OnBattleIngested(IngestionResult result)
+    {
+        Post(() =>
+        {
+            string name = result.Battle?.MapId ?? "新对局";
+            string suffix = result.Message is null ? string.Empty : $"（{result.Message}）";
+            StatusMessage = $"已入库 {name}{suffix}";
+            _ = RefreshAfterIngestionAsync();
+        });
+    }
+
+    private void OnIngestionFailed(string replayPath, string message)
+    {
+        Post(() => StatusMessage = $"回放处理失败: {message}");
+    }
+
+    private async Task RefreshAfterIngestionAsync()
+    {
+        await LoadRecentBattlesAsync().ConfigureAwait(true);
+        BattleListChanged?.Invoke();
+    }
+
+    private void OnSettingsApplied()
+    {
+        Post(() =>
+        {
+            OnPropertyChanged(nameof(ModelVersionText));
+            OnPropertyChanged(nameof(PredictorStatusText));
+            _ = RefreshAfterIngestionAsync();
+        });
+    }
+
+    /// <summary>
+    /// 把动作回投到界面线程。无同步上下文时直接执行，便于测试。
+    /// </summary>
+    private void Post(Action action)
+    {
+        if (syncContext is null)
+        {
+            action();
+        }
+        else
+        {
+            syncContext.Post(_ => action(), null);
+        }
+    }
+
+    private void UpdatePredictionStatus()
+    {
+        if (services.PredictionInfo.UsedFallback)
+        {
+            // 降级提示放在状态栏，不静默。
+            StatusMessage = $"使用基线预测器: {services.PredictionInfo.Reason}";
         }
     }
 
@@ -263,69 +431,20 @@ public sealed class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(BattleTitle));
         OnPropertyChanged(nameof(BattleSubtitle));
-        OnPropertyChanged(nameof(PredictedWinrate));
         OnPropertyChanged(nameof(PredictedWinrateText));
+        OnPropertyChanged(nameof(EnemyWinrateText));
         OnPropertyChanged(nameof(PredictionVerdict));
         OnPropertyChanged(nameof(ConfidenceText));
         OnPropertyChanged(nameof(ModelVersionText));
     }
 
-    private static string OutcomeLabel(BattleOutcome outcome) => outcome switch
-    {
-        BattleOutcome.Win => "胜",
-        BattleOutcome.Loss => "负",
-        BattleOutcome.Draw => "平",
-        _ => "未知",
-    };
-
     /// <summary>
-    /// 尝试把一份解析产物映射成对局记录。失败返回 null，不抛出。
+    /// 无界面环境下的空路径选择器，始终返回取消。
     /// </summary>
-    private static async Task<BattleRecord?> TryMapAsync(
-        string file,
-        CancellationToken cancellationToken)
+    private sealed class NullPathPicker : IPathPicker
     {
-        try
-        {
-            string json = await File.ReadAllTextAsync(file, cancellationToken).ConfigureAwait(false);
-            var output = Newtonsoft.Json.JsonConvert.DeserializeObject<Replay.Dtos.ReplaysharkOutput>(json);
-            if (output is null)
-            {
-                return null;
-            }
+        public string? PickFolder(string title, string currentPath) => null;
 
-            return Replay.ReplaysharkMapper.Map(output, file);
-        }
-        catch
-        {
-            // 单份产物损坏不影响整体列表。
-            return null;
-        }
-    }
-
-    private string ResolveParsedDirectory()
-    {
-        // 与 data/ 目录约定一致：解析产物在 data/parsed。
-        string repoData = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "..", "data", "parsed");
-
-        string normalized = Path.GetFullPath(repoData);
-        if (Directory.Exists(normalized))
-        {
-            return normalized;
-        }
-
-        // 兜底：配置里若指定了 constants 根目录，取它的同级 parsed。
-        string? constantsRoot = Path.GetDirectoryName(services.Config.ConstantsRootPath);
-        if (!string.IsNullOrEmpty(constantsRoot))
-        {
-            string candidate = Path.Combine(constantsRoot, "parsed");
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return normalized;
+        public string? PickFile(string title, string filter, string currentPath) => null;
     }
 }
