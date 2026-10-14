@@ -74,6 +74,14 @@
   <SolidColorBrush x:Key="EnemySoftBrush" Color="#1AFF6467" />
   <SolidColorBrush x:Key="EnemyBdBrush" Color="#48FF6467" />
 
+  <!-- 旧键别名：MainWindow.xaml 布局翻新完成前保留，视图侧全部换到新键后删除 -->
+  <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BgColor}" />
+  <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource Surface2Color}" />
+  <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{StaticResource ControlHoverColor}" />
+  <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource PrimaryColor}" />
+  <Thickness x:Key="PaddingMedium">12</Thickness>
+  <Thickness x:Key="PaddingLarge">16</Thickness>
+
   <!-- 卡片阴影与主按钮光晕 -->
   <DropShadowEffect x:Key="CardShadow" BlurRadius="26" ShadowDepth="10" Direction="270" Opacity="0.4" />
   <DropShadowEffect x:Key="PrimaryGlow" Color="{StaticResource PrimaryColor}" BlurRadius="22" ShadowDepth="0" Opacity="0.45" />

@@ -31,7 +31,7 @@ public class MainWindowSmokeTests
                         new ResourceDictionary
                         {
                             Source = new Uri(
-                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme.xaml",
+                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme/Controls.Dark.xaml",
                                 UriKind.Absolute),
                         });
                 }

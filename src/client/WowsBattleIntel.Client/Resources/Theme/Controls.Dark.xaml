@@ -571,10 +571,4 @@
     </Setter>
   </Style>
 
-  <!-- 转换器 -->
-  <views:ResourceKeyToBrushConverter x:Key="BrushKeyConverter" />
-  <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-  <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
-  <views:ProbabilityToGridLengthConverter x:Key="ProbabilityToGridLengthConverter" />
-
 </ResourceDictionary>
