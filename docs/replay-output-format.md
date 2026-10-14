@@ -45,10 +45,10 @@ replayshark.exe -e <extracted_dir> -c <constants.json> `
 | played_duration | number | 实际时长秒 |
 | extra_duration | number | 加时秒 |
 | timestamp | string | 开始时间，ISO 8601 UTC |
-| battle_result | object | 战斗结果，含 type 与 team_id |
-| results_battle_result | object | 结果来源，含 type 与 team_id |
+| battle_result | object | 战斗结果，含 type 与 team_id（team_id 为获胜方队伍） |
+| results_battle_result | object | 结果来源，含 type 与 team_id（同上） |
 
-`battle_result.type` 取值 `Win` 或 `Loss`，是录制者视角的胜负。`team_id` 是录制者所在队伍。
+`battle_result.type` 取值 `Win` 或 `Loss`，是录制者视角的胜负。`team_id` 是**获胜方**队伍编号，不是录制者队伍，判友敌时不要用它，见下文友敌判定一节。
 
 注意 `played_duration` 为 0 且 `battle_result` 缺失的情况，代表对局中断或未完成，应跳过。
 
@@ -68,8 +68,8 @@ replayshark.exe -e <extracted_dir> -c <constants.json> `
 | clan | string | 公会标签 |
 | clan_color_rgb | number | 公会颜色 |
 | realm | string | 服务器，如 ASIA |
-| team_id | number | 队伍编号，与 metadata.battle_result.team_id 比较可判断友敌 |
-| relation | number | 关系，0/1 为友，2 为敌 |
+| team_id | number | 队伍编号，与录制者的 team_id 比较可判断友敌 |
+| relation | number | 关系字段，实测恒为 0，不可用于友敌判定 |
 | division_id | number/null | 组队 ID，null 表示单排 |
 | division_label | string/null | 组队标签 |
 | is_self | bool | 是否为录制者 |
@@ -163,7 +163,8 @@ replayshark.exe -e <extracted_dir> -c <constants.json> `
 | players[].name | PlayerRecord.PlayerName |
 | players[].realm | PlayerRecord.Server |
 | players[].clan | PlayerRecord.ClanTag |
-| players[].team_id 对比 recorder team | PlayerRecord.IsAlly |
+| players[].team_id 对比录制者 team | PlayerRecord.IsAlly |
+| players[].is_self | 确定录制者队伍的依据 |
 | players[].is_bot | PlayerRecord.IsBot |
 | players[].is_hidden_profile | PlayerRecord.IsHidden |
 | players[].ship_index | PlayerRecord.ShipId |
@@ -190,7 +191,11 @@ replayshark.exe -e <extracted_dir> -c <constants.json> `
 
 ## 注意事项
 
-**友敌判定。** 用 `players[].team_id` 与 `metadata.battle_result.team_id` 比较。相等为友，不等为敌。不要依赖 `relation`，它是录制者视角且可能因模式而异。
+**友敌判定。** 用 `is_self` 标记的玩家取录制者队伍，其 `team_id` 即录制者所在队伍，再与 `players[].team_id` 比较判定友敌。
+
+**不要用 `battle_result.team_id` 判友敌。** 实测确认它是获胜方队伍，不是录制者队伍。失败局的胜方恰是对手，用它会把失败局的友敌整体判反。已验证：380 份回放中，Win 局录制者队伍与该字段 100% 一致，Loss 局 0% 一致。
+
+**不要依赖 `relation`。** 实测 1065 份文件的 `relation` 恒为 0，不可用。文档早期说法有误，已更正。
 
 **组队规模。** 通过相同且非 null 的 `division_id` 分组，组内人数即组队规模。`division_id` 为 null 时是单排。
 
