@@ -14,10 +14,20 @@ public partial class MainWindow : Window
     /// 构造主窗口。
     /// </summary>
     public MainWindow()
+        : this(new MainViewModel(App.Services, App.PathPicker))
     {
+    }
+
+    /// <summary>
+    /// 用指定视图模型构造主窗口，供测试直接驱动界面而不依赖应用启动流程。
+    /// </summary>
+    internal MainWindow(MainViewModel viewModel)
+    {
+        ArgumentNullException.ThrowIfNull(viewModel);
+
         InitializeComponent();
 
-        viewModel = new MainViewModel(App.Services, App.PathPicker);
+        this.viewModel = viewModel;
         DataContext = viewModel;
 
         // 新回放入库后校准数据会变，顺手刷新，用户不用手动点。
