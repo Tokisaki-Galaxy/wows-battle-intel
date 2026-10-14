@@ -66,8 +66,13 @@ public sealed class AppServices : IDisposable
     /// <summary>回放目录观测器。</summary>
     public ReplayObserver Observer { get; private set; }
 
-    /// <summary>实时战斗监控，串联观测与解析。</summary>
-    public LiveBattleMonitor Monitor { get; private set; }
+    /// <summary>
+    /// 实时战斗监控，串联观测与解析。
+    /// </summary>
+    /// <remarks>
+    /// 配置变更时换绑观测器而非重建实例，订阅者才能跨重配置保持有效。
+    /// </remarks>
+    public LiveBattleMonitor Monitor { get; }
 
     /// <summary>
     /// 创建并初始化全部服务。
@@ -96,7 +101,7 @@ public sealed class AppServices : IDisposable
     }
 
     /// <summary>
-    /// 按配置启动回放观测。已启动时先停止再启动，用于配置变更后重启。
+    /// 按配置启动回放观测。
     /// </summary>
     public void StartObservation()
     {
@@ -106,6 +111,14 @@ public sealed class AppServices : IDisposable
         }
 
         Monitor.Start();
+    }
+
+    /// <summary>
+    /// 停止回放观测，保留服务以便再次启动。
+    /// </summary>
+    public void StopObservation()
+    {
+        Monitor.Stop();
     }
 
     /// <summary>
@@ -124,14 +137,15 @@ public sealed class AppServices : IDisposable
         ArgumentNullException.ThrowIfNull(updated);
         ObjectDisposedException.ThrowIf(disposed, this);
 
-        // 重建期间先停止观测，避免旧观测器继续投递路径。
-        Monitor.Dispose();
+        // 重建期间先停掉观测与推理，避免旧组件继续投递路径或占用模型文件。
+        Monitor.Stop();
         (Predictor as IDisposable)?.Dispose();
 
         var repository = new SqliteBattleRepository(updated.DatabasePath);
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         var createResult = PredictorFactory.Create(updated.ModelPath, updated.ModelVersion);
+        var observer = new ReplayObserver(updated);
 
         lock (reconfigureLock)
         {
@@ -144,13 +158,11 @@ public sealed class AppServices : IDisposable
                 createResult.FallbackReason);
             ReplayParser = new ReplayService(updated);
             Ingestion = new BattleIngestionService(ReplayParser, repository, Predictor);
-            Observer = new ReplayObserver(updated);
-
-            // 旧监控随旧观测器一起销毁，重建以绑定新的观测器与配置。
-            Monitor = new LiveBattleMonitor(
-                (path, token) => Ingestion.IngestAsync(path, token),
-                Observer);
+            Observer = observer;
         }
+
+        // 换绑在锁外做，它会启停后台协程，不应长时间持锁。
+        Monitor.Rebind(observer);
     }
 
     private static IPlayerStatsProvider CreateStatsProvider(AppConfig config)
@@ -174,7 +186,6 @@ public sealed class AppServices : IDisposable
 
         disposed = true;
         Monitor.Dispose();
-        Observer.Dispose();
         (Predictor as IDisposable)?.Dispose();
     }
 }

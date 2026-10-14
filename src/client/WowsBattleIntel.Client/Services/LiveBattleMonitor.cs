@@ -13,15 +13,18 @@ namespace WowsBattleIntel.Client.Services;
 ///
 /// 串行而非并行：replayshark 是外部进程，同时开多个既抢 CPU 又抢磁盘，
 /// 回放本来就是一局接一局产生，串行足够。
+///
+/// 停止后可再次启动：停止只取消消费协程并停掉观测，队列本身保持打开，
+/// 这样界面上的开始/停止按钮可以反复切换。只有销毁才关闭队列。
 /// </remarks>
 public sealed class LiveBattleMonitor : IDisposable
 {
-    private readonly ReplayObserver? observer;
     private readonly Func<string, CancellationToken, Task<IngestionResult>> ingest;
     private readonly Channel<string> queue;
-    private readonly object idleLock = new();
-    private readonly CancellationTokenSource cts = new();
+    private readonly object stateLock = new();
+    private ReplayObserver? observer;
     private TaskCompletionSource idleSource = CreateIdleSource();
+    private CancellationTokenSource? cts;
     private Task? worker;
     private int pending;
     private bool disposed;
@@ -31,7 +34,7 @@ public sealed class LiveBattleMonitor : IDisposable
     /// </summary>
     /// <param name="ingest">解析并入库的委托，通常是 BattleIngestionService.IngestAsync。</param>
     /// <param name="observer">回放观测器。测试时可为空，改用 Enqueue 直接投喂路径。</param>
-    /// <param name="capacity">待处理队列上限。超出时丢弃，避免长时间停机后堆积。</param>
+    /// <param name="capacity">待处理队列上限。超出时丢弃本次投递。</param>
     public LiveBattleMonitor(
         Func<string, CancellationToken, Task<IngestionResult>> ingest,
         ReplayObserver? observer = null,
@@ -47,11 +50,17 @@ public sealed class LiveBattleMonitor : IDisposable
         this.observer = observer;
         queue = Channel.CreateBounded<string>(new BoundedChannelOptions(capacity)
         {
-            // 队列满时丢弃最旧的一条。新回放比旧回放更有价值。
-            FullMode = BoundedChannelFullMode.DropOldest,
+            // 队列满时 TryWrite 直接失败，由调用方决定丢弃。
+            // 不用 DropOldest：丢弃发生在通道内部，待处理计数无法同步，空闲等待会算错。
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
         });
+
+        if (observer is not null)
+        {
+            observer.ReplayDiscovered += Enqueue;
+        }
     }
 
     /// <summary>
@@ -67,31 +76,122 @@ public sealed class LiveBattleMonitor : IDisposable
     /// <summary>待处理队列中的回放数量。</summary>
     public int PendingCount => Volatile.Read(ref pending);
 
+    /// <summary>是否正在消费。</summary>
+    public bool IsRunning
+    {
+        get
+        {
+            lock (stateLock)
+            {
+                return worker is not null;
+            }
+        }
+    }
+
     /// <summary>
-    /// 启动监控。观测器存在时同时启动观测。
+    /// 启动监控。观测器存在时同时启动观测。重复调用无副作用。
     /// </summary>
     public void Start()
     {
-        if (worker is not null)
+        if (disposed)
         {
-            return;
+            throw new ObjectDisposedException(nameof(LiveBattleMonitor));
         }
+
+        lock (stateLock)
+        {
+            if (worker is not null)
+            {
+                return;
+            }
+
+            cts = new CancellationTokenSource();
+            worker = Task.Run(() => ProcessLoopAsync(cts.Token));
+        }
+
+        observer?.Start();
+    }
+
+    /// <summary>
+    /// 停止监控与观测，但保留队列，可再次启动。
+    /// </summary>
+    public void Stop()
+    {
+        observer?.Stop();
+
+        Task? toWait;
+        CancellationTokenSource? toDispose;
+        lock (stateLock)
+        {
+            if (worker is null)
+            {
+                return;
+            }
+
+            toWait = worker;
+            toDispose = cts;
+            worker = null;
+            cts = null;
+        }
+
+        toDispose?.Cancel();
+        try
+        {
+            toWait.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch
+        {
+            // 停止超时不阻断退出。
+        }
+
+        toDispose?.Dispose();
+
+        // 停止后队列里的残留不再处理，重置空闲信号避免等待方挂住。
+        ResetPending();
+    }
+
+    /// <summary>
+    /// 换绑观测器。配置变更后观测目录随之变化，需要换一个观测器。
+    /// </summary>
+    /// <remarks>
+    /// 不重建监控实例，是为了保住订阅者。事件订阅绑定在实例上，换实例会
+    /// 让界面收不到入库通知。运行中换绑会自动恢复运行状态。
+    /// </remarks>
+    /// <param name="newObserver">新的观测器，可为空表示只保留队列消费。</param>
+    public void Rebind(ReplayObserver? newObserver)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+
+        bool wasRunning = IsRunning;
+        Stop();
 
         if (observer is not null)
         {
-            observer.ReplayDiscovered += Enqueue;
-            observer.Start();
+            observer.ReplayDiscovered -= Enqueue;
+            observer.Dispose();
         }
 
-        worker = Task.Run(() => ProcessLoopAsync(cts.Token));
+        if (newObserver is not null)
+        {
+            newObserver.ReplayDiscovered += Enqueue;
+        }
+
+        lock (stateLock)
+        {
+            observer = newObserver;
+        }
+
+        if (wasRunning)
+        {
+            Start();
+        }
     }
 
     /// <summary>
     /// 把一份回放加入待处理队列。
     /// </summary>
     /// <remarks>
-    /// 由观测线程调用，必须立即返回。队列满时 Channel 会丢弃最旧的一条，
-    /// 这里不做等待。
+    /// 由观测线程调用，必须立即返回。队列满时丢弃本次投递，不阻塞观测循环。
     /// </remarks>
     public void Enqueue(string replayPath)
     {
@@ -100,7 +200,7 @@ public sealed class LiveBattleMonitor : IDisposable
             return;
         }
 
-        lock (idleLock)
+        lock (stateLock)
         {
             if (pending == 0 && idleSource.Task.IsCompleted)
             {
@@ -110,9 +210,9 @@ public sealed class LiveBattleMonitor : IDisposable
             pending++;
         }
 
+        // 队列满或通道已关闭时写入失败，回退计数以免等待空闲时挂住。
         if (!queue.Writer.TryWrite(replayPath))
         {
-            // 写入失败说明通道已关闭，回退计数以免等待空闲时挂住。
             CompleteOne();
         }
     }
@@ -122,7 +222,7 @@ public sealed class LiveBattleMonitor : IDisposable
     /// </summary>
     public Task WaitForIdleAsync()
     {
-        lock (idleLock)
+        lock (stateLock)
         {
             return pending == 0 ? Task.CompletedTask : idleSource.Task;
         }
@@ -177,7 +277,7 @@ public sealed class LiveBattleMonitor : IDisposable
 
     private void CompleteOne()
     {
-        lock (idleLock)
+        lock (stateLock)
         {
             if (pending > 0)
             {
@@ -188,6 +288,16 @@ public sealed class LiveBattleMonitor : IDisposable
             {
                 idleSource.TrySetResult();
             }
+        }
+    }
+
+    private void ResetPending()
+    {
+        lock (stateLock)
+        {
+            pending = 0;
+            idleSource.TrySetResult();
+            idleSource = CreateIdleSource();
         }
     }
 
@@ -204,6 +314,8 @@ public sealed class LiveBattleMonitor : IDisposable
 
         disposed = true;
 
+        Stop();
+
         if (observer is not null)
         {
             observer.ReplayDiscovered -= Enqueue;
@@ -211,17 +323,5 @@ public sealed class LiveBattleMonitor : IDisposable
         }
 
         queue.Writer.TryComplete();
-        cts.Cancel();
-
-        try
-        {
-            worker?.Wait(TimeSpan.FromSeconds(5));
-        }
-        catch
-        {
-            // 退出阶段不因收尾超时阻断。
-        }
-
-        cts.Dispose();
     }
 }

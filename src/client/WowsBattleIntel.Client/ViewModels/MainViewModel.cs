@@ -233,7 +233,7 @@ public sealed class MainViewModel : ViewModelBase
             return;
         }
 
-        services.Monitor.Dispose();
+        services.StopObservation();
         IsObserving = false;
         StatusMessage = "已停止观测";
     }

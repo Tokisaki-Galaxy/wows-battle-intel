@@ -134,4 +134,66 @@ public class LiveBattleMonitorTests
         monitor.Enqueue("late.wowsreplay");
         await Task.CompletedTask;
     }
+
+    [Fact]
+    public async Task StopThenStart_ResumesProcessing()
+    {
+        int processed = 0;
+        using var monitor = new LiveBattleMonitor((_, _) =>
+        {
+            Interlocked.Increment(ref processed);
+            return Task.FromResult(IngestionResult.Succeeded(MakeBattle(), null));
+        });
+
+        monitor.Start();
+        monitor.Enqueue("a.wowsreplay");
+        await monitor.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, processed);
+
+        monitor.Stop();
+        Assert.False(monitor.IsRunning);
+
+        // 停止后再次启动应能继续处理，而不是永久失效。
+        monitor.Start();
+        Assert.True(monitor.IsRunning);
+        monitor.Enqueue("b.wowsreplay");
+        await monitor.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, processed);
+    }
+
+    [Fact]
+    public async Task Start_CalledTwice_IsIdempotent()
+    {
+        int processed = 0;
+        using var monitor = new LiveBattleMonitor((_, _) =>
+        {
+            Interlocked.Increment(ref processed);
+            return Task.FromResult(IngestionResult.Succeeded(MakeBattle(), null));
+        });
+
+        monitor.Start();
+        monitor.Start();
+        monitor.Enqueue("a.wowsreplay");
+        await monitor.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, processed);
+    }
+
+    [Fact]
+    public async Task Enqueue_BeyondCapacity_DropsWithoutBlocking()
+    {
+        // 不启动消费，队列很快写满，验证投递不阻塞也不抛异常。
+        using var monitor = new LiveBattleMonitor(
+            (_, _) => Task.FromResult(IngestionResult.Succeeded(MakeBattle(), null)),
+            observer: null,
+            capacity: 2);
+
+        for (int i = 0; i < 10; i++)
+        {
+            monitor.Enqueue($"replay-{i}.wowsreplay");
+        }
+
+        Assert.Equal(2, monitor.PendingCount);
+        await Task.CompletedTask;
+    }
 }
