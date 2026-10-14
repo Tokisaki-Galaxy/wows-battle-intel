@@ -44,11 +44,21 @@ public sealed class AppConfig
     public string WgApplicationId { get; set; } = string.Empty;
 
     /// <summary>配置文件路径。</summary>
+    /// <remarks>
+    /// 测试可通过 <see cref="ConfigPathOverride"/> 重定向，避免测试写盘污染真实配置。
+    /// </remarks>
     [JsonIgnore]
-    public static string ConfigPath => Path.Combine(
+    public static string ConfigPath => ConfigPathOverride ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "wows-battle-intel",
         "config.json");
+
+    /// <summary>测试专用的配置路径覆盖。设置后 Load 与 Save 都指向该路径。</summary>
+    [JsonIgnore]
+    internal static string? ConfigPathOverride { get; set; }
+
+    /// <summary>GamePath 未配置时回放目录的回退位置。</summary>
+    private const string DefaultReplayDirectory = @"D:\replays";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -59,6 +69,10 @@ public sealed class AppConfig
     /// <summary>
     /// 加载配置。文件不存在时返回带合理默认值的配置并写盘。
     /// </summary>
+    /// <remarks>
+    /// 已存在的配置文件优先于默认值：旧字段沿用文件里的值，仅对新字段补默认，
+    /// 绝不用默认值覆盖用户已配置的路径。
+    /// </remarks>
     public static AppConfig Load()
     {
         if (File.Exists(ConfigPath))
@@ -69,6 +83,7 @@ public sealed class AppConfig
                 var loaded = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions);
                 if (loaded is not null)
                 {
+                    loaded.Normalize();
                     return loaded;
                 }
             }
@@ -84,28 +99,144 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// 创建默认配置。尝试从已知位置推断路径。
+    /// 规范化配置：把空值补成推断出的默认路径，绝对化相对路径。
     /// </summary>
-    public static AppConfig CreateDefault()
+    /// <remarks>
+    /// 只在值为空或相对时才动，用户显式配置的绝对路径原样保留。
+    /// </remarks>
+    internal void Normalize()
     {
-        string appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "wows-battle-intel");
+        GamePath = ResolveGamePath(GamePath);
+        DatabasePath = ResolveDatabasePath(DatabasePath);
+        ModelPath = ResolveModelPath(ModelPath);
+    }
 
-        var config = new AppConfig
+    /// <summary>
+    /// 解析游戏目录。空值时探测常见安装位置，找不到保持为空。
+    /// </summary>
+    private static string ResolveGamePath(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
         {
-            DatabasePath = Path.Combine(appData, "battles.db"),
-        };
+            return ToAbsolutePath(value);
+        }
 
-        // 探测常见的游戏安装位置。
         foreach (string candidate in GetGamePathCandidates())
         {
             if (Directory.Exists(candidate))
             {
-                config.GamePath = candidate;
-                break;
+                return candidate;
             }
         }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 解析数据库路径。空值时推断仓库 data 目录下的默认库文件。
+    /// </summary>
+    /// <remarks>
+    /// 测试运行曾把临时库路径写进真实配置，形如 wbi-client-test-*.db。
+    /// 这类值来自测试而不是用户，识别后按缺失处理重新推断。
+    /// </remarks>
+    private static string ResolveDatabasePath(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || IsTestArtifactDatabasePath(value))
+        {
+            return InferDatabasePath();
+        }
+
+        return ToAbsolutePath(value);
+    }
+
+    /// <summary>
+    /// 判断是否为测试遗留的临时库路径。
+    /// </summary>
+    private static bool IsTestArtifactDatabasePath(string value) =>
+        value.Contains("wbi-client-test-", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 推断默认数据库路径：优先仓库 data/battles.db，其次退回用户目录。
+    /// </summary>
+    private static string InferDatabasePath()
+    {
+        string? repoDataDir = FindRepoDataDirectory();
+        if (repoDataDir is not null)
+        {
+            return Path.Combine(repoDataDir, "battles.db");
+        }
+
+        string appData = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "wows-battle-intel");
+        return Path.Combine(appData, "battles.db");
+    }
+
+    /// <summary>
+    /// 解析模型路径。空值时探测仓库 data/models 下的默认模型。
+    /// </summary>
+    private static string ResolveModelPath(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return ToAbsolutePath(value);
+        }
+
+        // 空值时探测仓库默认模型，找不到就保持为空，走基线预测器。
+        string? repoDataDir = FindRepoDataDirectory();
+        if (repoDataDir is not null)
+        {
+            string candidate = Path.Combine(repoDataDir, "models", "baseline.onnx");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 相对路径按当前工作目录绝对化，绝对路径原样返回。
+    /// </summary>
+    private static string ToAbsolutePath(string value) =>
+        Path.IsPathRooted(value) ? value : Path.GetFullPath(value);
+
+    /// <summary>
+    /// 从程序集位置向上查找仓库的 data 目录。
+    /// </summary>
+    /// <remarks>
+    /// 开发场景下程序集位于 仓库\src\client\*\bin\Debug\net10.0-windows，
+    /// 逐级上溯最多十层即可覆盖仓库根。找不到返回 null。
+    /// </remarks>
+    private static string? FindRepoDataDirectory()
+    {
+        string? dir = Path.GetDirectoryName(typeof(AppConfig).Assembly.Location);
+        for (int i = 0; dir is not null && i < 10; i++)
+        {
+            string candidate = Path.Combine(dir, "data");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 创建默认配置。尝试从已知位置推断路径。
+    /// </summary>
+    public static AppConfig CreateDefault()
+    {
+        var config = new AppConfig
+        {
+            GamePath = ResolveGamePath(string.Empty),
+            DatabasePath = ResolveDatabasePath(string.Empty),
+            ModelPath = ResolveModelPath(string.Empty),
+        };
 
         return config;
     }
@@ -138,11 +269,30 @@ public sealed class AppConfig
     /// <summary>
     /// 回放目录。
     /// </summary>
-    public string ReplayDirectory => Path.Combine(GamePath, "replays");
+    /// <remarks>
+    /// 优先用配置的 GamePath；未配置时回退到常见回放位置，
+    /// 避免拼出依赖进程工作目录的相对路径。
+    /// </remarks>
+    [JsonIgnore]
+    public string ReplayDirectory
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(GamePath))
+            {
+                return Path.Combine(GamePath, "replays");
+            }
+
+            return DefaultReplayDirectory;
+        }
+    }
 
     /// <summary>
     /// 配置是否足够开始工作。
     /// </summary>
-    public bool IsUsable => !string.IsNullOrWhiteSpace(GamePath)
-        && Directory.Exists(GamePath);
+    /// <remarks>
+    /// 数据库路径始终有推断默认值，只要回放目录可用即可开始观测。
+    /// </remarks>
+    public bool IsUsable => !string.IsNullOrWhiteSpace(ReplayDirectory)
+        && Directory.Exists(ReplayDirectory);
 }
