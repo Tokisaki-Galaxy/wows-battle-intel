@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows desktop client. WPF application that observes replay directories,
+    parses battles, predicts outcomes, and displays prediction-vs-reality.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>WowsBattleIntel.Client</RootNamespace>
+    <AssemblyName>WowsBattleIntel.Client</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WowsBattleIntel.Core\WowsBattleIntel.Core.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Replay\WowsBattleIntel.Replay.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Storage\WowsBattleIntel.Storage.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Stats\WowsBattleIntel.Stats.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Prediction\WowsBattleIntel.Prediction.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -2,6 +2,7 @@
   <Folder Name="/src/" />
   <Folder Name="/src/client/">
     <Project Path="src/client/WowsBattleIntel.Cli/WowsBattleIntel.Cli.csproj" />
+    <Project Path="src/client/WowsBattleIntel.Client/WowsBattleIntel.Client.csproj" />
     <Project Path="src/client/WowsBattleIntel.Core/WowsBattleIntel.Core.csproj" />
     <Project Path="src/client/WowsBattleIntel.Prediction/WowsBattleIntel.Prediction.csproj" />
     <Project Path="src/client/WowsBattleIntel.Replay/WowsBattleIntel.Replay.csproj" />

@@ -37,8 +37,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ReplayRoot,
     [Parameter(Mandatory = $true)][string]$ExtractedRoot,
     [Parameter(Mandatory = $true)][string]$ConstantsRoot,
-    [Parameter(Mandatory = $true)][string]$OutDir,
-    [string]$ReplaysharkPath = "C:\Windows\Temp\opencode\wows-toolkit\replayshark.exe"
+    [Parameter(Mandatory = $false)][string]$OutDir = "$PSScriptRoot\..\..\data\parsed",
+    [string]$ReplaysharkPath = "$PSScriptRoot\..\..\data\tools\replayshark.exe"
 )
 
 Set-StrictMode -Version Latest
