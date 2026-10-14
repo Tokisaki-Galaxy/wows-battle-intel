@@ -241,4 +241,106 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         await repository.SaveBattleAsync(MakeBattle());
         Assert.NotNull(await repository.GetBattleAsync("battle-001"));
     }
+
+    [Fact]
+    public async Task GetCalibrationSamples_ReturnsPredictionsWithOutcome()
+    {
+        var battle = MakeBattle();
+        await repository.SaveBattleAsync(battle);
+
+        await repository.SavePredictionAsync(new PredictionResult
+        {
+            BattleId = battle.BattleId,
+            PredictedAt = DateTimeOffset.UtcNow,
+            AllyWinProbability = 0.7,
+        });
+        await repository.BackfillOutcomeAsync(battle.BattleId, BattleOutcome.Win);
+
+        var samples = await repository.GetCalibrationSamplesAsync(100);
+
+        var sample = Assert.Single(samples);
+        Assert.Equal(battle.BattleId, sample.Prediction.BattleId);
+        Assert.Equal(BattleOutcome.Win, sample.Outcome);
+        Assert.Equal(0.7, sample.Prediction.AllyWinProbability, precision: 6);
+    }
+
+    [Fact]
+    public async Task GetCalibrationSamples_ExcludesUnresolvedOutcomes()
+    {
+        var battle = MakeBattle();
+        await repository.SaveBattleAsync(battle);
+
+        // 未回填结果，不应进入校准样本。
+        await repository.SavePredictionAsync(new PredictionResult
+        {
+            BattleId = battle.BattleId,
+            PredictedAt = DateTimeOffset.UtcNow,
+            AllyWinProbability = 0.5,
+        });
+
+        var samples = await repository.GetCalibrationSamplesAsync(100);
+        Assert.Empty(samples);
+    }
+
+    [Fact]
+    public async Task GetCalibrationSamples_IncludesAlreadyCalibratedRows()
+    {
+        var battle = MakeBattle();
+        await repository.SaveBattleAsync(battle);
+        await repository.SavePredictionAsync(new PredictionResult
+        {
+            BattleId = battle.BattleId,
+            PredictedAt = DateTimeOffset.UtcNow,
+            AllyWinProbability = 0.4,
+        });
+        await repository.BackfillOutcomeAsync(battle.BattleId, BattleOutcome.Loss);
+
+        // 校准是可重复的计算，标记为已校准后仍应返回。
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE predictions SET calibrated = 1;";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var samples = await repository.GetCalibrationSamplesAsync(100);
+        Assert.Single(samples);
+    }
+
+    [Fact]
+    public async Task GetRecentBattles_OrdersByStartTimeDescending()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            var battle = MakeBattle($"battle-{i:D3}");
+            battle.StartedAt = DateTimeOffset.FromUnixTimeMilliseconds(1753163342000 + i * 1000);
+            await repository.SaveBattleAsync(battle);
+        }
+
+        var recent = await repository.GetRecentBattlesAsync(2);
+
+        Assert.Equal(2, recent.Count);
+        Assert.Equal("battle-002", recent[0].BattleId);
+        Assert.Equal("battle-001", recent[1].BattleId);
+    }
+
+    [Fact]
+    public async Task GetRecentBattles_ZeroLimit_ReturnsEmpty()
+    {
+        await repository.SaveBattleAsync(MakeBattle());
+        Assert.Empty(await repository.GetRecentBattlesAsync(0));
+    }
+
+    [Fact]
+    public async Task CountBattles_CountsStoredBattles()
+    {
+        Assert.Equal(0, await repository.CountBattlesAsync());
+
+        await repository.SaveBattleAsync(MakeBattle("battle-a"));
+        await repository.SaveBattleAsync(MakeBattle("battle-b"));
+
+        Assert.Equal(2, await repository.CountBattlesAsync());
+    }
 }

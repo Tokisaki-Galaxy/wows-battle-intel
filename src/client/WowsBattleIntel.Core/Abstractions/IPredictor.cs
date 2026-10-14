@@ -1,3 +1,4 @@
+using WowsBattleIntel.Core.Calibration;
 using WowsBattleIntel.Core.Models;
 
 namespace WowsBattleIntel.Core.Abstractions;
@@ -59,4 +60,32 @@ public interface IBattleRepository
     Task<IReadOnlyList<PredictionResult>> GetUncalibratedPredictionsAsync(
         int limit,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 取出全部已有真实结果的预测，连同结果一起返回。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="GetUncalibratedPredictionsAsync"/> 的差别在于是否看
+    /// <c>calibrated</c> 标记。校准统计是可重复的计算，标记只用于增量批处理，
+    /// 因此界面上的报告取全量，多次查看结果一致。
+    /// </remarks>
+    /// <param name="limit">最多返回多少条，按预测时间正序。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task<IReadOnlyList<CalibrationSample>> GetCalibrationSamplesAsync(
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按开始时间倒序读取对局列表。
+    /// </summary>
+    /// <param name="limit">最多返回多少局。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task<IReadOnlyList<BattleRecord>> GetRecentBattlesAsync(
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 统计库中已解析出结果的对局总数。
+    /// </summary>
+    Task<int> CountBattlesAsync(CancellationToken cancellationToken = default);
 }

@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using WowsBattleIntel.Core.Abstractions;
+using WowsBattleIntel.Core.Calibration;
 using WowsBattleIntel.Core.Models;
 
 namespace WowsBattleIntel.Storage;
@@ -326,6 +327,98 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         }
 
         return results;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<CalibrationSample>> GetCalibrationSamplesAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT battle_id, predicted_at, model_version, model_hash,
+                   ally_win_prob, confidence, feature_json, features_available,
+                   actual_result
+            FROM predictions
+            WHERE actual_result IN ('Win', 'Loss')
+            ORDER BY predicted_at
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var samples = new List<CalibrationSample>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // 查询已限定 Win/Loss，解析失败说明数据被外部改坏，跳过而不是抛。
+            if (!Enum.TryParse<BattleOutcome>(reader.GetString(8), out var outcome)
+                || outcome == BattleOutcome.Unknown)
+            {
+                continue;
+            }
+
+            samples.Add(new CalibrationSample(
+                new PredictionResult
+                {
+                    BattleId = reader.GetString(0),
+                    PredictedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
+                    ModelVersion = reader.GetString(2),
+                    ModelHash = reader.GetString(3),
+                    AllyWinProbability = reader.GetDouble(4),
+                    Confidence = reader.GetDouble(5),
+                    FeatureSnapshotJson = reader.IsDBNull(6) ? "{}" : reader.GetString(6),
+                    FeaturesAvailable = reader.GetInt32(7) != 0,
+                },
+                outcome));
+        }
+
+        return samples;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<BattleRecord>> GetRecentBattlesAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT * FROM battles
+            ORDER BY started_at DESC
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var battles = new List<BattleRecord>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                battles.Add(ReadBattle(reader));
+            }
+        }
+
+        return battles;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountBattlesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM battles;";
+
+        object? result = await command.ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return result is long count ? (int)count : 0;
     }
 
     /// <inheritdoc />
