@@ -41,7 +41,17 @@ public static class ReplaysharkMapper
             playedDuration = 0;
         }
 
-        int recorderTeamId = result.TeamId;
+        // 友敌判定的基准是录制者所在队伍。
+        //
+        // 关键：不能用 battle_result.team_id。实测确认它是获胜方队伍编号，
+        // 而非录制者队伍。失败局的胜方恰好是对手，用它会把失败局的友敌
+        // 整体判反，训练数据里一半样本的特征与标签错配。
+        //
+        // 正确依据是 is_self 标记的玩家，其 team_id 即录制者所在队伍。
+        // 回放必然恰有一名录制者，缺失时退回胜方队伍并在下方注释说明局限。
+        var recorder = output.Players.FirstOrDefault(p => p.IsSelf);
+        int recorderTeamId = recorder?.TeamId ?? result.TeamId;
+
         var divisionSizes = ComputeDivisionSizes(output.Players);
 
         var players = new List<PlayerRecord>(output.Players.Count);

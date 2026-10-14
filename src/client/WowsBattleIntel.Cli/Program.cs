@@ -1203,7 +1203,10 @@ internal static class Program
         Console.WriteLine("  wows-intel backtest <目录> [--csv <文件>]    批量预测与校准");
         Console.WriteLine("  wows-intel survey <目录>                     统计解析结果分布");
         Console.WriteLine("  wows-intel import <目录> <数据库>            导入解析结果到本地库");
+        Console.WriteLine("  wows-intel snapshot <数据库> [--fast]        拉取玩家统计并落盘快照");
         Console.WriteLine("  wows-intel predict <目录> [--limit N]        拉历史特征预测并对照真实结果");
+        Console.WriteLine("  wows-intel history-backtest <数据库>         用近期状态特征回测, 无时间泄漏");
+        Console.WriteLine("  wows-intel snapshot-backtest <数据库>        用账号胜率快照特征回测");
         Console.WriteLine("  wows-intel onnx <模型.onnx> <目录>            用 ONNX 模型推理并回测");
     }
 

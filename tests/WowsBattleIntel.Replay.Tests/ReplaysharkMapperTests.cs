@@ -146,6 +146,50 @@ public class ReplaysharkMapperTests
     }
 
     [Fact]
+    public void Map_OnLoss_UsesRecorderTeamNotWinnerTeam()
+    {
+        // 回归测试：battle_result.team_id 是获胜方队伍，不是录制者队伍。
+        // 失败局里胜方是对手，若用 team_id 判友敌会整体判反。
+        // 本用例构造录制者在 team 1 且落败（胜方 team 0）的情形。
+        var output = MakeOutput(resultType: "Loss");
+        output.Metadata.BattleResult!.TeamId = 0; // 胜方队伍
+        // 录制者 AllyOne 与队友 AllyTwo 在 team 1，对手在 team 0。
+        output.Players[0].TeamId = 1; // isSelf
+        output.Players[1].TeamId = 1;
+        output.Players[2].TeamId = 0;
+        output.Players[3].TeamId = 0;
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        Assert.Equal(BattleOutcome.Loss, battle.Outcome);
+        // 友方必须是录制者所在队伍，即 team 1 的两人。
+        Assert.Equal(2, battle.Allies.Count());
+        Assert.Contains(battle.Allies, p => p.PlayerName == "AllyOne");
+        Assert.Contains(battle.Allies, p => p.PlayerName == "AllyTwo");
+        Assert.Contains(battle.Enemies, p => p.PlayerName == "EnemyOne");
+        Assert.Contains(battle.Enemies, p => p.PlayerName == "EnemyTwo");
+    }
+
+    [Fact]
+    public void Map_OnWin_AllyMatchesRecorderTeam()
+    {
+        // 胜局里胜方即录制者所在队伍，友方应为录制者队伍。
+        var output = MakeOutput(resultType: "Win");
+        output.Metadata.BattleResult!.TeamId = 1; // 胜方队伍与录制者一致
+        output.Players[0].TeamId = 1; // isSelf
+        output.Players[1].TeamId = 1;
+        output.Players[2].TeamId = 0;
+        output.Players[3].TeamId = 0;
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        Assert.Equal(BattleOutcome.Win, battle.Outcome);
+        Assert.Equal(2, battle.Allies.Count());
+        Assert.Contains(battle.Allies, p => p.PlayerName == "AllyOne");
+        Assert.Contains(battle.Enemies, p => p.PlayerName == "EnemyOne");
+    }
+
+    [Fact]
     public void Map_MapsShipClassCorrectly()
     {
         var output = MakeOutput();
