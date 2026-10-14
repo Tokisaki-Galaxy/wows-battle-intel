@@ -1,0 +1,96 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+  <!--
+    深色主题令牌。唯一事实来源，Theme.xaml 与各控件样式只引用这里的原始值。
+    键名与 agent2api 的 design token 体系对齐，色值即 tokens.css 深色档的翻译。
+    改色改几何只动本文件，禁止在样式里写死具体数值。
+  -->
+
+  <!-- 表面层级：画布纯黑，卡片与控件填充分离是这套体系的核心思想 -->
+  <Color x:Key="BgColor">#FF000000</Color>
+  <Color x:Key="SurfaceColor">#FF141416</Color>
+  <Color x:Key="Surface2Color">#FF29292D</Color>
+  <Color x:Key="Surface3Color">#FF34343A</Color>
+  <Color x:Key="SurfaceRaisedColor">#FF2D2D30</Color>
+  <Color x:Key="SurfaceInsetColor">#FF19191C</Color>
+  <Color x:Key="ControlBgColor">#FF3E3E43</Color>
+  <Color x:Key="ControlHoverColor">#FF49494F</Color>
+
+  <!-- 边框：白色按透明度分档，发丝线负责行分隔 -->
+  <Color x:Key="BorderColor">#1AFFFFFF</Color>
+  <Color x:Key="BorderStrongColor">#33FFFFFF</Color>
+  <Color x:Key="HairlineColor">#17FFFFFF</Color>
+  <Color x:Key="ControlBdColor">#26FFFFFF</Color>
+  <Color x:Key="ControlBdHoverColor">#40FFFFFF</Color>
+
+  <!-- 文本三档，禁用态取主文本 45% -->
+  <Color x:Key="TextPrimaryColor">#FFF3F3F3</Color>
+  <Color x:Key="TextSecondaryColor">#FFCECECE</Color>
+  <Color x:Key="TextMutedColor">#FFB7B7B7</Color>
+  <Color x:Key="TextDisabledColor">#73F3F3F3</Color>
+
+  <!-- 品牌蓝与派生：soft 主色 15%，bd 主色 38%，焦点环 25%，glow 45% -->
+  <Color x:Key="PrimaryColor">#FF0484FF</Color>
+  <Color x:Key="PrimaryHoverColor">#FF2896FF</Color>
+  <Color x:Key="PrimaryFgColor">#FF79B1F9</Color>
+  <Color x:Key="PrimarySoftColor">#260484FF</Color>
+  <Color x:Key="PrimaryBdColor">#610484FF</Color>
+  <Color x:Key="FocusRingColor">#400484FF</Color>
+  <Color x:Key="ButtonGlowColor">#730484FF</Color>
+
+  <!-- 语义色 -->
+  <Color x:Key="OkColor">#FF00BC7D</Color>
+  <Color x:Key="WarnColor">#FFFE9A00</Color>
+  <Color x:Key="DangerColor">#FFFF6467</Color>
+  <Color x:Key="InfoColor">#FF018DCF</Color>
+
+  <!-- 导航选中 -->
+  <Color x:Key="NavSelectedBgColor">#FF223B58</Color>
+  <Color x:Key="NavSelectedFgColor">#FFD9EBFF</Color>
+
+  <!-- 阴影：卡片 40% 黑，弹窗 26% 黑 -->
+  <Color x:Key="Shadow2Color">#66000000</Color>
+  <Color x:Key="Shadow3Color">#42000000</Color>
+
+  <!-- 业务色：阵营与水平分档。友方保留原 #4C8BF5 调谐，敌方并入错误档，海王金、猴子紫沿用 -->
+  <Color x:Key="AllyColor">#FF4C8BF5</Color>
+  <Color x:Key="EnemyColor">#FFFF6467</Color>
+  <Color x:Key="UnicumColor">#FFE8B84C</Color>
+  <Color x:Key="ApeColor">#FFB05CF0</Color>
+  <Color x:Key="HiddenColor">#FF7A8088</Color>
+
+  <!-- 圆角族：xs 8 / sm 9.6 / md 12.8 / lg 16 / xl 22.4，胶囊 999 -->
+  <CornerRadius x:Key="RadiusXs">8</CornerRadius>
+  <CornerRadius x:Key="RadiusSm">9.6</CornerRadius>
+  <CornerRadius x:Key="RadiusMd">12.8</CornerRadius>
+  <CornerRadius x:Key="RadiusLg">16</CornerRadius>
+  <CornerRadius x:Key="RadiusXl">22.4</CornerRadius>
+  <CornerRadius x:Key="RadiusPill">999</CornerRadius>
+  <CornerRadius x:Key="RadiusTopLg">16,16,0,0</CornerRadius>
+
+  <!-- 字体族：英文走 Segoe UI，中文回落微软雅黑 -->
+  <FontFamily x:Key="AppFontFamily">Segoe UI, Microsoft YaHei</FontFamily>
+
+  <!-- 字号族：基准 13，控件 12.5，小字 12，表头 10.5，面板标题 13.5，品牌标题 18，大读数 34 -->
+  <sys:Double x:Key="FontSizeBase">13</sys:Double>
+  <sys:Double x:Key="FontSizeControl">12.5</sys:Double>
+  <sys:Double x:Key="FontSizeSmall">12</sys:Double>
+  <sys:Double x:Key="FontSizeTableHeader">10.5</sys:Double>
+  <sys:Double x:Key="FontSizePanelTitle">13.5</sys:Double>
+  <sys:Double x:Key="FontSizeBrand">18</sys:Double>
+  <sys:Double x:Key="FontSizeDisplay">34</sys:Double>
+  <sys:Double x:Key="FontSizeBadge">11.5</sys:Double>
+
+  <!-- 间距族 -->
+  <Thickness x:Key="SpacingXs">4</Thickness>
+  <Thickness x:Key="SpacingSm">8</Thickness>
+  <Thickness x:Key="SpacingMd">12</Thickness>
+  <Thickness x:Key="SpacingLg">16</Thickness>
+  <Thickness x:Key="PaddingCell">14,8</Thickness>
+  <Thickness x:Key="PaddingField">8,5</Thickness>
+  <Thickness x:Key="PaddingBadge">8,3</Thickness>
+  <Thickness x:Key="PaddingRow">0,2</Thickness>
+
+</ResourceDictionary>
