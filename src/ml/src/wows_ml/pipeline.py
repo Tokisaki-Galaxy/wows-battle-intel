@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wows_ml.calibration import build_report
-from wows_ml.dataset import load_battles
+from wows_ml.dataset import DEFAULT_BATTLE_TYPES, load_battles
 from wows_ml.export import export_to_onnx, verify_onnx, write_model_manifest
 from wows_ml.features import MatchFeatures
 from wows_ml.train import TrainResult, train_lightgbm, train_logistic
@@ -40,14 +40,20 @@ def run(
     *,
     model_type: str = "logistic",
     allow_future_snapshots: bool = False,
+    allowed_battle_types: tuple[str, ...] = DEFAULT_BATTLE_TYPES,
 ) -> PipelineResult:
     """执行训练到导出的完整管线。
 
     allow_future_snapshots 默认 False，保证无时间泄漏。
     事后补采数据需显式开启，结果会偏乐观，仅在验证管线时使用。
+
+    allowed_battle_types 默认只含标准 PvP 的 Random 与 Ranked，
+    避免 Coop 等 PvE 模式污染训练集。
     """
     matches, stats = load_battles(
-        db_path, allow_future_snapshots=allow_future_snapshots
+        db_path,
+        allow_future_snapshots=allow_future_snapshots,
+        allowed_battle_types=allowed_battle_types,
     )
 
     if len(matches) < 10:

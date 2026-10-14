@@ -30,12 +30,26 @@ class DatasetStats:
     total_players: int = 0
     # 使用了晚于对局开始时间的快照的玩家数。大于 0 表示存在时间泄漏。
     future_snapshots_used: int = 0
+    # 因对局类型不在白名单而被跳过的对局数。
+    skipped_battle_type: int = 0
+
+
+# 默认参与训练的 PvP 对局类型。
+#
+# 只保留标准玩家对抗模式。理由：
+# - Coop 是 PvE，机器人占比高，胜负与玩家水平关系弱，混入是纯噪声。
+# - Brawl、Event 等特殊模式机制与随机战差异大，样本量小，不宜混训。
+# - Training、Operation 等非排位对抗模式本就不适合预测玩家胜负。
+#
+# 需要全部类型时显式传空元组。
+DEFAULT_BATTLE_TYPES: tuple[str, ...] = ("Random", "Ranked")
 
 
 def load_battles(
     db_path: str | Path,
     *,
     allow_future_snapshots: bool = False,
+    allowed_battle_types: tuple[str, ...] = DEFAULT_BATTLE_TYPES,
 ) -> tuple[list[MatchFeatures], DatasetStats]:
     """从 SQLite 加载对局并构造特征。
 
@@ -51,6 +65,11 @@ def load_battles(
         事后补采数据的场景，能跑通管线验证，但会产生乐观偏差，
         评估结果不可用于判断真实预测能力。使用时会记录警告。
 
+    allowed_battle_types：
+        参与训练的对局类型白名单，默认只含标准 PvP 的 Random 与 Ranked。
+        Coop 等 PvE 模式的胜负与玩家水平关系弱，混入会污染训练集，
+        表现为指标虚高但缺乏实际判别力。传空元组表示不过滤。
+
     返回特征列表与统计信息。
     """
     stats = DatasetStats()
@@ -60,14 +79,24 @@ def load_battles(
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     try:
-        battle_rows = conn.execute(
-            """
+        # 全库对局总数，用于诊断，不受类型过滤影响。
+        stats.total_battles = conn.execute(
+            "SELECT COUNT(*) FROM battles"
+        ).fetchone()[0]
+
+        sql = """
             SELECT battle_id, started_at, map_id, battle_type, server, result
             FROM battles
-            ORDER BY started_at
             """
-        ).fetchall()
-        stats.total_battles = len(battle_rows)
+        params: list[str] = []
+        if allowed_battle_types:
+            placeholders = ", ".join("?" for _ in allowed_battle_types)
+            sql += f" WHERE battle_type IN ({placeholders})"
+            params = list(allowed_battle_types)
+        sql += " ORDER BY started_at"
+
+        battle_rows = conn.execute(sql, params).fetchall()
+        stats.skipped_battle_type = stats.total_battles - len(battle_rows)
 
         for battle in battle_rows:
             if battle["result"] not in ("Win", "Loss"):

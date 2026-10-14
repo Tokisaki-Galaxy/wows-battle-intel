@@ -145,3 +145,65 @@ class TestLoadBattles:
         matches, _ = load_battles(db)
 
         assert matches[0].label == 1.0  # 结果为 Win
+
+    def test_skips_non_pvp_types_by_default(self, db: str) -> None:
+        """Coop 等 PvE 模式默认不参与训练，避免污染样本。"""
+        conn = sqlite3.connect(db)
+        # 加一局有结果、有特征的 Coop 对局。若不过滤，它会被纳入。
+        conn.execute(
+            "INSERT INTO battles VALUES (?,?,?,?,?,?)",
+            ("b3", 3_000_000, "Haven", "Coop", "Asia", "Win"),
+        )
+        for account, team in (("3001", 0), ("4001", 1)):
+            conn.execute(
+                "INSERT INTO battle_players (battle_id, account_id, server, player_name, "
+                "ship_tier, ship_type, team, division_size, is_bot, is_hidden) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("b3", account, "Asia", f"P{account}", 8, "Cruiser", team, 1, 0, 0),
+            )
+        # 给已有随机战与新增 Coop 局都补上快照。
+        for account in ("1001", "2001", "3001", "4001"):
+            conn.execute(
+                "INSERT INTO player_snapshots (account_id, server, captured_at, account_battles, "
+                "account_winrate, weighted_winrate) VALUES (?,?,?,?,?,?)",
+                (account, "Asia", 900_000, 1000, 0.50, 0.50),
+            )
+        conn.commit()
+        conn.close()
+
+        matches, stats = load_battles(db)
+
+        # 总数统计全库，类型过滤单独记账。
+        assert stats.total_battles == 3
+        assert stats.skipped_battle_type == 1
+        # 只剩那局 Random。
+        assert len(matches) == 1
+        assert matches[0].battle_type == "Random"
+
+    def test_all_types_includes_coop(self, db: str) -> None:
+        """显式传空白名单时不过滤，Coop 也被纳入。"""
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO battles VALUES (?,?,?,?,?,?)",
+            ("b3", 3_000_000, "Haven", "Coop", "Asia", "Win"),
+        )
+        for account, team in (("3001", 0), ("4001", 1)):
+            conn.execute(
+                "INSERT INTO battle_players (battle_id, account_id, server, player_name, "
+                "ship_tier, ship_type, team, division_size, is_bot, is_hidden) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("b3", account, "Asia", f"P{account}", 8, "Cruiser", team, 1, 0, 0),
+            )
+        for account in ("1001", "2001", "3001", "4001"):
+            conn.execute(
+                "INSERT INTO player_snapshots (account_id, server, captured_at, account_battles, "
+                "account_winrate, weighted_winrate) VALUES (?,?,?,?,?,?)",
+                (account, "Asia", 900_000, 1000, 0.50, 0.50),
+            )
+        conn.commit()
+        conn.close()
+
+        matches, stats = load_battles(db, allowed_battle_types=())
+
+        assert stats.skipped_battle_type == 0
+        assert {m.battle_type for m in matches} == {"Random", "Coop"}

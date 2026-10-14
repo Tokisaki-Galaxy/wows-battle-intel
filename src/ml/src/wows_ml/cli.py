@@ -4,6 +4,9 @@
     python -m wows_ml.cli baselines <db>    # 对比基线
     python -m wows_ml.cli train <db>        # 训练并评估模型
     python -m wows_ml.cli dataset <db>      # 数据集统计
+
+默认只使用标准 PvP 对局（Random 与 Ranked）。Coop 等 PvE 模式
+胜负与玩家水平关系弱，混入会污染训练集。需要全部类型时加 --all-types。
 """
 
 from __future__ import annotations
@@ -11,15 +14,32 @@ from __future__ import annotations
 import argparse
 import sys
 
-from wows_ml.dataset import load_battles
+from wows_ml.dataset import DEFAULT_BATTLE_TYPES, load_battles
 from wows_ml.train import compare_baselines, train_lightgbm, train_logistic
 
 
-def cmd_dataset(db_path: str, allow_future: bool = False) -> int:
+def _resolve_types(all_types: bool) -> tuple[str, ...]:
+    """把 CLI 的全类型开关转成类型白名单。
+
+    --all-types 时返回空元组，表示不做类型过滤。
+    """
+    return () if all_types else DEFAULT_BATTLE_TYPES
+
+
+def cmd_dataset(
+    db_path: str,
+    allow_future: bool = False,
+    all_types: bool = False,
+) -> int:
     """数据集统计。"""
-    matches, stats = load_battles(db_path, allow_future_snapshots=allow_future)
+    matches, stats = load_battles(
+        db_path,
+        allow_future_snapshots=allow_future,
+        allowed_battle_types=_resolve_types(all_types),
+    )
     print("数据集统计")
     print(f"  对局总数:     {stats.total_battles}")
+    print(f"  跳过（非 PvP 类型）: {stats.skipped_battle_type}")
     print(f"  可用于训练:   {stats.usable_battles}")
     print(f"  跳过（无结果）: {stats.skipped_no_result}")
     print(f"  跳过（无特征）: {stats.skipped_no_features}")
@@ -39,9 +59,13 @@ def cmd_dataset(db_path: str, allow_future: bool = False) -> int:
     return 0
 
 
-def cmd_baselines(db_path: str, allow_future: bool = False) -> int:
+def cmd_baselines(db_path: str, allow_future: bool = False, all_types: bool = False) -> int:
     """对比基线。"""
-    matches, stats = load_battles(db_path, allow_future_snapshots=allow_future)
+    matches, stats = load_battles(
+        db_path,
+        allow_future_snapshots=allow_future,
+        allowed_battle_types=_resolve_types(all_types),
+    )
     if not matches:
         print(f"没有可用样本。统计: {stats}")
         if stats.skipped_no_features > 0 and stats.future_snapshots_used == 0:
@@ -55,9 +79,18 @@ def cmd_baselines(db_path: str, allow_future: bool = False) -> int:
     return 0
 
 
-def cmd_train(db_path: str, model_type: str, allow_future: bool = False) -> int:
+def cmd_train(
+    db_path: str,
+    model_type: str,
+    allow_future: bool = False,
+    all_types: bool = False,
+) -> int:
     """训练并评估。"""
-    matches, stats = load_battles(db_path, allow_future_snapshots=allow_future)
+    matches, stats = load_battles(
+        db_path,
+        allow_future_snapshots=allow_future,
+        allowed_battle_types=_resolve_types(all_types),
+    )
     if stats.future_snapshots_used > 0:
         print(f"警告: 使用 {stats.future_snapshots_used} 个未来快照，结果偏乐观。")
         print()
@@ -67,6 +100,8 @@ def cmd_train(db_path: str, model_type: str, allow_future: bool = False) -> int:
         return 1
 
     print(f"训练样本: {len(matches)} 条")
+    if stats.skipped_battle_type > 0:
+        print(f"已跳过非 PvP 对局: {stats.skipped_battle_type} 局")
     print()
     print(compare_baselines(matches))
     print()
@@ -110,6 +145,7 @@ def cmd_pipeline(
     manifest_path: str,
     model_type: str = "logistic",
     allow_future: bool = False,
+    all_types: bool = False,
 ) -> int:
     """训练到导出的完整管线。"""
     from wows_ml.pipeline import describe, run
@@ -121,6 +157,7 @@ def cmd_pipeline(
             manifest_path,
             model_type=model_type,
             allow_future_snapshots=allow_future,
+            allowed_battle_types=_resolve_types(all_types),
         )
     except (ValueError, RuntimeError) as ex:
         print(f"管线失败: {ex}")
@@ -146,6 +183,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
     )
+    p_dataset.add_argument(
+        "--all-types",
+        action="store_true",
+        help="不过滤对局类型，把 Coop 等 PvE 模式也纳入（默认只留 PvP）",
+    )
 
     p_baselines = sub.add_parser("baselines", help="对比基线")
     p_baselines.add_argument("db", help="SQLite 数据库路径")
@@ -153,6 +195,11 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-future",
         action="store_true",
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
+    )
+    p_baselines.add_argument(
+        "--all-types",
+        action="store_true",
+        help="不过滤对局类型，把 Coop 等 PvE 模式也纳入（默认只留 PvP）",
     )
 
     p_train = sub.add_parser("train", help="训练模型")
@@ -167,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-future",
         action="store_true",
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
+    )
+    p_train.add_argument(
+        "--all-types",
+        action="store_true",
+        help="不过滤对局类型，把 Coop 等 PvE 模式也纳入（默认只留 PvP）",
     )
 
     p_server = sub.add_parser("server-baselines", help="计算服务器基线")
@@ -187,18 +239,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
     )
+    p_pipeline.add_argument(
+        "--all-types",
+        action="store_true",
+        help="不过滤对局类型，把 Coop 等 PvE 模式也纳入（默认只留 PvP）",
+    )
 
     args = parser.parse_args(argv)
 
     if args.command == "dataset":
-        return cmd_dataset(args.db, args.allow_future)
+        return cmd_dataset(args.db, args.allow_future, args.all_types)
     if args.command == "baselines":
-        return cmd_baselines(args.db, args.allow_future)
+        return cmd_baselines(args.db, args.allow_future, args.all_types)
     if args.command == "train":
-        return cmd_train(args.db, args.model, args.allow_future)
+        return cmd_train(args.db, args.model, args.allow_future, args.all_types)
     if args.command == "pipeline":
         return cmd_pipeline(
-            args.db, args.model, args.manifest, args.model_type, args.allow_future
+            args.db, args.model, args.manifest, args.model_type, args.allow_future,
+            args.all_types,
         )
     if args.command == "server-baselines":
         return cmd_baselines_compute(args.db)
