@@ -88,6 +88,33 @@ def cmd_train(db_path: str, model_type: str, allow_future: bool = False) -> int:
     return 0
 
 
+def cmd_pipeline(
+    db_path: str,
+    model_path: str,
+    manifest_path: str,
+    model_type: str = "logistic",
+    allow_future: bool = False,
+) -> int:
+    """训练到导出的完整管线。"""
+    from wows_ml.pipeline import describe, run
+
+    try:
+        result = run(
+            db_path,
+            model_path,
+            manifest_path,
+            model_type=model_type,
+            allow_future_snapshots=allow_future,
+        )
+    except (ValueError, RuntimeError) as ex:
+        print(f"管线失败: {ex}")
+        return 1
+
+    print("=== 训练导出管线 ===")
+    print(describe(result))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """入口。"""
     parser = argparse.ArgumentParser(
@@ -126,6 +153,22 @@ def main(argv: list[str] | None = None) -> int:
         help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
     )
 
+    p_pipeline = sub.add_parser("pipeline", help="训练到导出的完整管线")
+    p_pipeline.add_argument("db", help="SQLite 数据库路径")
+    p_pipeline.add_argument("model", help="输出 ONNX 模型路径")
+    p_pipeline.add_argument("manifest", help="输出模型清单路径")
+    p_pipeline.add_argument(
+        "--model-type",
+        choices=["logistic", "lightgbm"],
+        default="logistic",
+        help="模型类型",
+    )
+    p_pipeline.add_argument(
+        "--allow-future",
+        action="store_true",
+        help="允许使用晚于对局的快照（会时间泄漏，仅用于管线验证）",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "dataset":
@@ -134,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_baselines(args.db, args.allow_future)
     if args.command == "train":
         return cmd_train(args.db, args.model, args.allow_future)
+    if args.command == "pipeline":
+        return cmd_pipeline(
+            args.db, args.model, args.manifest, args.model_type, args.allow_future
+        )
 
     parser.print_help()
     return 1

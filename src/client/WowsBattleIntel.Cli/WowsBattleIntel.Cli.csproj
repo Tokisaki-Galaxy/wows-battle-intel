@@ -22,6 +22,7 @@
     <ProjectReference Include="..\WowsBattleIntel.Replay\WowsBattleIntel.Replay.csproj" />
     <ProjectReference Include="..\WowsBattleIntel.Storage\WowsBattleIntel.Storage.csproj" />
     <ProjectReference Include="..\WowsBattleIntel.Stats\WowsBattleIntel.Stats.csproj" />
+    <ProjectReference Include="..\WowsBattleIntel.Prediction\WowsBattleIntel.Prediction.csproj" />
   </ItemGroup>
 
 </Project>

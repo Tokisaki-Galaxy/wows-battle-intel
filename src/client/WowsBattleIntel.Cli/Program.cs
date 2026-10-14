@@ -38,6 +38,7 @@ internal static class Program
                 "import" => RunImport(args),
                 "snapshot" => RunSnapshot(args),
                 "predict" => RunPredict(args),
+                "onnx" => RunOnnx(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -605,6 +606,87 @@ internal static class Program
             ?? throw new InvalidOperationException($"反序列化失败: {path}");
     }
 
+    /// <summary>
+    /// onnx 子命令：用 ONNX 模型对一批对局做预测并校准。
+    /// </summary>
+    /// <remarks>
+    /// 这是验证 C# 端本地推理链路的关键命令：加载 Python 导出的 ONNX 模型，
+    /// 对真实回放数据预测，再与真实结果对照。若模型加载失败会自动降级到基线，
+    /// 降级原因会打印出来，不静默。
+    /// </remarks>
+    private static int RunOnnx(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("用法: wows-intel onnx <模型.onnx> <解析输出目录>");
+            return 1;
+        }
+
+        string modelPath = args[1];
+        string dir = args[2];
+
+        var createResult = Prediction.PredictorFactory.Create(modelPath, "onnx");
+        if (createResult.UsedFallback)
+        {
+            Console.WriteLine($"模型加载失败，已降级到基线: {createResult.FallbackReason}");
+            Console.WriteLine();
+        }
+        else
+        {
+            Console.WriteLine($"已加载 ONNX 模型: {modelPath}");
+            Console.WriteLine($"模型哈希: {createResult.Predictor.ModelHash[..16]}...");
+            Console.WriteLine();
+        }
+
+        var predictor = createResult.Predictor;
+        var files = Directory.GetFiles(dir, "*.json");
+        var pairs = new List<(PredictionResult Prediction, BattleOutcome Outcome)>();
+        int skipped = 0;
+
+        foreach (string file in files)
+        {
+            ReplaysharkOutput output;
+            try
+            {
+                output = LoadOutput(file);
+            }
+            catch
+            {
+                skipped++;
+                continue;
+            }
+
+            var battle = ReplaysharkMapper.Map(output, file);
+            if (battle is null || battle.Outcome == BattleOutcome.Unknown)
+            {
+                skipped++;
+                continue;
+            }
+
+            // 用真实统计特征。这里从回放的战后数据无法得到赛前统计，
+            // 因此模型会因特征缺失而退化，此项验证的是推理链路而非精度。
+            var prediction = predictor.PredictAsync(battle).GetAwaiter().GetResult();
+            pairs.Add((prediction, battle.Outcome));
+        }
+
+        if (pairs.Count == 0)
+        {
+            Console.WriteLine("没有可用样本。");
+            return 0;
+        }
+
+        var report = CalibrationMetrics.BuildReport(pairs);
+        Console.WriteLine("=== ONNX 推理回测 ===");
+        Console.WriteLine($"样本数: {report.SampleCount}, 跳过: {skipped}");
+        Console.WriteLine($"Brier 分数: {report.BrierScore:F4}");
+        Console.WriteLine($"对数损失:   {report.LogLoss:F4}");
+        Console.WriteLine($"判别准确率: {report.Accuracy:P2}");
+        Console.WriteLine();
+        Console.WriteLine("说明: 本命令验证推理链路连通性。回放不含赛前统计特征，");
+        Console.WriteLine("      模型输入多为哨兵值，精度不代表真实能力。");
+        return 0;
+    }
+
     private static void WriteBacktestCsv(string path, IEnumerable<BacktestRow> rows)
     {
         using var writer = new StreamWriter(path);
@@ -641,6 +723,7 @@ internal static class Program
         Console.WriteLine("  wows-intel survey <目录>                     统计解析结果分布");
         Console.WriteLine("  wows-intel import <目录> <数据库>            导入解析结果到本地库");
         Console.WriteLine("  wows-intel predict <目录> [--limit N]        拉历史特征预测并对照真实结果");
+        Console.WriteLine("  wows-intel onnx <模型.onnx> <目录>            用 ONNX 模型推理并回测");
     }
 
     private sealed class BacktestRow
