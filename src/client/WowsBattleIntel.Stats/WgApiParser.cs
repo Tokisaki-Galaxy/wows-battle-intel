@@ -1,0 +1,210 @@
+using System.Globalization;
+using Newtonsoft.Json.Linq;
+
+namespace WowsBattleIntel.Stats;
+
+/// <summary>
+/// WG 公开 API 的响应解析。拆出来便于单测，不依赖网络。
+/// </summary>
+internal static class WgApiParser
+{
+    /// <summary>
+    /// 解析 account/list 响应，得到昵称到账号 ID 的映射。
+    /// </summary>
+    public static Dictionary<string, string> ParseAccountIds(string json)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok")
+        {
+            return result;
+        }
+
+        if (root["data"] is not JArray data)
+        {
+            return result;
+        }
+
+        foreach (var item in data)
+        {
+            string? nickname = item["nickname"]?.Value<string>();
+            string? accountId = item["account_id"]?.ToString();
+            if (!string.IsNullOrEmpty(nickname) && !string.IsNullOrEmpty(accountId))
+            {
+                result[nickname] = accountId;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 账号统计数据。
+    /// </summary>
+    public sealed class AccountStats
+    {
+        public double Battles { get; set; } = -1;
+        public double Winrate { get; set; } = -1;
+        public double BattlesSolo { get; set; } = -1;
+        public double WinrateSolo { get; set; } = -1;
+        public double BattlesDiv2 { get; set; } = -1;
+        public double WinrateDiv2 { get; set; } = -1;
+        public double BattlesDiv3 { get; set; } = -1;
+        public double WinrateDiv3 { get; set; } = -1;
+        public bool IsHidden { get; set; }
+    }
+
+    /// <summary>
+    /// 解析 account/info 响应，得到账号 ID 到统计的映射。
+    /// </summary>
+    public static Dictionary<string, AccountStats> ParseAccountStats(string json)
+    {
+        var result = new Dictionary<string, AccountStats>(StringComparer.Ordinal);
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
+        {
+            return result;
+        }
+
+        foreach (var prop in data.Properties())
+        {
+            string accountId = prop.Name;
+            if (prop.Value is not JObject entry)
+            {
+                continue;
+            }
+
+            var stats = new AccountStats();
+
+            // 隐藏战绩或数据缺失时标记隐藏。
+            if (entry["hidden_profile"]?.Value<bool>() == true || entry["statistics"] is null)
+            {
+                stats.IsHidden = true;
+                result[accountId] = stats;
+                continue;
+            }
+
+            var statistics = entry["statistics"]!;
+
+            ReadPvp(statistics, "pvp", out double battles, out double winrate, out bool hasPvp);
+            if (hasPvp)
+            {
+                stats.Battles = battles;
+                stats.Winrate = winrate;
+            }
+
+            ReadPvp(statistics, "pvp_solo", out double bSolo, out double wSolo, out bool hasSolo);
+            if (hasSolo)
+            {
+                stats.BattlesSolo = bSolo;
+                stats.WinrateSolo = wSolo;
+            }
+
+            ReadPvp(statistics, "pvp_div2", out double bDiv2, out double wDiv2, out bool hasDiv2);
+            if (hasDiv2)
+            {
+                stats.BattlesDiv2 = bDiv2;
+                stats.WinrateDiv2 = wDiv2;
+            }
+
+            ReadPvp(statistics, "pvp_div3", out double bDiv3, out double wDiv3, out bool hasDiv3);
+            if (hasDiv3)
+            {
+                stats.BattlesDiv3 = bDiv3;
+                stats.WinrateDiv3 = wDiv3;
+            }
+
+            result[accountId] = stats;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 从 statistics 节点读取某个模式分组的场次与胜率。
+    /// </summary>
+    private static void ReadPvp(
+        JToken statistics,
+        string key,
+        out double battles,
+        out double winrate,
+        out bool hasData)
+    {
+        battles = -1;
+        winrate = -1;
+        hasData = false;
+
+        if (statistics[key] is not JObject block || !block.HasValues)
+        {
+            return;
+        }
+
+        double? b = block["battles"]?.Value<double?>();
+        double? w = block["wins"]?.Value<double?>();
+        if (b is null || w is null)
+        {
+            return;
+        }
+
+        battles = b.Value;
+        winrate = b.Value == 0 ? 0 : w.Value / b.Value;
+        hasData = true;
+    }
+
+    /// <summary>
+    /// 解析船只统计响应，得到该玩家该船的场次、胜率、场均伤害。
+    /// </summary>
+    public static (double Battles, double Winrate, double AvgDamage, double AvgExp) ParseShipStats(
+        string json,
+        string accountId)
+    {
+        var root = JObject.Parse(json);
+        if (root["status"]?.Value<string>() != "ok"
+            || root["data"]?[accountId] is not JArray ships
+            || ships.Count == 0)
+        {
+            return (-1, -1, -1, -1);
+        }
+
+        var ship = ships[0];
+        var pvp = ship["pvp"];
+        if (pvp is null)
+        {
+            return (-1, -1, -1, -1);
+        }
+
+        double battles = pvp["battles"]?.Value<double?>() ?? 0;
+        double wins = pvp["wins"]?.Value<double?>() ?? 0;
+        double damage = pvp["damage_dealt"]?.Value<double?>() ?? 0;
+        double exp = pvp["original_exp"]?.Value<double?>() ?? pvp["exp"]?.Value<double?>() ?? 0;
+
+        if (battles <= 0)
+        {
+            return (0, 0, 0, 0);
+        }
+
+        return (battles, wins / battles, damage / battles, exp / battles);
+    }
+
+    /// <summary>
+    /// 从服务器枚举取 API 域名。
+    /// </summary>
+    public static string GetApiHost(Core.Models.GameServer server) => server switch
+    {
+        Core.Models.GameServer.Ru => "api.korabli.su",
+        Core.Models.GameServer.Eu => "api.worldofwarships.eu",
+        Core.Models.GameServer.Na => "api.worldofwarships.com",
+        Core.Models.GameServer.Asia => "api.worldofwarships.asia",
+        Core.Models.GameServer.Cn => "api.wowsgame.cn",
+        _ => throw new ArgumentOutOfRangeException(nameof(server), "无法为 AUTO 解析 API 域名。"),
+    };
+
+    /// <summary>
+    /// 把账号统计字段格式化为不变文化字符串，便于日志与调试。
+    /// </summary>
+    public static string Describe(AccountStats stats) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"battles={stats.Battles} winrate={stats.Winrate} hidden={stats.IsHidden}");
+}
