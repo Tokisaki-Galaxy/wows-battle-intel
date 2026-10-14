@@ -1,0 +1,11 @@
+# pnpm 工作区配置。
+#
+# pnpm 10 起，允许运行安装脚本的依赖白名单从 package.json 移到本文件。
+# 这里显式列出需要构建的包：
+# - workerd: Cloudflare Workers 运行时，被 vitest-pool-workers 与 wrangler 使用
+# - esbuild: 打包依赖
+# - sharp: wrangler 的图片处理依赖
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd
