@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from wows_ml.dataset import load_battles
+from wows_ml.dataset import RECENT_FORM_MIN_SAMPLES, load_battles
 
 SCHEMA = """
 CREATE TABLE battles (
@@ -35,6 +35,28 @@ CREATE TABLE player_snapshots (
     weighted_winrate REAL, pr REAL, source TEXT
 );
 """
+
+def add_battle(
+    conn: sqlite3.Connection,
+    battle_id: str,
+    started_at: int,
+    result: str,
+    players: list[tuple[str, int]],
+    battle_type: str = "Random",
+) -> None:
+    """插入一局与参战者。players 元素为账号与队伍的二元组。"""
+    conn.execute(
+        "INSERT INTO battles VALUES (?,?,?,?,?,?)",
+        (battle_id, started_at, "Haven", battle_type, "Asia", result),
+    )
+    for _i, (account_id, team) in enumerate(players):
+        conn.execute(
+            "INSERT INTO battle_players (battle_id, account_id, server, player_name, "
+            "ship_tier, ship_type, team, division_size, is_bot, is_hidden) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (battle_id, account_id, "Asia", f"P{account_id}", 10,
+             "Cruiser", team, 1, 0, 0),
+        )
 
 
 @pytest.fixture
@@ -207,3 +229,121 @@ class TestLoadBattles:
 
         assert stats.skipped_battle_type == 0
         assert {m.battle_type for m in matches} == {"Random", "Coop"}
+
+
+class TestRecentForm:
+    """近期状态回算测试。口径见 dataset.compute_recent_form。"""
+
+    def _fill_snapshots(self, conn: sqlite3.Connection) -> None:
+        for account in ("1001", "2001"):
+            conn.execute(
+                "INSERT INTO player_snapshots (account_id, server, captured_at, "
+                "account_battles, account_winrate, weighted_winrate) VALUES (?,?,?,?,?,?)",
+                (account, "Asia", 900_000, 1000, 0.50, 0.50),
+            )
+
+    def test_recent_winrate_computed_from_local_history(self, db: str) -> None:
+        """玩家有早于目标局的历史时，recent20_winrate 被回算并进聚合。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        # 玩家 1001 的历史：5 胜 1 负，全部早于目标局 b1。
+        # b1 目标局在 1_000_000。
+        history = [
+            ("h1", 100_000, "Win"), ("h2", 200_000, "Win"),
+            ("h3", 300_000, "Loss"), ("h4", 400_000, "Win"),
+            ("h5", 500_000, "Win"), ("h6", 600_000, "Win"),
+        ]
+        for i, (bid, ts, result) in enumerate(history):
+            # 目标局与历史局都让 1001 在 team 0，result 即其胜负。
+            add_battle(conn, bid, ts, result, [("1001", 0), (f"e{i}", 1)])
+        conn.commit()
+        conn.close()
+
+        matches, stats = load_battles(db)
+
+        assert len(matches) == 1
+        assert stats.recent_form_computed >= 1
+        # 玩家 1001 近 20 场窗口内 6 场 5 胜。
+        assert matches[0].ally.avg_recent_winrate == pytest.approx(5 / 6)
+
+    def test_recent_excludes_battles_after_target(self, db: str) -> None:
+        """晚于目标局的历史不计入近期状态，避免时间泄漏。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        # 4 场早于目标局：不足最小样本数。
+        for i in range(4):
+            add_battle(conn, f"h{i}", 100_000 + i * 10_000, "Win",
+                       [("1001", 0), (f"e{i}", 1)])
+        # 2 场晚于目标局：即使凑够样本也不得计入。
+        for i in range(2):
+            add_battle(conn, f"f{i}", 2_000_000 + i * 10_000, "Win",
+                       [("1001", 0), ("2001", 1)])
+        conn.commit()
+        conn.close()
+
+        matches, stats = load_battles(db)
+
+        assert len(matches) == 3
+        target = next(m for m in matches if m.battle_id == "b1")
+        # 早于目标局的历史只有 4 场，低于最小样本数，保持哨兵。
+        assert target.ally.avg_recent_winrate == 0.0
+        assert stats.recent_form_insufficient >= 1
+
+    def test_recent_respects_enemy_perspective(self, db: str) -> None:
+        """敌方玩家的个人胜负按其队伍换算，与录制者视角解耦。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        # 目标局：1001 在 team 0，2001 在 team 1，结果 Win。
+        # 历史局里 2001 在 team 1（敌方），结果 Win 意味着 2001 个人判负。
+        # 5 局全 Win：2001 个人 0 胜 5 负，近期胜率 0。
+        for i in range(5):
+            add_battle(conn, f"h{i}", 100_000 + i * 10_000, "Win",
+                       [("1001", 0), ("2001", 1)])
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        # 敌方 2001 近期胜率 0.0，非哨兵，聚合值为 0。
+        assert matches[0].enemy.avg_recent_winrate == pytest.approx(0.0)
+
+    def test_recent_ignores_coop_history(self, db: str) -> None:
+        """Coop 历史不参与回算，PvP 口径与训练白名单一致。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        # 5 场 Coop 历史不计入。
+        for i in range(5):
+            add_battle(conn, f"c{i}", 100_000 + i * 10_000, "Win",
+                       [("1001", 0), (f"e{i}", 1)], battle_type="Coop")
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert matches[0].ally.avg_recent_winrate == 0.0
+
+    def test_recent_minimum_samples_boundary(self, db: str) -> None:
+        """历史恰好达到最小样本数时产出特征，差一场则不产出。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        for i in range(RECENT_FORM_MIN_SAMPLES):
+            add_battle(conn, f"h{i}", 100_000 + i * 10_000, "Win",
+                       [("1001", 0), (f"e{i}", 1)])
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert matches[0].ally.avg_recent_winrate == pytest.approx(1.0)
+
+    def test_participants_carried_for_grouping(self, db: str) -> None:
+        """样本携带参战者账号，供分组交叉验证使用。"""
+        conn = sqlite3.connect(db)
+        self._fill_snapshots(conn)
+        conn.commit()
+        conn.close()
+
+        matches, _ = load_battles(db)
+
+        assert len(matches) == 1
+        assert set(matches[0].participant_account_ids) == {"1001", "2001"}

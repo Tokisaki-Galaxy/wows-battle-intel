@@ -26,8 +26,11 @@ def make_player(
     division_size: int = 1,
     tier: int = 10,
     weighted: float | None = None,
+    recent20_winrate: float | None = None,
+    recent20_battles: int = 0,
 ) -> PlayerFeatures:
     """构造测试用玩家特征。"""
+    recent = UNKNOWN if recent20_winrate is None else recent20_winrate
     return PlayerFeatures(
         account_id=account_id,
         server="Asia",
@@ -38,10 +41,45 @@ def make_player(
         is_hidden=hidden,
         division_size=division_size,
         ship_tier=tier,
+        recent20_winrate=recent,
+        recent20_battles=recent20_battles,
     )
 
 
 class TestTeamAggregation:
+    def test_recent_winrate_aggregates_known_players(self) -> None:
+        """有近期数据的玩家进平均，哨兵玩家被排除。"""
+        players = [
+            make_player("1", 0.55, 500, recent20_winrate=0.70),
+            make_player("2", 0.55, 500, recent20_winrate=0.50),
+            make_player("3", 0.55, 500),  # 无近期数据，哨兵值。
+        ]
+
+        result = aggregate_team(players)
+
+        assert result.avg_recent_winrate == pytest.approx(0.60)
+
+    def test_recent_winrate_all_unknown_is_zero(self) -> None:
+        """全员无近期数据时聚合保持 0，recent_winrate_diff 随之为 0。"""
+        players = [
+            make_player("1", 0.55, 500),
+            make_player("2", 0.45, 500),
+        ]
+
+        result = aggregate_team(players)
+
+        assert result.avg_recent_winrate == 0.0
+
+    def test_recent_winrate_diff_enters_vector(self) -> None:
+        """近期胜率差进入特征向量，死特征回归的前提条件。"""
+        ally = aggregate_team([make_player("1", 0.55, 500, recent20_winrate=0.70)])
+        enemy = aggregate_team([make_player("2", 0.55, 500, recent20_winrate=0.40)])
+        match = MatchFeatures(battle_id="t", ally=ally, enemy=enemy, label=1.0)
+
+        vector = match.to_vector()
+
+        assert vector["recent_winrate_diff"] == pytest.approx(0.30)
+
     def test_computes_averages(self) -> None:
         players = [
             make_player("1", 0.65, 1000),
