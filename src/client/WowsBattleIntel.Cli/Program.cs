@@ -503,18 +503,19 @@ internal static class Program
             players = players.Take(limit).ToList();
         }
 
-        // 断点续传：剔除今天已采过快照的玩家，中断后重跑不浪费请求。
-        // 按自然日判断，隔天重跑会全部重采，那是期望行为。
-        var todayStart = DateTimeOffset.Now.Date;
-        var doneKeys = await repository.GetSnapshotAccountKeysSinceAsync(todayStart)
+        // 断点续传：剔除近期已采过快照的玩家，中断后重跑不浪费请求。
+        // 按"距上次采集不足 72 小时"判定，跨天零点重跑不再整批重采，
+        // 只有真正陈旧（三天前）的快照才刷新。
+        var since = DateTimeOffset.Now.AddHours(-72);
+        var doneKeys = await repository.GetSnapshotAccountKeysSinceAsync(since)
             .ConfigureAwait(true);
         int skipped = players.Count(p => doneKeys.Contains($"{p.AccountId}:{p.Server}"));
         players.RemoveAll(p => doneKeys.Contains($"{p.AccountId}:{p.Server}"));
 
-        Console.WriteLine($"库中出现 {players.Count + skipped} 个玩家，今天已采 {skipped} 个，本次待采 {players.Count} 个");
+        Console.WriteLine($"库中出现 {players.Count + skipped} 个玩家，近期已采 {skipped} 个，本次待采 {players.Count} 个");
         if (players.Count == 0)
         {
-            Console.WriteLine("全部玩家今天均已采集，无需重跑。");
+            Console.WriteLine("全部玩家近期均已采集，无需重跑。");
             return 0;
         }
 

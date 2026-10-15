@@ -40,7 +40,9 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         this.options = options;
         this.httpClient = httpClient ?? new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(20),
+            // 批量查询 20 人加分舰种聚合是两段串行请求，WG API 高峰期偶发
+            // 10 秒级慢响应，20 秒会在正常批次上误杀，放宽到 60 秒。
+            Timeout = TimeSpan.FromSeconds(60),
         };
     }
 
