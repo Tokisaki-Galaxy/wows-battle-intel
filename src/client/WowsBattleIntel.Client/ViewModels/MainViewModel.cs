@@ -70,6 +70,10 @@ public sealed class MainViewModel : ViewModelBase
             async _ => await LoadRecentBattlesAsync().ConfigureAwait(true),
             _ => !IsBusy);
 
+        RecomputePredictionCommand = new RelayCommand(
+            async _ => await RecomputePredictionAsync().ConfigureAwait(true),
+            _ => !IsBusy && selectedBattle is not null);
+
         ToggleObservationCommand = new RelayCommand(
             _ =>
             {
@@ -151,6 +155,9 @@ public sealed class MainViewModel : ViewModelBase
 
     /// <summary>刷新列表命令。</summary>
     public System.Windows.Input.ICommand RefreshCommand { get; }
+
+    /// <summary>重算胜率命令：用当前名单与模型重新生成预测。</summary>
+    public System.Windows.Input.ICommand RecomputePredictionCommand { get; }
 
     /// <summary>开始或停止实时观测命令。</summary>
     public System.Windows.Input.ICommand ToggleObservationCommand { get; }
@@ -525,6 +532,56 @@ public sealed class MainViewModel : ViewModelBase
         // 阶段二三在后台推进。快照缺失的玩家行此刻显示占位符，
         // 补拉结果落地后增量刷新。
         await FetchMissingStatsInBackgroundAsync(full, version, token).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 用当前名单与模型重新生成预测并入库。
+    /// </summary>
+    /// <remarks>
+    /// 详情加载展示的是入库时的预测版本。名单经过在线补拉后数据比入库时
+    /// 更完整，重算给出基于当前数据的版本，读侧取最新口径自然命中。
+    /// </remarks>
+    private async Task RecomputePredictionAsync()
+    {
+        if (selectedBattle is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var battle = await services.Repository.GetBattleAsync(selectedBattle.BattleId).ConfigureAwait(true);
+            if (battle is null)
+            {
+                return;
+            }
+
+            // 重算前先把快照合并进来：补拉过的数据不落 battle_players 表，
+            // 直接预测会丢掉账号层特征。
+            battle = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
+                services.Repository
+                    .GetLatestSnapshotAsync(accountId, server)
+                    .GetAwaiter()
+                    .GetResult());
+
+            var prediction = await services.Predictor.PredictAsync(battle).ConfigureAwait(true);
+            await services.Repository.SavePredictionAsync(prediction).ConfigureAwait(true);
+
+            currentPrediction = prediction;
+            StatusMessage = $"已重算 · {prediction.ModelVersion}";
+            LogSink.Info($"预测重算完成: {battle.BattleId[..12]} 概率 {prediction.AllyWinProbability:F3}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"重算失败: {ex.Message}";
+            LogSink.Error($"预测重算失败: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+            NotifyDetailsChanged();
+        }
     }
 
     /// <summary>
