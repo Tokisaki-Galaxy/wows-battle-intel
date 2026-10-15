@@ -49,6 +49,9 @@ public sealed class MainViewModel : ViewModelBase
     // 防止同一局的 tempArenaInfo 在轮询窗口内反复触发整条链路。
     private string? preBattleKey;
 
+    // 赛前数据拉取进度文案，嵌进倒计时行显示。
+    private string preBattleProgressText = string.Empty;
+
     /// <summary>
     /// 补拉进度轮询的间隔。补拉按玩家逐个推进，每次到点把已落地的
     /// 数据刷上界面，200 毫秒约对应一到两名玩家的节奏。
@@ -1013,7 +1016,6 @@ public sealed class MainViewModel : ViewModelBase
         preBattleKey = battle.BattleId;
 
         LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType}");
-        StatusMessage = $"已捕获对局名单（{DisplayLabels.BattleType(battle.BattleType)}），预测生成中...";
 
         // 记代次：SelectedBattle 触发的 LoadBattleDetailsAsync 是异步的，
         // 它末尾会查一次（必然为空的）入库预测。预测推理完成晚于那次查询
@@ -1060,27 +1062,41 @@ public sealed class MainViewModel : ViewModelBase
                     return;
                 }
 
+                // 首轮预测落定前倒计时区先给出捕获提示，避免右上角空白。
+                if (round == 1)
+                {
+                    CountdownText = "预测生成中...";
+                    OnPropertyChanged(nameof(CountdownText));
+                }
+
                 currentPrediction = prediction;
                 OnPropertyChanged(nameof(ModelConfidenceText));
 
-                // 数据覆盖完整度：全部真人有统计即收敛，停止重算。
-                int humans = battle.HumanPlayers.Count();
+                // 数据覆盖完整度：除隐藏战绩者外全部真人有统计即收敛。
+                // 隐藏玩家 WG API 永远不返回数据，不能计入分母，否则循环
+                // 永不收敛。进度并入倒计时文本，不占状态栏。
+                int humans = battle.HumanPlayers.Count(p => !p.IsHidden);
                 int covered = battle.HumanPlayers.Count(p => p.HasStats);
-                StatusMessage = humans == covered
-                    ? $"赛前预测就绪 · {prediction.ModelVersion}"
-                    : $"赛前预测已更新（第 {round} 轮，{covered}/{humans} 名玩家数据）";
+                int hidden = battle.HumanPlayers.Count(p => p.IsHidden);
+                preBattleProgressText = humans == covered
+                    ? $"数据齐全（{covered}/{humans}，另有 {hidden} 名隐藏战绩）"
+                    : $"已拉取玩家 {covered}/{humans}"
+                      + (hidden > 0 ? $"，隐藏战绩 {hidden} 名" : string.Empty);
 
-                LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，覆盖 {covered}/{humans}");
+                LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，覆盖 {covered}/{humans}，隐藏 {hidden}");
 
                 if (humans == covered)
                 {
+                    CountdownText = $"预测就绪 · {preBattleProgressText}";
+                    OnPropertyChanged(nameof(CountdownText));
                     break;
                 }
 
                 // 3 秒倒计时给用户"正在更新"的感知，期间后台补拉持续推进。
+                // 倒计时文案携带进度与轮次，右上角一眼可见。
                 for (int remain = 3; remain > 0 && IsDetailsCurrent(version); remain--)
                 {
-                    CountdownText = $"{remain}s 后更新";
+                    CountdownText = $"{remain}s 后更新预测 · 第 {round} 轮 · {preBattleProgressText}";
                     OnPropertyChanged(nameof(CountdownText));
                     await Task.Delay(1000, CancellationToken.None).ConfigureAwait(true);
                 }
@@ -1093,7 +1109,8 @@ public sealed class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            StatusMessage = $"赛前预测失败: {ex.Message}";
+            CountdownText = $"预测失败: {ex.Message}";
+            OnPropertyChanged(nameof(CountdownText));
             LogSink.Warn($"赛前预测失败: {ex.Message}");
         }
         finally
