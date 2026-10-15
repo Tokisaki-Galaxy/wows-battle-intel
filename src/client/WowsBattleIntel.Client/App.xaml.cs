@@ -37,6 +37,9 @@ public partial class App : Application
             var config = AppConfig.Load();
             Services = await AppServices.CreateAsync(config).ConfigureAwait(true);
 
+            // 按配置应用主题，默认跟随系统。
+            ThemeService.ApplyTheme(ThemeService.ParseMode(config.Theme));
+
             // 配置齐全时自动开始观测。路径没准备好就先不观测，由用户在界面里开。
             if (config.AutoObserve && config.IsUsable)
             {

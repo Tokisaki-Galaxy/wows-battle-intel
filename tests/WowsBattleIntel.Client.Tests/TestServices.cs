@@ -47,8 +47,40 @@ internal sealed class TestServices : IDisposable
     }
 
     /// <summary>生成一个未被占用的临时数据库路径。</summary>
+    /// <remarks>
+    /// 系统盘空间紧张，临时文件统一落到 C:\Windows\Temp\opencode 之外的仓库
+    /// 本地目录，避免测试把数据库写到已满的 C 盘。
+    /// </remarks>
     public static string NewDatabasePath() =>
-        Path.Combine(Path.GetTempPath(), $"wbi-client-test-{Guid.NewGuid():N}.db");
+        Path.Combine(TestTempRoot, $"wbi-client-test-{Guid.NewGuid():N}.db");
+
+    /// <summary>测试临时目录，位于仓库内，用完即删。</summary>
+    internal static string TestTempRoot
+    {
+        get
+        {
+            string root = Path.Combine(FindRepoRoot(), ".test-tmp");
+            Directory.CreateDirectory(root);
+            return root;
+        }
+    }
+
+    /// <summary>从程序集位置向上找仓库根目录，找不到退回系统临时目录。</summary>
+    private static string FindRepoRoot()
+    {
+        string? dir = Path.GetDirectoryName(typeof(TestServices).Assembly.Location);
+        for (int i = 0; dir is not null && i < 10; i++)
+        {
+            if (File.Exists(Path.Combine(dir, "WowsBattleIntel.slnx")))
+            {
+                return dir;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return Path.GetTempPath();
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -96,7 +128,7 @@ internal static class ConfigPathGuard
     public static void Acquire()
     {
         AppConfig.ConfigPathOverride = Path.Combine(
-            Path.GetTempPath(),
+            TestServices.TestTempRoot,
             $"wbi-config-test-{Guid.NewGuid():N}.json");
     }
 

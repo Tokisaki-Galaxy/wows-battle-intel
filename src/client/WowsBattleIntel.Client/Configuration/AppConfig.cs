@@ -43,6 +43,9 @@ public sealed class AppConfig
     /// <summary>WG API 应用 ID。为空时用默认共享 ID。</summary>
     public string WgApplicationId { get; set; } = string.Empty;
 
+    /// <summary>主题：system 跟随系统、light 浅色、dark 深色。默认跟随系统。</summary>
+    public string Theme { get; set; } = "system";
+
     /// <summary>配置文件路径。</summary>
     /// <remarks>
     /// 测试可通过 <see cref="ConfigPathOverride"/> 重定向，避免测试写盘污染真实配置。

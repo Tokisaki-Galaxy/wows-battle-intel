@@ -26,6 +26,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private string wgApplicationId = string.Empty;
     private bool autoObserve = true;
     private int pollIntervalSeconds = 10;
+    private int themeIndex;
     private string statusMessage = string.Empty;
     private bool isBusy;
     private bool hasUnsavedChanges;
@@ -147,6 +148,26 @@ public sealed class SettingsViewModel : ViewModelBase
         set => SetFieldAndMarkDirty(ref pollIntervalSeconds, value);
     }
 
+    /// <summary>
+    /// 主题选择下标：0 跟随系统、1 浅色、2 深色。
+    /// </summary>
+    /// <remarks>
+    /// 修改后立即应用主题，保存时随配置写盘。
+    /// </remarks>
+    public int ThemeIndex
+    {
+        get => themeIndex;
+        set
+        {
+            if (SetField(ref themeIndex, value))
+            {
+                HasUnsavedChanges = true;
+                StatusMessage = string.Empty;
+                ThemeService.ApplyTheme(ThemeModeFromIndex(value));
+            }
+        }
+    }
+
     /// <summary>状态提示。</summary>
     public string StatusMessage
     {
@@ -250,6 +271,7 @@ public sealed class SettingsViewModel : ViewModelBase
             WgApplicationId = WgApplicationId.Trim(),
             AutoObserve = AutoObserve,
             PollIntervalSeconds = PollIntervalSeconds,
+            Theme = ThemeConfigValue(ThemeIndex),
         };
     }
 
@@ -311,6 +333,7 @@ public sealed class SettingsViewModel : ViewModelBase
         wgApplicationId = config.WgApplicationId;
         autoObserve = config.AutoObserve;
         pollIntervalSeconds = config.PollIntervalSeconds;
+        themeIndex = ThemeIndexFromConfig(config.Theme);
         hasUnsavedChanges = false;
 
         OnPropertyChanged(nameof(GamePath));
@@ -323,6 +346,7 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(WgApplicationId));
         OnPropertyChanged(nameof(AutoObserve));
         OnPropertyChanged(nameof(PollIntervalSeconds));
+        OnPropertyChanged(nameof(ThemeIndex));
         OnPropertyChanged(nameof(HasUnsavedChanges));
     }
 
@@ -352,4 +376,37 @@ public sealed class SettingsViewModel : ViewModelBase
             StatusMessage = string.Empty;
         }
     }
+
+    /// <summary>
+    /// 配置字符串转下标。未知值按跟随系统处理。
+    /// </summary>
+    private static int ThemeIndexFromConfig(string? theme) =>
+        ThemeService.ParseMode(theme) switch
+        {
+            ThemeMode.Light => 1,
+            ThemeMode.Dark => 2,
+            _ => 0,
+        };
+
+    /// <summary>
+    /// 下标转主题模式。
+    /// </summary>
+    private static ThemeMode ThemeModeFromIndex(int index) =>
+        index switch
+        {
+            1 => ThemeMode.Light,
+            2 => ThemeMode.Dark,
+            _ => ThemeMode.System,
+        };
+
+    /// <summary>
+    /// 下标转配置字符串。
+    /// </summary>
+    private static string ThemeConfigValue(int index) =>
+        index switch
+        {
+            1 => "light",
+            2 => "dark",
+            _ => "system",
+        };
 }

@@ -10,9 +10,29 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // 每个测试用独立临时文件，避免内存库在连接关闭后丢失。
-        dbPath = Path.Combine(Path.GetTempPath(), $"wbi-test-{Guid.NewGuid():N}.db");
+        // 系统盘空间紧张，临时文件落到仓库内的 .test-tmp，用完即删。
+        dbPath = Path.Combine(TestTempRoot(), $"wbi-test-{Guid.NewGuid():N}.db");
         repository = new SqliteBattleRepository(dbPath);
         await repository.InitializeAsync();
+    }
+
+    /// <summary>测试临时目录，位于仓库内。</summary>
+    private static string TestTempRoot()
+    {
+        string? dir = Path.GetDirectoryName(typeof(SqliteBattleRepositoryTests).Assembly.Location);
+        for (int i = 0; dir is not null && i < 10; i++)
+        {
+            if (File.Exists(Path.Combine(dir, "WowsBattleIntel.slnx")))
+            {
+                string root = Path.Combine(dir, ".test-tmp");
+                Directory.CreateDirectory(root);
+                return root;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return Path.GetTempPath();
     }
 
     public Task DisposeAsync()
