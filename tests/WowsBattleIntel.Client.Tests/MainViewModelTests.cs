@@ -390,6 +390,57 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task SelectBattle_SortsBotsAfterHumans()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 同舰种同级，真人先于人机。:xxx: 名格式的系统号 is_bot=1。
+        var battle = new BattleRecord
+        {
+            BattleId = "battle-bot-sort",
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            GameVersion = "15.6.0",
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "900", PlayerName = ":Tourville:", Server = GameServer.Asia,
+                    IsAlly = true, IsBot = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "100", PlayerName = "HumanLow", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "200", PlayerName = ":Beatty:", Server = GameServer.Asia,
+                    IsAlly = true, IsBot = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "50", PlayerName = "HumanHigh", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+            ],
+        };
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count == 4, "友方名单加载");
+
+        // 真人按账号标识字典序在前，人机整体垫底。
+        Assert.Equal(
+            ["HumanLow", "HumanHigh", ":Beatty:", ":Tourville:"],
+            vm.Allies.Select(p => p.PlayerName).ToArray());
+    }
+
+    [Fact]
     public async Task SelectBattle_TeamSummaryShowsAccountWeightedAndBattles()
     {
         using var holder = await TestServices.CreateAsync();

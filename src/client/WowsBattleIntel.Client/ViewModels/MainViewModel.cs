@@ -465,9 +465,11 @@ public sealed class MainViewModel : ViewModelBase
             actualOutcome = full.Outcome;
 
             // 名单按舰种分组排序：航母、战列、巡洋、驱逐、潜艇，
-            // 同舰种内等级高的在前，再按账号标识稳定次序。
+            // 同舰种内真人先于人机（:xxx: 名格式的系统号，不查战绩），
+            // 再按等级高的在前，最后按账号标识稳定次序。
             foreach (var p in full.Allies
                 .OrderBy(p => PlayerRowViewModel.ShipClassSortKey(p.ShipClass))
+                .ThenBy(p => p.IsBot)
                 .ThenByDescending(p => p.ShipTier)
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
@@ -478,6 +480,7 @@ public sealed class MainViewModel : ViewModelBase
 
             foreach (var p in full.Enemies
                 .OrderBy(p => PlayerRowViewModel.ShipClassSortKey(p.ShipClass))
+                .ThenBy(p => p.IsBot)
                 .ThenByDescending(p => p.ShipTier)
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
