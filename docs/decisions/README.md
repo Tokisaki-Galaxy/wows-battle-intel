@@ -12,6 +12,7 @@
 | [0004](0004-replay-parse-via-replayshark.md) | 回放解析通过 replayshark 外部进程 | 已采纳 |
 | [0005](0005-storage-abstraction.md) | 持久层藏在仓储接口后 | 已采纳 |
 | [0006](0006-central-package-management.md) | 集中式包版本管理 | 已采纳 |
+| [0007](0007-auto-update.md) | 客户端自动更新采用 Velopack | 建议采纳 |
 
 ## 格式
 
