@@ -180,6 +180,10 @@ public sealed class AppServices : IDisposable
             options.ApplicationId = config.WgApplicationId;
         }
 
+        // 全量船只查询一次覆盖单船统计、分舰种聚合与常用等级，与 CLI 补采同口径。
+        // 关闭时逐玩家单船查询拿不到熟练数据，界面舰种列永远空。
+        options.FetchClassStats = true;
+
         return new WgPublicStatsProvider(options);
     }
 

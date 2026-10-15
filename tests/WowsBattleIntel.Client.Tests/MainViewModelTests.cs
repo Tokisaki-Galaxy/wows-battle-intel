@@ -9,10 +9,15 @@ public class MainViewModelTests
 {
     /// <summary>
     /// 轮询等待条件成立。详情加载是属性变更触发的后台任务，测试无法直接 await。
+    /// 涉及在线补拉的等待需要更长窗口：统计来源开启分舰种目录后，失败前
+    /// 会先做十几次网络请求，默认 5 秒不够，此类场景传 timeout。
     /// </summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, string description)
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        string description,
+        int timeoutSeconds = 5)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
             if (condition())
@@ -467,9 +472,11 @@ public class MainViewModelTests
         Assert.Equal("-", vm.Allies[0].WeightedWinrateText);
 
         // 阶段二在后台拉取，测试环境网络必败，占位符保留为合法终态。
+        // 补拉失败前会先尝试分舰种目录的十几次网络请求，窗口放宽到 30 秒。
         await WaitUntilAsync(
-            () => vm.StatusMessage != "正在补充 2 名玩家的统计...",
-            "阶段二补拉结束");
+            () => !vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
+            "阶段二补拉结束",
+            timeoutSeconds: 30);
         Assert.Equal("-", vm.Allies[0].BattlesText);
         Assert.Single(vm.Allies);
         Assert.Single(vm.Enemies);

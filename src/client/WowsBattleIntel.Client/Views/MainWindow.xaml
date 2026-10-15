@@ -368,7 +368,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="熟练" Width="Auto">
+                        <DataGridTemplateColumn Header="舰种" Width="Auto">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding ClassMasteryText}"
@@ -499,7 +499,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="熟练" Width="Auto">
+                        <DataGridTemplateColumn Header="舰种" Width="Auto">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding ClassMasteryText}"
