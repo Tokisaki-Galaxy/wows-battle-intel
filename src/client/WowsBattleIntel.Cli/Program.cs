@@ -42,6 +42,7 @@ internal static class Program
                 "history-backtest" => RunHistoryBacktest(args),
                 "snapshot-backtest" => RunSnapshotBacktest(args),
                 "dedupe-battles" => RunDedupeBattles(args),
+                "rebuild-players" => RunRebuildPlayers(args),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -1280,6 +1281,141 @@ internal static class Program
     }
 
     /// <summary>
+    /// rebuild-players 子命令：用存量回放 JSON 重建参战者的船信息与身份字段。
+    /// </summary>
+    /// <remarks>
+    /// 背景：存量库的 battle_players.ship_id 存的是 replayshark 的内部索引码
+    /// （如 PJSD012），WG API 不认，单船统计查询全部落空。上一版已修映射器，
+    /// 现在取数字 ship_id（如 3445536752），但存量行与存量快照不会自愈。
+    ///
+    /// 本命令遍历 battles 表，按 replay_path 重新解析回放 JSON，取 Mapper
+    /// 的船信息与身份映射，按身份主键只更新这几列，对局表现列与对局本身不动。
+    /// 回放文件缺失或解析失败的局打印警告跳过，不中断。
+    /// </remarks>
+    private static int RunRebuildPlayers(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine(
+                "用法: wows-intel rebuild-players <数据库> [--limit N] [--parsed-dir 目录]");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        int limit = 0;
+        string? parsedDir = null;
+        for (int i = 2; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--limit" && int.TryParse(args[i + 1], out int l))
+            {
+                limit = l;
+            }
+            else if (args[i] == "--parsed-dir")
+            {
+                parsedDir = args[i + 1];
+            }
+        }
+
+        if (!File.Exists(dbPath))
+        {
+            Console.Error.WriteLine($"数据库不存在: {dbPath}");
+            return 1;
+        }
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        repository.InitializeAsync().GetAwaiter().GetResult();
+
+        var battles = LoadBattlesWithReplayPath(dbPath, limit);
+        Console.WriteLine($"待重建对局: {battles.Count} 局");
+
+        int total = battles.Count;
+        int rebuilt = 0;
+        int skipped = 0;
+        int index = 0;
+
+        foreach (var (battleId, replayPath) in battles)
+        {
+            index++;
+            string fileName = Path.GetFileName(replayPath);
+
+            // replay_path 通常是相对仓库根的 data\parsed\... 前缀，
+            // --parsed-dir 可覆盖目录部分，文件名保持不变。
+            string fullPath = parsedDir is null
+                ? replayPath
+                : Path.Combine(parsedDir, fileName);
+
+            if (!File.Exists(fullPath))
+            {
+                Console.Error.WriteLine($"[{index}/{total}] 跳过 {fileName}: 回放文件不存在 {fullPath}");
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var output = LoadOutput(fullPath);
+                var battle = ReplaysharkMapper.Map(output, replayPath);
+                if (battle is null)
+                {
+                    Console.Error.WriteLine($"[{index}/{total}] 跳过 {fileName}: 不含完整战斗结果");
+                    skipped++;
+                    continue;
+                }
+
+                int updated = repository.UpdatePlayerShipInfoAsync(battleId, battle.Players)
+                    .GetAwaiter().GetResult();
+                Console.WriteLine($"[{index}/{total}] {fileName} 更新 {updated} 行");
+                rebuilt++;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[{index}/{total}] 跳过 {fileName}: {ex.Message}");
+                skipped++;
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"重建完成: 更新 {rebuilt} 局, 跳过 {skipped} 局");
+        return 0;
+    }
+
+    /// <summary>
+    /// 读对局标识与回放路径，可选截取前 limit 条。
+    /// </summary>
+    private static List<(string BattleId, string ReplayPath)> LoadBattlesWithReplayPath(
+        string dbPath,
+        int limit)
+    {
+        var battles = new List<(string, string)>();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT battle_id, replay_path FROM battles
+            WHERE replay_path IS NOT NULL AND replay_path <> ''
+            ORDER BY started_at
+            """;
+
+        // 注意分号归属：LIMIT 必须并入同一条语句，附加到已有分号之后会被
+        // 当作第二条语句静默忽略。
+        cmd.CommandText = limit > 0
+            ? $"{cmd.CommandText} LIMIT $limit;"
+            : $"{cmd.CommandText};";
+        if (limit > 0)
+        {
+            cmd.Parameters.AddWithValue("$limit", limit);
+        }
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            battles.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        return battles;
+    }
+
+    /// <summary>
     /// onnx 子命令：用 ONNX 模型对一批对局做预测并校准。
     /// </summary>
     /// <remarks>
@@ -1400,6 +1536,8 @@ internal static class Program
         Console.WriteLine("  wows-intel history-backtest <数据库>         用近期状态特征回测, 无时间泄漏");
         Console.WriteLine("  wows-intel snapshot-backtest <数据库>        用账号胜率快照特征回测");
         Console.WriteLine("  wows-intel dedupe-battles <数据库> [--apply] 清理同局重复与非PvP预测, 默认dry-run");
+        Console.WriteLine("  wows-intel rebuild-players <数据库> [--limit N] [--parsed-dir 目录]");
+        Console.WriteLine("                                               用存量回放JSON重建参战者船信息");
         Console.WriteLine("  wows-intel onnx <模型.onnx> <目录>            用 ONNX 模型推理并回测");
     }
 

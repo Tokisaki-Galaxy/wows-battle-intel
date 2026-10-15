@@ -497,4 +497,85 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         Assert.Equal(-1, loaded.ShipWinrate);
         Assert.Equal(-1, loaded.ShipAvgDamage);
     }
+
+    [Fact]
+    public async Task UpdatePlayerShipInfo_RebuildsShipId_KeepsPerformanceColumns()
+    {
+        var battle = MakeBattle();
+        await repository.SaveBattleAsync(battle);
+
+        // 模拟存量脏数据：ship_id 是内部索引码，船信息过时，表现列保持库中原值。
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE battle_players SET
+                    ship_id = 'PASS710', ship_name = 'OldName', ship_tier = 5,
+                    ship_type = 'Unknown', clan_tag = '', division_size = 1,
+                    damage_dealt = 999, kills = 7, exp_earned = 555
+                WHERE battle_id = 'battle-001' AND account_id = '1001';
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var rebuilt = new List<PlayerRecord>
+        {
+            new()
+            {
+                AccountId = "1001",
+                Server = GameServer.Asia,
+                PlayerName = "AllyOne",
+                ClanTag = "[TEST]",
+                ShipId = "3445536752",
+                ShipName = "Archerfish",
+                ShipTier = 10,
+                ShipClass = ShipClass.Submarine,
+                DivisionSize = 3,
+                DamageDealt = 1,
+                Kills = 0,
+            },
+        };
+
+        int updated = await repository.UpdatePlayerShipInfoAsync(battle.BattleId, rebuilt);
+        Assert.Equal(1, updated);
+
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+        Assert.NotNull(loaded);
+        var ally = loaded.Players.Single(p => p.AccountId == "1001");
+
+        // 船信息与身份列应重建为映射结果。
+        Assert.Equal("3445536752", ally.ShipId);
+        Assert.Equal("Archerfish", ally.ShipName);
+        Assert.Equal(10, ally.ShipTier);
+        Assert.Equal(ShipClass.Submarine, ally.ShipClass);
+        Assert.Equal("[TEST]", ally.ClanTag);
+        Assert.Equal(3, ally.DivisionSize);
+
+        // 对局表现列不被覆盖。
+        Assert.Equal(999, ally.DamageDealt);
+        Assert.Equal(7, ally.Kills);
+        Assert.Equal(555, ally.ExpEarned);
+    }
+
+    [Fact]
+    public async Task UpdatePlayerShipInfo_UnknownIdentity_UpdatesNothing()
+    {
+        var battle = MakeBattle();
+        await repository.SaveBattleAsync(battle);
+
+        var mismatch = new List<PlayerRecord>
+        {
+            new()
+            {
+                AccountId = "no-such-account",
+                Server = GameServer.Asia,
+                ShipId = "3445536752",
+            },
+        };
+
+        int updated = await repository.UpdatePlayerShipInfoAsync(battle.BattleId, mismatch);
+        Assert.Equal(0, updated);
+    }
 }

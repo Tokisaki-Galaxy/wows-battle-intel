@@ -248,6 +248,73 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         }
     }
 
+    /// <summary>
+    /// 存量参战者行的船信息与身份字段回填。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="SaveBattleAsync"/> 的先删后插不同，这里按身份主键
+    /// (battle_id, account_id, server) 逐行 UPDATE，只覆盖舰船与身份列，
+    /// 对局表现列保持库中原值。用于修正存量库把 ship_id 存成内部索引码
+    /// 的历史数据，配合 rebuild-players 命令消费。
+    /// </remarks>
+    /// <returns>实际更新的行数，身份不匹配的参战者不计入。</returns>
+    public async Task<int> UpdatePlayerShipInfoAsync(
+        string battleId,
+        IReadOnlyList<PlayerRecord> players,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(battleId);
+        ArgumentNullException.ThrowIfNull(players);
+        if (players.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        int updated = 0;
+        foreach (var p in players)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            command.CommandText = """
+                UPDATE battle_players SET
+                    ship_id       = $shipId,
+                    ship_name     = $shipName,
+                    ship_tier     = $tier,
+                    ship_type     = $shipType,
+                    clan_tag      = $clan,
+                    player_name   = $name,
+                    division_size = $div,
+                    is_bot        = $bot,
+                    is_hidden     = $hidden
+                WHERE battle_id = $battleId
+                  AND account_id = $accountId
+                  AND server = $server;
+                """;
+
+            command.Parameters.AddWithValue("$shipId", p.ShipId ?? string.Empty);
+            command.Parameters.AddWithValue("$shipName", p.ShipName ?? string.Empty);
+            command.Parameters.AddWithValue("$tier", p.ShipTier);
+            command.Parameters.AddWithValue("$shipType", p.ShipClass.ToStorageString());
+            command.Parameters.AddWithValue("$clan", p.ClanTag ?? string.Empty);
+            command.Parameters.AddWithValue("$name", p.PlayerName ?? string.Empty);
+            command.Parameters.AddWithValue("$div", p.DivisionSize);
+            command.Parameters.AddWithValue("$bot", p.IsBot ? 1 : 0);
+            command.Parameters.AddWithValue("$hidden", p.IsHidden ? 1 : 0);
+            command.Parameters.AddWithValue("$battleId", battleId);
+            command.Parameters.AddWithValue("$accountId", p.AccountId);
+            command.Parameters.AddWithValue("$server", p.Server.ToString());
+
+            updated += await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return updated;
+    }
+
     /// <inheritdoc />
     public async Task SavePredictionAsync(
         PredictionResult prediction,
