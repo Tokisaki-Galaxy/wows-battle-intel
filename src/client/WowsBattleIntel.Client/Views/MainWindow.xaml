@@ -317,7 +317,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="2*">
+                        <DataGridTemplateColumn Header="玩家" Width="160" MaxWidth="240">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
@@ -337,7 +337,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="Auto">
+                        <DataGridTemplateColumn Header="账号" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
@@ -379,7 +379,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="单船" Width="Auto">
+                        <DataGridTemplateColumn Header="单船" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
@@ -448,7 +448,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="2*">
+                        <DataGridTemplateColumn Header="玩家" Width="160" MaxWidth="240">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
@@ -468,7 +468,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="Auto">
+                        <DataGridTemplateColumn Header="账号" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
@@ -510,7 +510,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="单船" Width="Auto">
+                        <DataGridTemplateColumn Header="单船" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
