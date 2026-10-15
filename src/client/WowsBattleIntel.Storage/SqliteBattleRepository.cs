@@ -460,6 +460,71 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         return result is long count ? (int)count : 0;
     }
 
+    /// <summary>
+    /// 为一批对局补齐参战者。列表查询为了性能不带名单，这里一次性填充。
+    /// </summary>
+    public async Task AttachPlayersAsync(
+        IReadOnlyList<BattleRecord> battles,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(battles);
+        if (battles.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        foreach (var battle in battles)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT * FROM battle_players WHERE battle_id = $id;";
+            command.Parameters.AddWithValue("$id", battle.BattleId);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                battle.Players.Add(ReadPlayer(reader));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 查账号在指定服务器上的最新快照，不设时间上界，供展示层使用。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="GetLatestSnapshotBeforeAsync"/> 的区别：预测特征必须
+    /// 严格用对局之前的快照防时间泄漏，展示层给玩家看当前战绩，取最新即可。
+    /// </remarks>
+    public async Task<PlayerSnapshot?> GetLatestSnapshotAsync(
+        string accountId,
+        GameServer server,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT * FROM player_snapshots
+            WHERE account_id = $accountId AND server = $server
+            ORDER BY captured_at DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$accountId", accountId);
+        command.Parameters.AddWithValue("$server", server.ToString());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return ReadSnapshot(reader);
+    }
+
     /// <inheritdoc />
     public async Task<PredictionResult?> GetPredictionAsync(
         string battleId,
@@ -601,6 +666,12 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             return null;
         }
 
+        return ReadSnapshot(reader);
+    }
+
+    /// <summary>从读取器当前位置构造快照对象。</summary>
+    private static PlayerSnapshot ReadSnapshot(SqliteDataReader reader)
+    {
         return new PlayerSnapshot
         {
             AccountId = reader.GetString(reader.GetOrdinal("account_id")),

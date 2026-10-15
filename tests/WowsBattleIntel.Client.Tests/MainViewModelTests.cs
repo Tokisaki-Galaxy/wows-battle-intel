@@ -232,6 +232,33 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task LoadRecentBattles_AttachesPlayersForTierLabel()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await SeedBattleAsync(holder.Services, "battle-tier", BattleOutcome.Win, 0.6);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        // 列表查询原本不带参战者，等级标签会退到 T?。补齐后应显示实际等级。
+        var item = Assert.Single(vm.RecentBattles);
+        Assert.Equal("T10", item.TierText);
+    }
+
+    [Fact]
+    public void TierText_EmptyRoster_ShowsPlaceholder()
+    {
+        var battle = new BattleRecord
+        {
+            BattleId = "t",
+            StartedAt = DateTimeOffset.UtcNow,
+            Players = [],
+        };
+        var summary = BattleSummaryViewModel.FromBattle(battle, string.Empty);
+        Assert.Equal("T?", summary.TierText);
+    }
+
+    [Fact]
     public async Task StartAndStopObservation_TogglesFlag()
     {
         using var holder = await TestServices.CreateAsync();
@@ -364,12 +391,12 @@ public class MainViewModelTests
         var battle = MakeBattle("battle-summary", BattleOutcome.Win, DateTimeOffset.UtcNow.AddMinutes(-1));
         await holder.Services.Repository.SaveBattleAsync(battle);
 
-        // 种一份赛前快照，友方玩家的账号层数据经合并后进汇总。
+        // 种一份快照。展示层取最新快照，不设对局时间上界，种在对局之后也生效。
         await holder.Services.Repository.SaveSnapshotAsync(new PlayerSnapshot
         {
             AccountId = "1001",
             Server = GameServer.Asia,
-            CapturedAt = battle.StartedAt.AddMinutes(-5),
+            CapturedAt = DateTimeOffset.UtcNow,
             AccountBattles = 1000,
             AccountWinrate = 0.56,
             WeightedWinrate = 0.5,

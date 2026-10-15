@@ -312,6 +312,11 @@ public sealed class MainViewModel : ViewModelBase
                 .GetRecentBattlesAsync(limit: 300, cancellationToken)
                 .ConfigureAwait(true);
 
+            // 列表查询不带参战者，批量补齐，列表项的等级标签需要名单。
+            await services.Repository
+                .AttachPlayersAsync(battles, cancellationToken)
+                .ConfigureAwait(true);
+
             // 逐局取预测胜率，列表上直接显示对照所需的关键数字。
             var summaries = new List<BattleSummaryViewModel>(battles.Count);
             foreach (var battle in battles)
@@ -387,11 +392,12 @@ public sealed class MainViewModel : ViewModelBase
             var full = await services.Repository.GetBattleAsync(battle.BattleId).ConfigureAwait(true)
                 ?? battle;
 
-            // battle_players 表不保存战绩字段，账号层统计走赛前快照合并。
-            // 取对局开始时间之前的最新快照，维持赛前可得原则。
+            // battle_players 表不保存战绩字段，账号层统计走快照合并。
+            // 展示层取最新快照，不设对局时间上界：给玩家看的是当前战绩，
+            // ApeRadar 同口径。预测特征的严格赛前约束在预测管线内部维持。
             full = SnapshotFeatureBuilder.Enrich(full, (accountId, server) =>
                 services.Repository
-                    .GetLatestSnapshotBeforeAsync(accountId, server, full.StartedAt)
+                    .GetLatestSnapshotAsync(accountId, server)
                     .GetAwaiter()
                     .GetResult());
 

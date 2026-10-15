@@ -46,10 +46,13 @@ public sealed class BattleSummaryViewModel
         get
         {
             // 取己方参战者的常见等级，隐藏战绩或未解析时给占位。
+            // 注意不能对 int? 直接 FirstOrDefault：空序列返回 0 会显示 T0。
             int? tier = Battle.Players
                 .Where(p => p.IsAlly && p.ShipTier > 0)
                 .Select(p => (int?)p.ShipTier)
-                .FirstOrDefault();
+                .Cast<int?>()
+                .DefaultIfEmpty(null)
+                .First();
 
             return tier is { } t ? $"T{t}" : "T?";
         }
