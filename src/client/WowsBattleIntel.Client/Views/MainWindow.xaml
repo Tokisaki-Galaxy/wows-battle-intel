@@ -225,29 +225,22 @@
                   </TextBlock>
                 </StackPanel>
 
-                <!-- 副标题独占中栏，前置推理状态与模型标识，底部对齐 -->
-                <TextBlock Grid.Column="1"
-                           Style="{StaticResource SecondaryTextStyle}"
-                           TextWrapping="Wrap"
-                           VerticalAlignment="Bottom"
-                           Margin="24,0,0,2">
-                  <Run Text="{Binding PredictorStatusText, Mode=OneWay}" />
-                  <Run Text="  ·  " />
-                  <Run Text="{Binding BattleSubtitle, Mode=OneWay}" />
-                </TextBlock>
-
-                <!-- 右上角数据刷新倒计时：赛前补拉循环运行时可见，主色提醒用户读数在收敛。限宽防长文案挤压中栏 -->
-                <StackPanel Grid.Column="2"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Top"
-                            HorizontalAlignment="Right"
-                            MaxWidth="360">
+                <!-- 副标题独占中栏，顶部倒计时行 + 底部对局信息。模型前缀已并入倒计时逻辑 -->
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Margin="24,0,0,2">
+                  <!-- 赛前数据刷新倒计时：循环运行时可见，主色提醒读数在收敛 -->
                   <TextBlock Text="{Binding CountdownText}"
                              Style="{StaticResource SecondaryTextStyle}"
                              Foreground="{StaticResource PrimaryFgBrush}"
                              TextTrimming="CharacterEllipsis"
                              ToolTip="{Binding CountdownText, TargetNullValue=正在在线补齐玩家数据}"
                              Visibility="{Binding CountdownText, Converter={StaticResource EmptyStringToCollapsedConverter}}" />
+                  <TextBlock Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap"
+                             Margin="0,2,0,0">
+                    <Run Text="{Binding BattleSubtitle, Mode=OneWay}" />
+                  </TextBlock>
                 </StackPanel>
 
                 <!-- 重算胜率按钮 -->

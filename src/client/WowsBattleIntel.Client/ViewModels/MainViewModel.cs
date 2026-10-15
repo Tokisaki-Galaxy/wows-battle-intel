@@ -324,7 +324,7 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>预测器装配状态说明。</summary>
     public string PredictorStatusText => services.PredictionInfo.UsedFallback
         ? $"基线预测器 · {services.PredictionInfo.Reason}"
-        : $"模型推理 · {services.Predictor.ModelVersion}";
+        : services.Predictor.ModelVersion;
 
     /// <summary>状态栏消息。</summary>
     public string StatusMessage
