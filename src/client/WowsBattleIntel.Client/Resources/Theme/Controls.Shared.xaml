@@ -350,25 +350,43 @@
               <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="Center" />
             </Border>
-            <!-- 列宽拖拽把手：自定义模板会覆盖默认把手，这里补回，
-                 透明样式贴合主题，拖拽热区 6px -->
+            <!-- 列宽拖拽把手：自定义模板会覆盖默认把手，这里补回。
+                 悬停时显示中缝提示线，拖拽热区 6px -->
             <Thumb x:Name="PART_LeftHeaderGripper"
                    HorizontalAlignment="Left"
                    Width="6"
-                   Background="Transparent">
+                   Background="Transparent"
+                   Cursor="SizeWE">
               <Thumb.Template>
                 <ControlTemplate TargetType="Thumb">
-                  <Rectangle Fill="Transparent" />
+                  <Rectangle x:Name="GripperBar"
+                             Fill="Transparent"
+                             HorizontalAlignment="Center"
+                             Width="2" />
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="GripperBar" Property="Fill" Value="{StaticResource PrimaryBrush}" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
                 </ControlTemplate>
               </Thumb.Template>
             </Thumb>
             <Thumb x:Name="PART_RightHeaderGripper"
                    HorizontalAlignment="Right"
                    Width="6"
-                   Background="Transparent">
+                   Background="Transparent"
+                   Cursor="SizeWE">
               <Thumb.Template>
                 <ControlTemplate TargetType="Thumb">
-                  <Rectangle Fill="Transparent" />
+                  <Rectangle x:Name="GripperBar"
+                             Fill="Transparent"
+                             HorizontalAlignment="Center"
+                             Width="2" />
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="GripperBar" Property="Fill" Value="{StaticResource PrimaryBrush}" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
                 </ControlTemplate>
               </Thumb.Template>
             </Thumb>

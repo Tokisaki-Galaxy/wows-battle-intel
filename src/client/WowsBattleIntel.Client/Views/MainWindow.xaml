@@ -357,14 +357,17 @@
                                       </Style>
                                     </TextBlock.Style>
                                   </TextBlock>
-                                  <Border VerticalAlignment="Top" Margin="3,1,0,0"
-                                          Width="8" Height="8" CornerRadius="2"
+                                </StackPanel>
+                                <!-- 船名行：舰种缩写、等级、船名后跟小队色块 -->
+                                <StackPanel Orientation="Horizontal">
+                                  <TextBlock Text="{Binding ShipLineText}"
+                                             Style="{StaticResource SecondaryTextStyle}"
+                                             TextTrimming="CharacterEllipsis" />
+                                  <Border VerticalAlignment="Center" Margin="4,0,0,0"
+                                          Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
-                                <TextBlock Text="{Binding ShipLineText}"
-                                           Style="{StaticResource SecondaryTextStyle}"
-                                           TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
@@ -527,14 +530,17 @@
                                       </Style>
                                     </TextBlock.Style>
                                   </TextBlock>
-                                  <Border VerticalAlignment="Top" Margin="3,1,0,0"
-                                          Width="8" Height="8" CornerRadius="2"
+                                </StackPanel>
+                                <!-- 船名行：舰种缩写、等级、船名后跟小队色块 -->
+                                <StackPanel Orientation="Horizontal">
+                                  <TextBlock Text="{Binding ShipLineText}"
+                                             Style="{StaticResource SecondaryTextStyle}"
+                                             TextTrimming="CharacterEllipsis" />
+                                  <Border VerticalAlignment="Center" Margin="4,0,0,0"
+                                          Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
-                                <TextBlock Text="{Binding ShipLineText}"
-                                           Style="{StaticResource SecondaryTextStyle}"
-                                           TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
