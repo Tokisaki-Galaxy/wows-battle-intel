@@ -8,7 +8,7 @@
         Style="{StaticResource AppWindowStyle}">
 
   <Window.Resources>
-    <!-- 列表项模板：两行信息加右侧胶囊结果徽章，选中指示条由 ListBoxItem 样式提供 -->
+    <!-- 列表项模板：两行信息加右侧结果列，选中指示条由 ListBoxItem 样式提供 -->
     <DataTemplate x:Key="BattleItemTemplate">
       <Grid Margin="4,5">
         <Grid.ColumnDefinitions>
@@ -17,15 +17,9 @@
         </Grid.ColumnDefinitions>
 
         <StackPanel Grid.Column="0">
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Text="{Binding DisplayText}"
-                       Style="{StaticResource BodyTextStyle}"
-                       FontWeight="SemiBold" />
-            <TextBlock Text="{Binding TierText}"
-                       Style="{StaticResource SecondaryTextStyle}"
-                       Margin="8,0,0,0"
-                       VerticalAlignment="Center" />
-          </StackPanel>
+          <TextBlock Text="{Binding DisplayText}"
+                     Style="{StaticResource BodyTextStyle}"
+                     FontWeight="SemiBold" />
           <TextBlock Text="{Binding SecondaryText}"
                      Style="{StaticResource SecondaryTextStyle}"
                      Margin="0,3,0,0" />
@@ -35,19 +29,30 @@
                      Margin="0,2,0,0" />
         </StackPanel>
 
-        <!-- 右侧结果徽章：胶囊形，柔底加同族描边加同色文字三件套 -->
-        <Border Grid.Column="1"
-                Style="{StaticResource BadgeBorderStyle}"
-                Background="{Binding ResultBrushKey, Converter={StaticResource BrushKeyConverter}, ConverterParameter=soft}"
-                BorderBrush="{Binding ResultBrushKey, Converter={StaticResource BrushKeyConverter}, ConverterParameter=bd}"
-                VerticalAlignment="Center">
+        <!-- 右侧结果列：等级行与结果词。等级保持次要文本色不染色 -->
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{Binding TierText}"
+                     Style="{StaticResource SecondaryTextStyle}"
+                     HorizontalAlignment="Right" />
           <TextBlock Text="{Binding ResultLabel}"
-                     Style="{StaticResource BadgeTextStyle}">
-            <TextBlock.Foreground>
-              <Binding Path="ResultBrushKey" Converter="{StaticResource BrushKeyConverter}" />
-            </TextBlock.Foreground>
+                     HorizontalAlignment="Right"
+                     Margin="0,3,0,0">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{StaticResource HiddenBrush}" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding ResultLabel}" Value="胜">
+                    <Setter Property="Foreground" Value="{StaticResource WinBrush}" />
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding ResultLabel}" Value="负">
+                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
           </TextBlock>
-        </Border>
+        </StackPanel>
       </Grid>
     </DataTemplate>
   </Window.Resources>

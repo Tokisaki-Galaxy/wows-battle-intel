@@ -5,16 +5,36 @@ namespace WowsBattleIntel.Client.ViewModels;
 /// <summary>
 /// 对局列表中的一项。
 /// </summary>
-public sealed class BattleSummaryViewModel
+public sealed class BattleSummaryViewModel : ViewModelBase
 {
     /// <summary>领域模型的对局记录。</summary>
     public required BattleRecord Battle { get; init; }
+
+    private double? predictedWinProbability;
 
     /// <summary>来源 JSON 文件路径，来自数据库列表时为空。</summary>
     public string SourcePath { get; init; } = string.Empty;
 
     /// <summary>该局的赛前预测胜率，无预测时为空。</summary>
-    public double? PredictedWinProbability { get; init; }
+    public double? PredictedWinProbability
+    {
+        get => predictedWinProbability;
+        init => predictedWinProbability = value;
+    }
+
+    /// <summary>
+    /// 重算后更新预测概率并通知列表刷新。
+    /// </summary>
+    public void UpdatePrediction(double? winProbability)
+    {
+        if (predictedWinProbability == winProbability)
+        {
+            return;
+        }
+
+        predictedWinProbability = winProbability;
+        OnPropertyChanged(nameof(PredictionText));
+    }
 
     /// <summary>开始时间，UTC。</summary>
     public DateTimeOffset StartedAt => Battle.StartedAt;

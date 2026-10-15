@@ -554,6 +554,11 @@ public sealed class MainViewModel : ViewModelBase
             await services.Repository.SavePredictionAsync(prediction).ConfigureAwait(true);
 
             currentPrediction = prediction;
+
+            // 同步刷新左侧列表项的预测概率，否则列表要重启才更新。
+            var summary = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == battle.BattleId);
+            summary?.UpdatePrediction(prediction.AllyWinProbability);
+
             StatusMessage = $"已重算 · {prediction.ModelVersion}";
             LogSink.Info($"预测重算完成: {battle.BattleId[..12]} 概率 {prediction.AllyWinProbability:F3}");
         }
