@@ -107,6 +107,19 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
 CREATE INDEX IF NOT EXISTS idx_snap_account_time
     ON player_snapshots (account_id, server, captured_at);
 
+-- 单船层快照按账号加船维度取最新一条。索引引用 ship_id，旧库该列
+-- 由迁移补齐后才能建，索引创建放 MigrateSchemaAsync 里。
+
+-- 军团分档缓存，TTL 一周，写入时顺带清理过期行。
+CREATE TABLE IF NOT EXISTS clan_grades (
+    tag           TEXT    PRIMARY KEY,
+    grade         TEXT    NOT NULL DEFAULT 'Normal',
+    name          TEXT    NOT NULL DEFAULT '',
+    members_count INTEGER NOT NULL DEFAULT 0,
+    winrate       REAL    NOT NULL DEFAULT -1,
+    queried_at    INTEGER NOT NULL
+);
+
 -- 各服务器的水平分布基准，用于胜率归一化。
 CREATE TABLE IF NOT EXISTS server_baselines (
     server           TEXT PRIMARY KEY,

@@ -15,7 +15,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider
+public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache
 {
     private readonly string connectionString;
 
@@ -91,6 +91,42 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         await AddColumnIfMissing(existing, connection, "ship_winrate", "REAL");
         await AddColumnIfMissing(existing, connection, "ship_avg_damage", "REAL");
         await AddColumnIfMissing(existing, connection, "favorite_tier", "INTEGER");
+
+        // 单船层快照的查询索引。引用 ship_id，必须在加列之后建，
+        // 因此放迁移里而 schema.sql 只服务新库也不重复建。
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE INDEX IF NOT EXISTS idx_snap_account_ship
+                    ON player_snapshots (account_id, server, ship_id, captured_at);
+                """;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // 军团分档缓存表。存量库走迁移补建，新库由 schema.sql 直接创建。
+        bool hasClanGrades = false;
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clan_grades';";
+            hasClanGrades = Convert.ToInt64(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0;
+        }
+
+        if (!hasClanGrades)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS clan_grades (
+                    tag           TEXT    PRIMARY KEY,
+                    grade         TEXT    NOT NULL DEFAULT 'Normal',
+                    name          TEXT    NOT NULL DEFAULT '',
+                    members_count INTEGER NOT NULL DEFAULT 0,
+                    winrate       REAL    NOT NULL DEFAULT -1,
+                    queried_at    INTEGER NOT NULL
+                );
+                """;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>列不存在时加列，已存在则跳过。迁移幂等，重复执行安全。</summary>
@@ -595,16 +631,63 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         GameServer server,
         CancellationToken cancellationToken = default)
     {
+        return await GetSnapshotAsync(accountId, server, shipId: null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 查账号在指定服务器上指定船只的最新一条带单船数据的快照。
+    /// </summary>
+    /// <remarks>
+    /// 单船数据与快照行绑定，同账号换船会落多条带不同 ship_id 的快照。
+    /// 这里按船维度取最新一条，换船后历史单船数据仍可命中，不再重复补拉。
+    /// </remarks>
+    public async Task<PlayerSnapshot?> GetLatestShipSnapshotAsync(
+        string accountId,
+        GameServer server,
+        string shipId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(shipId);
+        return await GetSnapshotAsync(accountId, server, shipId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 快照查询的公共实现。shipId 为空查账号级最新快照，否则查该船最新一条。
+    /// </summary>
+    private async Task<PlayerSnapshot?> GetSnapshotAsync(
+        string accountId,
+        GameServer server,
+        string? shipId,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
 
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT * FROM player_snapshots
-            WHERE account_id = $accountId AND server = $server
-            ORDER BY captured_at DESC
-            LIMIT 1;
-            """;
+        if (string.IsNullOrEmpty(shipId))
+        {
+            command.CommandText = """
+                SELECT * FROM player_snapshots
+                WHERE account_id = $accountId AND server = $server
+                ORDER BY captured_at DESC
+                LIMIT 1;
+                """;
+        }
+        else
+        {
+            // ship_battles >= 0 过滤掉 ship_id 为空或单船数据缺失的行。
+            command.CommandText = """
+                SELECT * FROM player_snapshots
+                WHERE account_id = $accountId AND server = $server
+                  AND ship_id = $shipId AND ship_battles >= 0
+                ORDER BY captured_at DESC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$shipId", shipId);
+        }
+
         command.Parameters.AddWithValue("$accountId", accountId);
         command.Parameters.AddWithValue("$server", server.ToString());
 
@@ -850,6 +933,145 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         }
 
         return (0, 0);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> DeleteSnapshotsOlderThanAsync(
+        DateTimeOffset cutoff,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM player_snapshots WHERE captured_at < $cutoff;";
+        command.Parameters.AddWithValue("$cutoff", cutoff.ToUnixTimeMilliseconds());
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CleanupSnapshotsAsync(
+        int retentionDays,
+        CancellationToken cancellationToken = default)
+    {
+        // 0 与负值表示不清理，直接返回。
+        if (retentionDays <= 0)
+        {
+            return 0;
+        }
+
+        DateTimeOffset cutoff = DateTimeOffset.UtcNow.AddDays(-retentionDays);
+        return await DeleteSnapshotsOlderThanAsync(cutoff, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>军团分档缓存的有效期。</summary>
+    private static readonly TimeSpan ClanGradeTtl = TimeSpan.FromDays(7);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<string, ClanGradeInfo>> GetClanGradesAsync(
+        IReadOnlyList<string> tags,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+        if (tags.Count == 0)
+        {
+            return new Dictionary<string, ClanGradeInfo>(StringComparer.Ordinal);
+        }
+
+        long oldestAllowed = DateTimeOffset.UtcNow
+            .Subtract(ClanGradeTtl)
+            .ToUnixTimeMilliseconds();
+
+        var result = new Dictionary<string, ClanGradeInfo>(StringComparer.Ordinal);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        // 标签集合来自调用方去重后的名单，逐个参数化避免拼接注入。
+        var clauses = new List<string>(tags.Count);
+        for (int i = 0; i < tags.Count; i++)
+        {
+            clauses.Add($"$tag{i}");
+            command.Parameters.AddWithValue($"$tag{i}", tags[i]);
+        }
+
+        command.CommandText = $"""
+            SELECT tag, grade, name, members_count, winrate
+            FROM clan_grades
+            WHERE tag IN ({string.Join(", ", clauses)}) AND queried_at >= $oldest;
+            """;
+        command.Parameters.AddWithValue("$oldest", oldestAllowed);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var info = new ClanGradeInfo
+            {
+                Tag = reader.GetString(0),
+                Grade = Enum.TryParse<ClanGradeTier>(reader.GetString(1), out var g)
+                    ? g
+                    : ClanGradeTier.Normal,
+                Name = reader.GetString(2),
+                MembersCount = reader.GetInt32(3),
+                AggregateWinrate = reader.GetDouble(4),
+            };
+            result[info.Tag] = info;
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task SaveClanGradesAsync(
+        IReadOnlyList<ClanGradeInfo> grades,
+        DateTimeOffset queriedAt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(grades);
+        if (grades.Count == 0)
+        {
+            return;
+        }
+
+        long now = queriedAt.ToUnixTimeMilliseconds();
+        long oldestAllowed = DateTimeOffset.UtcNow
+            .Subtract(ClanGradeTtl)
+            .ToUnixTimeMilliseconds();
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var g in grades)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            command.CommandText = """
+                INSERT INTO clan_grades (tag, grade, name, members_count, winrate, queried_at)
+                VALUES ($tag, $grade, $name, $members, $winrate, $queriedAt)
+                ON CONFLICT(tag) DO UPDATE SET
+                    grade         = excluded.grade,
+                    name          = excluded.name,
+                    members_count = excluded.members_count,
+                    winrate       = excluded.winrate,
+                    queried_at    = excluded.queried_at;
+                """;
+
+            command.Parameters.AddWithValue("$tag", g.Tag.ToUpperInvariant());
+            command.Parameters.AddWithValue("$grade", g.Grade.ToString());
+            command.Parameters.AddWithValue("$name", g.Name ?? string.Empty);
+            command.Parameters.AddWithValue("$members", g.MembersCount);
+            command.Parameters.AddWithValue("$winrate", g.AggregateWinrate);
+            command.Parameters.AddWithValue("$queriedAt", now);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // 写入顺带清理过期行，缓存表不会无限膨胀。
+        await using var cleanup = connection.CreateCommand();
+        cleanup.Transaction = (SqliteTransaction)transaction;
+        cleanup.CommandText = "DELETE FROM clan_grades WHERE queried_at < $oldest;";
+        cleanup.Parameters.AddWithValue("$oldest", oldestAllowed);
+        await cleanup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

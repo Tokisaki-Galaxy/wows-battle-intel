@@ -40,6 +40,9 @@ public sealed class AppConfig
     /// <summary>观测轮询间隔秒。</summary>
     public int PollIntervalSeconds { get; set; } = 10;
 
+    /// <summary>快照保留天数，默认 14，0 表示不清理。</summary>
+    public int SnapshotRetentionDays { get; set; } = 14;
+
     /// <summary>WG API 应用 ID。为空时用默认共享 ID。</summary>
     public string WgApplicationId { get; set; } = string.Empty;
 

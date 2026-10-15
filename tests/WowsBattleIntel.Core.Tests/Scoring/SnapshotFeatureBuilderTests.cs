@@ -62,7 +62,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         var player = enriched.Players[0];
         Assert.Equal(0.58, player.AccountWinrate, precision: 6);
@@ -88,7 +88,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         Assert.Equal(61700, enriched.Players[0].AccountAvgDamage, precision: 6);
     }
@@ -114,7 +114,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         var player = enriched.Players[0];
         Assert.Equal(230, player.ShipBattles);
@@ -125,7 +125,7 @@ public class SnapshotFeatureBuilderTests
     [Fact]
     public void Enrich_KeepsPlayerShipStatsWhenShipIdDiffers()
     {
-        // 快照的单船数据属于另一艘船，不得覆盖本局船只的原值。
+        // 账号级快照的单船数据属于另一艘船，不得覆盖本局船只的原值。
         var battle = new BattleRecord
         {
             BattleId = "test",
@@ -147,12 +147,92 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         var player = enriched.Players[0];
         Assert.Equal(100, player.ShipBattles);
         Assert.Equal(0.55, player.ShipWinrate, precision: 6);
         Assert.Equal(50000, player.ShipAvgDamage, precision: 6);
+    }
+
+    [Fact]
+    public void Enrich_ShipSnapshotHitsIndependentlyOfAccountSnapshot()
+    {
+        // 账号级最新快照是船 B 的，本局开船 A：账号层用最新快照，
+        // 单船层按船命中历史快照，两层独立。
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+
+        var shipASnapshot = MakeSnapshot("1001", 0.51);
+        shipASnapshot.ShipId = "TEST001";
+        shipASnapshot.ShipBattles = 100;
+        shipASnapshot.ShipWinrate = 0.55;
+        shipASnapshot.ShipAvgDamage = 50000;
+
+        var shipBSnapshot = MakeSnapshot("1001", 0.58);
+        shipBSnapshot.ShipId = "SHIP-B";
+        shipBSnapshot.ShipBattles = 20;
+        shipBSnapshot.ShipWinrate = 0.4;
+        shipBSnapshot.ShipAvgDamage = 30000;
+
+        var accountSnapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001"] = shipBSnapshot,
+        };
+        var shipSnapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001:TEST001"] = shipASnapshot,
+        };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server, shipId) => string.IsNullOrEmpty(shipId)
+                ? accountSnapshots.GetValueOrDefault($"{server}:{id}")
+                : shipSnapshots.GetValueOrDefault($"{server}:{id}:{shipId}"));
+
+        var player = enriched.Players[0];
+        // 账号层来自最新快照。
+        Assert.Equal(0.58, player.AccountWinrate, precision: 6);
+        Assert.Equal(5000, player.AccountBattles);
+        // 单船层来自船 A 的历史快照。
+        Assert.Equal(100, player.ShipBattles);
+        Assert.Equal(0.55, player.ShipWinrate, precision: 6);
+        Assert.Equal(50000, player.ShipAvgDamage, precision: 6);
+    }
+
+    [Fact]
+    public void Enrich_ShipSnapshotFallback_WhenAccountSnapshotMissing()
+    {
+        // 账号层查询落空时退回船级快照，它的行里同样带账号层字段。
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+
+        var shipSnapshot = MakeSnapshot("1001", 0.52);
+        shipSnapshot.ShipId = "TEST001";
+        shipSnapshot.ShipBattles = 100;
+        shipSnapshot.ShipWinrate = 0.55;
+        shipSnapshot.ShipAvgDamage = 50000;
+
+        var shipSnapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001:TEST001"] = shipSnapshot,
+        };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server, shipId) => string.IsNullOrEmpty(shipId)
+                ? null
+                : shipSnapshots.GetValueOrDefault($"{server}:{id}:{shipId}"));
+
+        var player = enriched.Players[0];
+        Assert.Equal(0.52, player.AccountWinrate, precision: 6);
+        Assert.Equal(100, player.ShipBattles);
     }
 
     [Fact]
@@ -171,7 +251,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         var player = enriched.Players[0];
         // 单局表现应保持回放原值，不被快照覆盖。
@@ -193,7 +273,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (_, _) => null);
+            (_, _, _) => null);
 
         var player = enriched.Players[0];
         Assert.Equal(-1, player.AccountWinrate);
@@ -217,7 +297,7 @@ public class SnapshotFeatureBuilderTests
 
         SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         // 原对象不应被改动。
         Assert.Equal(-1, original.AccountWinrate);
@@ -239,7 +319,7 @@ public class SnapshotFeatureBuilderTests
             Players = [MakePlayer("1001")],
         };
 
-        var enriched = SnapshotFeatureBuilder.Enrich(battle, (_, _) => null);
+        var enriched = SnapshotFeatureBuilder.Enrich(battle, (_, _, _) => null);
 
         Assert.Equal("battle-123", enriched.BattleId);
         Assert.Equal("Haven", enriched.MapId);
@@ -269,7 +349,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         Assert.Equal(0.60, enriched.Players[0].AccountWinrate, precision: 6);
         Assert.Equal(0.45, enriched.Players[1].AccountWinrate, precision: 6);
@@ -301,7 +381,7 @@ public class SnapshotFeatureBuilderTests
 
         var enriched = SnapshotFeatureBuilder.Enrich(
             battle,
-            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
 
         var ally = TeamAggregator.Aggregate(enriched.Allies);
         var enemy = TeamAggregator.Aggregate(enriched.Enemies);

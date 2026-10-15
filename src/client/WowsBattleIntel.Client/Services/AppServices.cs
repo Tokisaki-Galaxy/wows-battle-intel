@@ -97,9 +97,9 @@ public sealed class AppServices : IDisposable
         var repository = new SqliteBattleRepository(config.DatabasePath);
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-        // 统计来源。
+        // 统计来源。军团目录带持久缓存，仓储实现 Core 的缓存接口。
         var statsProvider = CreateStatsProvider(config);
-        var clanCatalog = new ClanCatalogService(CreateWgOptions(config));
+        var clanCatalog = new ClanCatalogService(CreateWgOptions(config), repository);
 
         // 预测器。模型不可用时自动降级到基线。
         var createResult = PredictorFactory.Create(config.ModelPath, config.ModelVersion);
@@ -108,7 +108,35 @@ public sealed class AppServices : IDisposable
             createResult.FallbackReason);
 
         var observer = new ReplayObserver(config);
-        return new AppServices(config, repository, statsProvider, clanCatalog, createResult.Predictor, info, observer);
+        var services = new AppServices(
+            config, repository, statsProvider, clanCatalog, createResult.Predictor, info, observer);
+
+        // 启动时按保留天数清一次旧快照。fire and forget，失败记日志即可，
+        // 不阻塞启动。
+        _ = CleanupSnapshotsSilentlyAsync(services);
+
+        return services;
+    }
+
+    /// <summary>
+    /// 后台执行快照清理，异常静默记日志。
+    /// </summary>
+    private static async Task CleanupSnapshotsSilentlyAsync(AppServices services)
+    {
+        try
+        {
+            int deleted = await services.Repository
+                .CleanupSnapshotsAsync(services.Config.SnapshotRetentionDays)
+                .ConfigureAwait(false);
+            if (deleted > 0)
+            {
+                services.Logs.Info($"快照清理完成，删除 {deleted} 条过期记录");
+            }
+        }
+        catch (Exception ex)
+        {
+            services.Logs.Warn($"快照清理失败: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -165,7 +193,7 @@ public sealed class AppServices : IDisposable
             Config = updated;
             Repository = repository;
             StatsProvider = CreateStatsProvider(updated);
-            ClanCatalog = new ClanCatalogService(CreateWgOptions(updated));
+            ClanCatalog = new ClanCatalogService(CreateWgOptions(updated), repository);
             Predictor = createResult.Predictor;
             PredictionInfo = new PredictionFallbackInfo(
                 createResult.UsedFallback,

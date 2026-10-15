@@ -26,6 +26,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private string wgApplicationId = string.Empty;
     private bool autoObserve = true;
     private int pollIntervalSeconds = 10;
+    private int snapshotRetentionDays = 14;
     private int themeIndex;
     private string statusMessage = string.Empty;
     private bool isBusy;
@@ -148,6 +149,13 @@ public sealed class SettingsViewModel : ViewModelBase
         set => SetFieldAndMarkDirty(ref pollIntervalSeconds, value);
     }
 
+    /// <summary>快照保留天数，0 表示不清理。</summary>
+    public int SnapshotRetentionDays
+    {
+        get => snapshotRetentionDays;
+        set => SetFieldAndMarkDirty(ref snapshotRetentionDays, value);
+    }
+
     /// <summary>
     /// 主题选择下标：0 跟随系统、1 浅色、2 深色。
     /// </summary>
@@ -251,6 +259,11 @@ public sealed class SettingsViewModel : ViewModelBase
             return "轮询间隔不能小于 3 秒。";
         }
 
+        if (SnapshotRetentionDays < 0)
+        {
+            return "快照保留天数不能为负，0 表示不清理。";
+        }
+
         return null;
     }
 
@@ -271,6 +284,7 @@ public sealed class SettingsViewModel : ViewModelBase
             WgApplicationId = WgApplicationId.Trim(),
             AutoObserve = AutoObserve,
             PollIntervalSeconds = PollIntervalSeconds,
+            SnapshotRetentionDays = SnapshotRetentionDays,
             Theme = ThemeConfigValue(ThemeIndex),
         };
     }
@@ -335,6 +349,7 @@ public sealed class SettingsViewModel : ViewModelBase
         wgApplicationId = config.WgApplicationId;
         autoObserve = config.AutoObserve;
         pollIntervalSeconds = config.PollIntervalSeconds;
+        snapshotRetentionDays = config.SnapshotRetentionDays;
         themeIndex = ThemeIndexFromConfig(config.Theme);
         hasUnsavedChanges = false;
 
@@ -348,6 +363,7 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(WgApplicationId));
         OnPropertyChanged(nameof(AutoObserve));
         OnPropertyChanged(nameof(PollIntervalSeconds));
+        OnPropertyChanged(nameof(SnapshotRetentionDays));
         OnPropertyChanged(nameof(ThemeIndex));
         OnPropertyChanged(nameof(HasUnsavedChanges));
     }

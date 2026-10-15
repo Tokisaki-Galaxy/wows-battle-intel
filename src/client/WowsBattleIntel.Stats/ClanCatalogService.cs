@@ -1,4 +1,5 @@
 using System.Net;
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 
 namespace WowsBattleIntel.Stats;
@@ -7,9 +8,10 @@ namespace WowsBattleIntel.Stats;
 /// 军团强度目录。按军团标签批量查询分档，供名单着色与 ToolTip 使用。
 /// </summary>
 /// <remarks>
-/// 三步拉取：clans/list 按标签精确匹配军团，clans/info 拿成员列表，
+/// 查询前先查本地缓存，只对 miss 的标签走网络，结果回写缓存。
+/// 网络侧三步拉取：clans/list 按标签精确匹配军团，clans/info 拿成员列表，
 /// account/info 批量取成员统计后按 ClanGrading 分档。
-/// 进程内缓存查询结果，容量超限整表清空，简单够用不做 LRU。
+/// 进程内缓存叠加在持久缓存之上，容量超限整表清空，简单够用不做 LRU。
 /// 任何一步失败该标签回落 Normal，静默处理不阻断名单加载。
 /// </remarks>
 public sealed class ClanCatalogService
@@ -18,17 +20,22 @@ public sealed class ClanCatalogService
 
     private readonly HttpClient httpClient;
     private readonly WgPublicOptions options;
+    private readonly IClanGradeCache? gradeCache;
     private readonly object cacheLock = new();
     private Dictionary<string, ClanGradeInfo> cache = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// 构造服务。
+    /// 构造服务。缓存仓储可选，缺省时退回纯内存缓存。
     /// </summary>
-    public ClanCatalogService(WgPublicOptions options, HttpClient? httpClient = null)
+    public ClanCatalogService(
+        WgPublicOptions options,
+        IClanGradeCache? gradeCache = null,
+        HttpClient? httpClient = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
         this.options = options;
+        this.gradeCache = gradeCache;
         this.httpClient = httpClient ?? new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(20),
@@ -76,12 +83,42 @@ public sealed class ClanCatalogService
             }
         }
 
+        // 进程内 miss 的标签再查持久缓存，命中的回填内存层并计入结果。
+        // 持久缓存读取失败视为无缓存，走网络兜底。
+        if (pending.Count > 0 && gradeCache is not null)
+        {
+            try
+            {
+                var persisted = await gradeCache
+                    .GetClanGradesAsync(pending, cancellationToken)
+                    .ConfigureAwait(false);
+                if (persisted.Count > 0)
+                {
+                    lock (cacheLock)
+                    {
+                        foreach (var (tag, info) in persisted)
+                        {
+                            cache[tag] = info;
+                            result[tag] = info;
+                        }
+                    }
+
+                    pending.RemoveAll(result.ContainsKey);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 缓存读取失败不阻断查询，剩余标签继续走网络。
+            }
+        }
+
         if (pending.Count == 0)
         {
             return result;
         }
 
         string host = WgApiParser.GetApiHost(server);
+        var fetched = new List<ClanGradeInfo>();
         foreach (string tag in pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -109,6 +146,21 @@ public sealed class ClanCatalogService
             }
 
             result[tag] = info;
+            fetched.Add(info);
+        }
+
+        // 网络拉到的结果回写持久缓存。写入失败只影响下次命中，静默即可。
+        if (fetched.Count > 0 && gradeCache is not null)
+        {
+            try
+            {
+                await gradeCache
+                    .SaveClanGradesAsync(fetched, DateTimeOffset.UtcNow, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+            }
         }
 
         return result;

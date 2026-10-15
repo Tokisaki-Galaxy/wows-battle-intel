@@ -25,11 +25,15 @@ public static class SnapshotFeatureBuilder
     /// 用快照补齐对局中每个玩家的账号特征。
     /// </summary>
     /// <param name="battle">对局记录。</param>
-    /// <param name="snapshotLookup">账号与服务器到快照的查找函数，可为空。</param>
+    /// <param name="snapshotLookup">账号、服务器与船只到快照的查找函数，可为空。</param>
     /// <returns>补齐后的对局，快照缺失的玩家保留哨兵值。</returns>
+    /// <remarks>
+    /// 每个玩家查两次：shipId 传空串取账号级最新快照，传本局船 ID 取
+    /// 该船的最新快照。两层独立命中，同账号换船不再让单船数据 miss。
+    /// </remarks>
     public static BattleRecord Enrich(
         BattleRecord battle,
-        Func<string, GameServer, PlayerSnapshot?> snapshotLookup)
+        Func<string, GameServer, string, PlayerSnapshot?> snapshotLookup)
     {
         ArgumentNullException.ThrowIfNull(battle);
         ArgumentNullException.ThrowIfNull(snapshotLookup);
@@ -37,8 +41,14 @@ public static class SnapshotFeatureBuilder
         var enriched = new List<PlayerRecord>(battle.Players.Count);
         foreach (var player in battle.Players)
         {
-            var snapshot = snapshotLookup(player.AccountId, player.Server);
-            enriched.Add(snapshot is null ? player : Merge(player, snapshot));
+            var accountSnapshot = snapshotLookup(player.AccountId, player.Server, string.Empty);
+            var shipSnapshot = string.IsNullOrEmpty(player.ShipId)
+                ? null
+                : snapshotLookup(player.AccountId, player.Server, player.ShipId);
+
+            // 账号层缺失时退回船级快照，它的行里同样带账号层字段。
+            var effective = accountSnapshot ?? shipSnapshot;
+            enriched.Add(effective is null ? player : Merge(player, effective, shipSnapshot));
         }
 
         return new BattleRecord
@@ -63,19 +73,21 @@ public static class SnapshotFeatureBuilder
     /// 把快照的账号层与单船层特征并入玩家记录。
     /// </summary>
     /// <remarks>
-    /// 账号层字段无条件并入；单船层只在快照带 ship_id 且与本局船只一致时并入，
-    /// 账号级快照的单船哨兵值不会覆盖玩家已有数据。
-    /// 返回新对象，不改动入参。
+    /// 账号层字段无条件并入；单船层按账号加船维度独立命中，与账号级快照
+    /// 是否为最新一条无关。返回新对象，不改动入参。
     /// </remarks>
-    private static PlayerRecord Merge(PlayerRecord player, PlayerSnapshot snapshot)
+    private static PlayerRecord Merge(
+        PlayerRecord player,
+        PlayerSnapshot accountSnapshot,
+        PlayerSnapshot? shipSnapshot)
     {
-        string classStatsJson = snapshot.ClassStatsJson ?? string.Empty;
+        string classStatsJson = accountSnapshot.ClassStatsJson ?? string.Empty;
         var parsedClass = ParseClassStats(player, classStatsJson);
 
-        // 单船合并的前提是快照带本局船 ID。快照来自旧索引码时代的，
-        // ShipId 对不上，单船数据保持玩家原值。
-        bool shipMatches = !string.IsNullOrEmpty(snapshot.ShipId)
-            && string.Equals(snapshot.ShipId, player.ShipId, StringComparison.Ordinal);
+        // 单船层来自按船命中的快照，该快照的 ship_id 与本局船必然一致。
+        bool hasShipStats = shipSnapshot is not null
+            && !string.IsNullOrEmpty(shipSnapshot.ShipId)
+            && string.Equals(shipSnapshot.ShipId, player.ShipId, StringComparison.Ordinal);
 
         return new PlayerRecord
         {
@@ -94,26 +106,28 @@ public static class SnapshotFeatureBuilder
             DivisionSize = player.DivisionSize,
 
             // 账号层特征，来自快照。
-            AccountBattles = snapshot.AccountBattles,
-            AccountWinrate = snapshot.AccountWinrate,
-            AccountAvgDamage = snapshot.AccountAvgDamage,
-            AccountWinrateSolo = snapshot.AccountWinrateSolo,
-            AccountBattlesSolo = snapshot.AccountBattlesSolo,
-            AccountWinrateDiv2 = snapshot.AccountWinrateDiv2,
-            AccountBattlesDiv2 = snapshot.AccountBattlesDiv2,
-            AccountWinrateDiv3 = snapshot.AccountWinrateDiv3,
-            AccountBattlesDiv3 = snapshot.AccountBattlesDiv3,
-            WeightedWinrate = snapshot.WeightedWinrate,
-            ClassStatsJson = snapshot.ClassStatsJson ?? string.Empty,
+            AccountBattles = accountSnapshot.AccountBattles,
+            AccountWinrate = accountSnapshot.AccountWinrate,
+            AccountAvgDamage = accountSnapshot.AccountAvgDamage,
+            AccountWinrateSolo = accountSnapshot.AccountWinrateSolo,
+            AccountBattlesSolo = accountSnapshot.AccountBattlesSolo,
+            AccountWinrateDiv2 = accountSnapshot.AccountWinrateDiv2,
+            AccountBattlesDiv2 = accountSnapshot.AccountBattlesDiv2,
+            AccountWinrateDiv3 = accountSnapshot.AccountWinrateDiv3,
+            AccountBattlesDiv3 = accountSnapshot.AccountBattlesDiv3,
+            WeightedWinrate = accountSnapshot.WeightedWinrate,
+            ClassStatsJson = accountSnapshot.ClassStatsJson ?? string.Empty,
 
-            // 单船统计。快照带匹配的 ship_id 时并入，否则保持玩家原值。
-            ShipBattles = shipMatches ? snapshot.ShipBattles : player.ShipBattles,
-            ShipWinrate = shipMatches ? snapshot.ShipWinrate : player.ShipWinrate,
-            ShipAvgDamage = shipMatches ? snapshot.ShipAvgDamage : player.ShipAvgDamage,
+            // 单船统计。按船命中的快照存在时并入，否则保持玩家原值。
+            ShipBattles = hasShipStats ? shipSnapshot!.ShipBattles : player.ShipBattles,
+            ShipWinrate = hasShipStats ? shipSnapshot!.ShipWinrate : player.ShipWinrate,
+            ShipAvgDamage = hasShipStats ? shipSnapshot!.ShipAvgDamage : player.ShipAvgDamage,
             ShipAvgExp = player.ShipAvgExp,
 
             // 常用等级来自快照，负值表示快照没有该数据，保持玩家原值。
-            FavoriteTier = snapshot.FavoriteTier >= 0 ? snapshot.FavoriteTier : player.FavoriteTier,
+            FavoriteTier = accountSnapshot.FavoriteTier >= 0
+                ? accountSnapshot.FavoriteTier
+                : player.FavoriteTier,
 
             // 分舰种统计，从快照 JSON 按本局舰种解析。
             ClassBattles = parsedClass.Battles,

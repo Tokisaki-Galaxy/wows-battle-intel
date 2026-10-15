@@ -1,3 +1,4 @@
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 
 namespace WowsBattleIntel.Storage.Tests;
@@ -577,5 +578,236 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
 
         int updated = await repository.UpdatePlayerShipInfoAsync(battle.BattleId, mismatch);
         Assert.Equal(0, updated);
+    }
+
+    [Fact]
+    public async Task GetLatestShipSnapshot_ReturnsNewestRowForThatShip()
+    {
+        // 同账号两条快照：旧一条带船 A 数据，新一条是船 B 的。
+        var older = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow.AddHours(-2),
+            AccountBattles = 900,
+            AccountWinrate = 0.51,
+            ShipId = "SHIP-A",
+            ShipBattles = 100,
+            ShipWinrate = 0.55,
+            ShipAvgDamage = 50000,
+        };
+        var newer = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 1000,
+            AccountWinrate = 0.52,
+            ShipId = "SHIP-B",
+            ShipBattles = 20,
+            ShipWinrate = 0.4,
+            ShipAvgDamage = 30000,
+        };
+
+        await repository.SaveSnapshotsAsync([older, newer]);
+
+        // 换回船 A 时按船命中历史快照，不受新快照影响。
+        var shipA = await repository.GetLatestShipSnapshotAsync("1001", GameServer.Asia, "SHIP-A");
+        Assert.NotNull(shipA);
+        Assert.Equal("SHIP-A", shipA.ShipId);
+        Assert.Equal(100, shipA.ShipBattles);
+        Assert.Equal(0.55, shipA.ShipWinrate, precision: 6);
+
+        var shipB = await repository.GetLatestShipSnapshotAsync("1001", GameServer.Asia, "SHIP-B");
+        Assert.NotNull(shipB);
+        Assert.Equal(20, shipB.ShipBattles);
+
+        // 账号级查询仍取最新一条。
+        var latest = await repository.GetLatestSnapshotAsync("1001", GameServer.Asia);
+        Assert.NotNull(latest);
+        Assert.Equal(1000, latest.AccountBattles);
+
+        // 未落过库的船返回 null。
+        Assert.Null(await repository.GetLatestShipSnapshotAsync("1001", GameServer.Asia, "SHIP-C"));
+    }
+
+    [Fact]
+    public async Task GetLatestShipSnapshot_IgnoresRowsWithoutShipData()
+    {
+        // 带船 ID 但单船数据为哨兵值的行不应命中。
+        var snapshot = new PlayerSnapshot
+        {
+            AccountId = "1002",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 500,
+            AccountWinrate = 0.5,
+            ShipId = "SHIP-A",
+            ShipBattles = -1,
+            ShipWinrate = -1,
+            ShipAvgDamage = -1,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        Assert.Null(await repository.GetLatestShipSnapshotAsync("1002", GameServer.Asia, "SHIP-A"));
+    }
+
+    [Fact]
+    public async Task CleanupSnapshots_DeletesOnlyRowsOlderThanRetention()
+    {
+        var oldSnapshot = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow.AddDays(-20),
+            AccountBattles = 100,
+            AccountWinrate = 0.5,
+        };
+        var freshSnapshot = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 200,
+            AccountWinrate = 0.55,
+        };
+
+        await repository.SaveSnapshotsAsync([oldSnapshot, freshSnapshot]);
+        Assert.Equal((1, 2), await repository.GetSnapshotStatsAsync());
+
+        // 保留 14 天，20 天前那条应被删。
+        int deleted = await repository.CleanupSnapshotsAsync(14);
+        Assert.Equal(1, deleted);
+        Assert.Equal((1, 1), await repository.GetSnapshotStatsAsync());
+
+        var remaining = await repository.GetLatestSnapshotAsync("1001", GameServer.Asia);
+        Assert.NotNull(remaining);
+        Assert.Equal(200, remaining.AccountBattles);
+    }
+
+    [Fact]
+    public async Task CleanupSnapshots_ZeroRetention_DeletesNothing()
+    {
+        var snapshot = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow.AddDays(-90),
+            AccountBattles = 100,
+            AccountWinrate = 0.5,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        Assert.Equal(0, await repository.CleanupSnapshotsAsync(0));
+        Assert.Equal(0, await repository.CleanupSnapshotsAsync(-5));
+        Assert.Equal((1, 1), await repository.GetSnapshotStatsAsync());
+    }
+
+    [Fact]
+    public async Task DeleteSnapshotsOlderThan_UsesCutoffDirectly()
+    {
+        var snapshot = new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            AccountBattles = 100,
+            AccountWinrate = 0.5,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        // 截止时间晚于快照时间，删除；等于快照时间则保留（开区间比较）。
+        int deleted = await repository.DeleteSnapshotsOlderThanAsync(DateTimeOffset.UtcNow);
+        Assert.Equal(1, deleted);
+        Assert.Equal((0, 0), await repository.GetSnapshotStatsAsync());
+    }
+
+    [Fact]
+    public async Task ClanGrades_SaveAndLoadRoundTrips()
+    {
+        var grades = new List<ClanGradeInfo>
+        {
+            new()
+            {
+                Tag = "TEST",
+                Name = "Test Clan",
+                MembersCount = 30,
+                AggregateWinrate = 0.58,
+                Grade = ClanGradeTier.Unicum,
+            },
+        };
+
+        await repository.SaveClanGradesAsync(grades, DateTimeOffset.UtcNow);
+
+        var loaded = await repository.GetClanGradesAsync(["TEST"]);
+        Assert.True(loaded.TryGetValue("TEST", out var info));
+        Assert.Equal("Test Clan", info.Name);
+        Assert.Equal(30, info.MembersCount);
+        Assert.Equal(0.58, info.AggregateWinrate, precision: 6);
+        Assert.Equal(ClanGradeTier.Unicum, info.Grade);
+
+        // 未落库的标签不返回。
+        Assert.Empty(await repository.GetClanGradesAsync(["MISS"]));
+    }
+
+    [Fact]
+    public async Task ClanGrades_TtlExpired_RowsInvisible()
+    {
+        var grades = new List<ClanGradeInfo>
+        {
+            new() { Tag = "OLD1", Grade = ClanGradeTier.Good },
+        };
+
+        // 手动写入一条 8 天前的记录，超过 7 天 TTL。
+        long stale = DateTimeOffset.UtcNow.AddDays(-8).ToUnixTimeMilliseconds();
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO clan_grades (tag, grade, name, members_count, winrate, queried_at)
+                VALUES ('OLD1', 'Good', '', 10, 0.55, $stale);
+                """;
+            command.Parameters.AddWithValue("$stale", stale);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // 过期行读不到。
+        Assert.Empty(await repository.GetClanGradesAsync(["OLD1"]));
+
+        // 新写入同标签会覆盖，同时清理过期行。
+        await repository.SaveClanGradesAsync(
+            [new ClanGradeInfo { Tag = "OLD1", Grade = ClanGradeTier.Normal }],
+            DateTimeOffset.UtcNow);
+
+        var loaded = await repository.GetClanGradesAsync(["OLD1"]);
+        Assert.True(loaded.TryGetValue("OLD1", out var info));
+        Assert.Equal(ClanGradeTier.Normal, info.Grade);
+    }
+
+    [Fact]
+    public async Task ClanGrades_UpsertOverwritesPreviousValues()
+    {
+        var first = new List<ClanGradeInfo>
+        {
+            new() { Tag = "DUP", Name = "Old", MembersCount = 10, AggregateWinrate = 0.5, Grade = ClanGradeTier.Normal },
+        };
+        var second = new List<ClanGradeInfo>
+        {
+            new() { Tag = "dup", Name = "New", MembersCount = 20, AggregateWinrate = 0.6, Grade = ClanGradeTier.Good },
+        };
+
+        await repository.SaveClanGradesAsync(first, DateTimeOffset.UtcNow.AddDays(-1));
+        await repository.SaveClanGradesAsync(second, DateTimeOffset.UtcNow);
+
+        // 小写标签写入时统一转大写，同一主键被覆盖而不是新增一行。
+        var loaded = await repository.GetClanGradesAsync(["DUP"]);
+        Assert.Single(loaded);
+        Assert.Equal("New", loaded["DUP"].Name);
+        Assert.Equal(20, loaded["DUP"].MembersCount);
+        Assert.Equal(ClanGradeTier.Good, loaded["DUP"].Grade);
     }
 }

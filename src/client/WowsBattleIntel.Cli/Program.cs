@@ -942,12 +942,12 @@ internal static class Program
     }
 
     /// <summary>
-    /// 构造快照查找函数。
+    /// 构造快照查找函数。离线回测只用账号层特征，shipId 参数忽略。
     /// </summary>
-    private static Func<string, GameServer, PlayerSnapshot?> BuildLookup(
+    private static Func<string, GameServer, string, PlayerSnapshot?> BuildLookup(
         Dictionary<string, PlayerSnapshot> snapshots)
     {
-        return (accountId, server) =>
+        return (accountId, server, _) =>
             snapshots.GetValueOrDefault($"{server}:{accountId}");
     }
 
