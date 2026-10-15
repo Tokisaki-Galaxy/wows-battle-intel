@@ -9,6 +9,8 @@
     <PackageVersion Include="System.Text.Json" Version="10.0.0" />
     <!-- Local storage -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <!-- 传递依赖升版：2.1.11 有已知高危漏洞 GHSA-2m69-gcr7-jv3q，NuGet 审计警告即错误会挡 CI。lib 与 core/provider 版本线独立。 -->
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <!-- Logging -->
     <PackageVersion Include="log4net" Version="3.3.2" />
     <!-- Machine learning inference -->

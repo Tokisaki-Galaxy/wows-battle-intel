@@ -75,11 +75,12 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: 还原依赖
-        run: dotnet restore WowsBattleIntel.slnx
+        # ubuntu 构建含 net10.0-windows 的解决方案必须开 EnableWindowsTargeting。
+        run: dotnet restore WowsBattleIntel.slnx -p:EnableWindowsTargeting=true
 
       # 全量分析器只在此 job 启用，失败不阻塞合并
       - name: 构建
-        run: dotnet build WowsBattleIntel.slnx -c Release --no-restore /p:EnableNETAnalyzers=true /p:AnalysisMode=All /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=false 2>&1 | tee deadcode.log
+        run: dotnet build WowsBattleIntel.slnx -c Release --no-restore -p:EnableWindowsTargeting=true /p:EnableNETAnalyzers=true /p:AnalysisMode=All /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=false 2>&1 | tee deadcode.log
 
       # 汇总目标规则：未使用成员、未读字段、未使用参数、可静态化成员等
       - name: 提取死代码警告
@@ -115,7 +116,8 @@ jobs:
       - name: 安装 Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # pnpm 11 要求 Node 22.13+，20 会在 store 初始化时崩。用当前主线 26。
+          node-version: "26"
           cache: pnpm
           cache-dependency-path: src/edge/pnpm-lock.yaml
 
