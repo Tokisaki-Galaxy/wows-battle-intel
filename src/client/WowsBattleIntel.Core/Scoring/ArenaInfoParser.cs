@@ -49,6 +49,14 @@ public static class ArenaInfoParser
                 return false;
             }
 
+            // dateTime 是 "dd.MM.yyyy HH:mm:ss" 格式的本地时间，反序列化拿不到
+            // DateTimeOffset，需要在这里显式解析。解析失败视为整份文件无效。
+            if (!TryParseStartedAt(info.RawStartedAt, out var startedAt))
+            {
+                return false;
+            }
+
+            info.StartedAt = startedAt;
             arenaInfo = info;
             return true;
         }
@@ -108,6 +116,27 @@ public static class ArenaInfoParser
         // tempArenaInfo 无地图字段，MapId 传空串，由 BattleIdGenerator 正常哈希。
         string baseId = BattleIdGenerator.Generate(battle.StartedAt, string.Empty, battle.BattleType, battle.Players);
         return $"{baseId}:pre";
+    }
+
+    /// <summary>
+    /// 解析 dateTime 字段。ApeRadar 用 ParseExact 配当前区域文化，这里
+    /// 固定不变式文化以免区域差异导致日期月份互换。
+    /// </summary>
+    private static bool TryParseStartedAt(string? raw, out DateTimeOffset startedAt)
+    {
+        if (!string.IsNullOrWhiteSpace(raw) &&
+            DateTimeOffset.TryParseExact(
+                raw,
+                "dd.MM.yyyy HH:mm:ss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out startedAt))
+        {
+            return true;
+        }
+
+        startedAt = default;
+        return false;
     }
 
     /// <summary>
