@@ -20,6 +20,7 @@ public static class GamePathDetector
     private static readonly string[] ProcessNames =
     [
         "WorldOfWarships",
+        "WorldOfWarships64",
         "WorldOfWarships32",
         "WoWSLauncher",
     ];
@@ -44,7 +45,78 @@ public static class GamePathDetector
     /// </summary>
     public static GamePathResult? Detect()
     {
-        return DetectFromRunningProcess() ?? DetectFromUninstallRegistry();
+        return DetectFromRunningProcess()
+            ?? DetectFromUninstallRegistry()
+            ?? DetectFromSteamLibrary();
+    }
+
+    /// <summary>
+    /// 从 Steam 库文件定位。
+    /// </summary>
+    /// <remarks>
+    /// Steam 版不写 Wargaming 系发布者的卸载注册表，前两层都探不到。
+    /// 读 Steam 的 libraryfolders.vdf 枚举所有库目录，找
+    /// steamapps/common/World of Warships。
+    /// </remarks>
+    private static GamePathResult? DetectFromSteamLibrary()
+    {
+        var steamRoots = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"),
+            @"C:\Program Files\Steam",
+            @"D:\Steam",
+            @"E:\Steam",
+        };
+
+        foreach (var root in steamRoots)
+        {
+            var vdf = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(vdf))
+            {
+                continue;
+            }
+
+            // vdf 里 "path" 一行一个库，值含转义反斜杠。
+            foreach (var line in File.ReadLines(vdf))
+            {
+                if (!line.Contains("\"path\"", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var start = line.IndexOf('"', line.IndexOf("path", StringComparison.OrdinalIgnoreCase) + 5);
+                if (start < 0)
+                {
+                    continue;
+                }
+
+                var end = line.IndexOf('"', start + 1);
+                if (end < 0)
+                {
+                    continue;
+                }
+
+                var libPath = line[(start + 1)..end].Replace("\\\\", "\\");
+                var candidates = new[]
+                {
+                    Path.Combine(libPath, "steamapps", "common", "World of Warships"),
+                    // 库目录可能已含 steamapps/common。
+                    Path.Combine(libPath, "World of Warships"),
+                };
+
+                foreach (var dir in candidates)
+                {
+                    if (!Directory.Exists(Path.Combine(dir, "replays")))
+                    {
+                        continue;
+                    }
+
+                    return new GamePathResult(dir, "Steam 库");
+                }
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
