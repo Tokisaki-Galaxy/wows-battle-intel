@@ -59,6 +59,45 @@ jobs:
       - name: 测试
         run: pytest -q
 
+  # 死代码与未使用成员探测，非阻塞。
+  # 探测性质：AnalysisMode=All 只在 CI 命令行注入，不写入 csproj，避免本地开发被警告淹没。
+  # 待存量清完后可移除 continue-on-error 转为阻塞。
+  dead-code:
+    name: 死代码探测
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: 还原依赖
+        run: dotnet restore WowsBattleIntel.slnx
+
+      # 全量分析器只在此 job 启用，失败不阻塞合并
+      - name: 构建
+        run: dotnet build WowsBattleIntel.slnx -c Release --no-restore /p:EnableNETAnalyzers=true /p:AnalysisMode=All /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=false 2>&1 | tee deadcode.log
+
+      # 汇总目标规则：未使用成员、未读字段、未使用参数、可静态化成员等
+      - name: 提取死代码警告
+        if: always()
+        run: |
+          grep -E "IDE0051|IDE0052|CA1811|CA1801|CA1822|IDE0059|IDE0060" deadcode.log > deadcode-findings.txt || true
+          COUNT=$(wc -l < deadcode-findings.txt)
+          echo "探测到 $COUNT 条死代码相关警告"
+          {
+            echo "## 死代码探测报告"
+            echo ""
+            echo "共发现 $COUNT 条疑似死代码或未使用成员警告（探测性质，不阻塞合并）。"
+            echo ""
+            echo '```'
+            cat deadcode-findings.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   edge:
     name: Cloudflare Workers
     runs-on: ubuntu-latest
