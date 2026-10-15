@@ -342,13 +342,37 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="DataGridColumnHeader">
-          <Border Background="{TemplateBinding Background}"
-                  BorderBrush="{TemplateBinding BorderBrush}"
-                  BorderThickness="{TemplateBinding BorderThickness}"
-                  Padding="{TemplateBinding Padding}">
-            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                              VerticalAlignment="Center" />
-          </Border>
+          <Grid Background="Transparent">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="Center" />
+            </Border>
+            <!-- 列宽拖拽把手：自定义模板会覆盖默认把手，这里补回，
+                 透明样式贴合主题，拖拽热区 6px -->
+            <Thumb x:Name="PART_LeftHeaderGripper"
+                   HorizontalAlignment="Left"
+                   Width="6"
+                   Background="Transparent">
+              <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                  <Rectangle Fill="Transparent" />
+                </ControlTemplate>
+              </Thumb.Template>
+            </Thumb>
+            <Thumb x:Name="PART_RightHeaderGripper"
+                   HorizontalAlignment="Right"
+                   Width="6"
+                   Background="Transparent">
+              <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                  <Rectangle Fill="Transparent" />
+                </ControlTemplate>
+              </Thumb.Template>
+            </Thumb>
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

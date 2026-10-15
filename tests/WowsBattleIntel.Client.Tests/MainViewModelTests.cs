@@ -393,7 +393,7 @@ public class MainViewModelTests
     public async Task SelectBattle_SortsBotsAfterHumans()
     {
         using var holder = await TestServices.CreateAsync();
-        // 同舰种同级，真人先于人机。:xxx: 名格式的系统号 is_bot=1。
+        // 真人整体先于人机，组内再按舰种、等级、账号标识。
         var battle = new BattleRecord
         {
             BattleId = "battle-bot-sort",
@@ -412,17 +412,17 @@ public class MainViewModelTests
                 },
                 new PlayerRecord
                 {
-                    AccountId = "100", PlayerName = "HumanLow", Server = GameServer.Asia,
-                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                    AccountId = "100", PlayerName = "HumanDd", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Destroyer, ShipTier = 10,
                 },
                 new PlayerRecord
                 {
                     AccountId = "200", PlayerName = ":Beatty:", Server = GameServer.Asia,
-                    IsAlly = true, IsBot = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                    IsAlly = true, IsBot = true, ShipClass = ShipClass.Carrier, ShipTier = 10,
                 },
                 new PlayerRecord
                 {
-                    AccountId = "50", PlayerName = "HumanHigh", Server = GameServer.Asia,
+                    AccountId = "50", PlayerName = "HumanBb", Server = GameServer.Asia,
                     IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
                 },
             ],
@@ -434,9 +434,9 @@ public class MainViewModelTests
         vm.SelectedBattleSummary = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 4, "友方名单加载");
 
-        // 真人按账号标识字典序在前，人机整体垫底。
+        // 真人按舰种次序（BB 在 DD 前），人机整体垫底。
         Assert.Equal(
-            ["HumanLow", "HumanHigh", ":Beatty:", ":Tourville:"],
+            ["HumanBb", "HumanDd", ":Beatty:", ":Tourville:"],
             vm.Allies.Select(p => p.PlayerName).ToArray());
     }
 
