@@ -142,20 +142,25 @@ public class PlayerRowViewModelTests
     }
 
     [Fact]
-    public void ClassMasteryText_Unknown_ShowsDash()
+    public void ClassStats_Unknown_ShowsDashes()
     {
         var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
-        Assert.Equal("-", vm.ClassMasteryText);
+        Assert.Equal("-", vm.ClassBattlesText);
+        Assert.Equal("-", vm.ClassWinrateText);
+        Assert.Equal("-", vm.ClassDamageText);
     }
 
     [Fact]
-    public void ClassMasteryText_Known_ShowsBattlesAndWinrate()
+    public void ClassStats_Known_ShowsBattlesWinrateAndDamage()
     {
         var player = MakePlayer("A", 0.5, 100);
         player.ClassBattles = 3412;
         player.ClassWins = 1938;
+        player.ClassDamage = 231_000_000;
         var vm = PlayerRowViewModel.FromPlayer(player);
-        Assert.Equal("3,412 / 56.8%", vm.ClassMasteryText);
+        Assert.Equal("3,412", vm.ClassBattlesText);
+        Assert.Equal("56.8%", vm.ClassWinrateText);
+        Assert.Equal("67,702", vm.ClassDamageText);
     }
 
     [Fact]
@@ -376,7 +381,8 @@ public class PlayerRowViewModelTests
         Assert.Equal("300", vm.ShipBattlesText);
         Assert.Equal("64.0%", vm.ShipWinrateText);
         Assert.Equal("80,000", vm.ShipDamageText);
-        Assert.Equal("2,100 / 62.0%", vm.ClassMasteryText);
+        Assert.Equal("2,100", vm.ClassBattlesText);
+        Assert.Equal("62.0%", vm.ClassWinrateText);
     }
 
     [Fact]

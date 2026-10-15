@@ -118,6 +118,7 @@ public static class SnapshotFeatureBuilder
             // 分舰种统计，从快照 JSON 按本局舰种解析。
             ClassBattles = parsedClass.Battles,
             ClassWins = parsedClass.Wins,
+            ClassDamage = parsedClass.Damage,
 
             // 单局表现，保持回放原值。
             DamageDealt = player.DamageDealt,
@@ -137,13 +138,13 @@ public static class SnapshotFeatureBuilder
     /// <remarks>
     /// JSON 缺失、损坏或无本局舰种条目时返回 -1，与负数哨兵语义一致。
     /// </remarks>
-    private static (double Battles, double Wins) ParseClassStats(
+    private static (double Battles, double Wins, double Damage) ParseClassStats(
         PlayerRecord player,
         string? json)
     {
         if (string.IsNullOrEmpty(json) || player.ShipClass == ShipClass.Unknown)
         {
-            return (-1, -1);
+            return (-1, -1, -1);
         }
 
         try
@@ -162,16 +163,20 @@ public static class SnapshotFeatureBuilder
             };
             if (key.Length == 0 || data[key] is not JObject entry)
             {
-                return (-1, -1);
+                return (-1, -1, -1);
             }
 
             double? battles = entry["battles"]?.Value<double?>();
             double? wins = entry["wins"]?.Value<double?>();
-            return battles.HasValue && wins.HasValue ? (battles.Value, wins.Value) : (-1, -1);
+            // damage 维度是后加的，旧快照无此字段时为 null，返回 -1 哨兵。
+            double? damage = entry["damage"]?.Value<double?>();
+            return battles.HasValue && wins.HasValue
+                ? (battles.Value, wins.Value, damage ?? -1)
+                : (-1, -1, -1);
         }
         catch (JsonReaderException)
         {
-            return (-1, -1);
+            return (-1, -1, -1);
         }
     }
 }

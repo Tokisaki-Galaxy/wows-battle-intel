@@ -393,7 +393,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         PlayerRecord player,
         Dictionary<string, WgApiParser.ShipStatsEntry> byShip)
     {
-        var classAgg = new Dictionary<string, (double Battles, double Wins)>(StringComparer.Ordinal);
+        var classAgg = new Dictionary<string, (double Battles, double Wins, double Damage)>(StringComparer.Ordinal);
 
         // 账号层：等级到场次的直方图，最常玩等级取峰值。
         var tierHistogram = new Dictionary<int, double>();
@@ -420,20 +420,20 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 continue;
             }
 
-            var (battles, wins) = classAgg.TryGetValue(classKey, out var cur2)
+            var (battles, wins, damage) = classAgg.TryGetValue(classKey, out var cur2)
                 ? cur2
-                : (0, 0);
-            classAgg[classKey] = (battles + entry.Battles, wins + entry.Wins);
+                : (0, 0, 0);
+            classAgg[classKey] = (battles + entry.Battles, wins + entry.Wins, damage + entry.DamageDealt);
         }
 
-        // 保持稳定顺序，便于快照 JSON 可比对。
+        // 保持稳定顺序，便于快照 JSON 可比对。伤害维度供舰种熟练列展示场均。
         var parts = classAgg
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv =>
             {
-                var (b, w) = kv.Value;
+                var (b, w, d) = kv.Value;
                 return string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                    $"\"{kv.Key}\":{{\"battles\":{b:0},\"wins\":{w:0}}}");
+                    $"\"{kv.Key}\":{{\"battles\":{b:0},\"wins\":{w:0},\"damage\":{d:0}}}");
             });
 
         player.ClassStatsJson = "{" + string.Join(",", parts) + "}";

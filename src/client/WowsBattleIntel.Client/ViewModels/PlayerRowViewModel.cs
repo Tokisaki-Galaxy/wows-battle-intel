@@ -70,7 +70,9 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(DamageText));
         OnPropertyChanged(nameof(KillsText));
         OnPropertyChanged(nameof(AvgDamageText));
-        OnPropertyChanged(nameof(ClassMasteryText));
+        OnPropertyChanged(nameof(ClassBattlesText));
+        OnPropertyChanged(nameof(ClassWinrateText));
+        OnPropertyChanged(nameof(ClassDamageText));
         OnPropertyChanged(nameof(ClassMasteryBrushKey));
         OnPropertyChanged(nameof(AvgDamageBrushKey));
         OnPropertyChanged(nameof(ShipBattlesText));
@@ -289,23 +291,47 @@ public sealed class PlayerRowViewModel : ViewModelBase
         : ToRoman(source.FavoriteTier);
 
     /// <summary>
-    /// 舰种熟练显示：本局舰种的账号总场次与胜率，如 "3,412 / 56.8%"。
+    /// 舰种熟练显示：本局舰种的账号场次、胜率、场均伤害三行。
     /// 分舰种数据缺失显示 "-"。
     /// </summary>
-    public string ClassMasteryText
+    public string ClassBattlesText
     {
         get
         {
-            if (source is null || source.ClassBattles < 0 || source.ClassWins < 0)
+            if (source is null || source.ClassBattles < 0)
             {
                 return "-";
             }
 
-            double winrate = source.ClassBattles > 0
-                ? source.ClassWins / source.ClassBattles
-                : -1;
-            string winratePart = winrate >= 0 ? winrate.ToString("P1") : "-";
-            return $"{((int)source.ClassBattles).ToString("N0")} / {winratePart}";
+            return ((int)source.ClassBattles).ToString("N0");
+        }
+    }
+
+    /// <summary>本局舰种的账号胜率显示，未知显示 "-"。</summary>
+    public string ClassWinrateText
+    {
+        get
+        {
+            if (source is null || source.ClassBattles <= 0 || source.ClassWins < 0)
+            {
+                return "-";
+            }
+
+            return (source.ClassWins / source.ClassBattles).ToString("P1");
+        }
+    }
+
+    /// <summary>本局舰种的账号场均伤害显示，伤害维度缺失显示 "-"。</summary>
+    public string ClassDamageText
+    {
+        get
+        {
+            if (source is null || source.ClassBattles <= 0 || source.ClassDamage < 0)
+            {
+                return "-";
+            }
+
+            return ((int)(source.ClassDamage / source.ClassBattles)).ToString("N0");
         }
     }
 

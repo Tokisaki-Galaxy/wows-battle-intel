@@ -109,6 +109,9 @@ public sealed class PlayerRecord
     /// <summary>本局舰种的总胜场。</summary>
     public double ClassWins { get; set; } = -1;
 
+    /// <summary>本局舰种的累计伤害，用于算场均。-1 表示未知。</summary>
+    public double ClassDamage { get; set; } = -1;
+
     /// <summary>
     /// 账号最常玩等级，按全船只场次直方图取峰值。负数表示未知，
     /// 等级目录加载失败或无船只数据时保持未知。

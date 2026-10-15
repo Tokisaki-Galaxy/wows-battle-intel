@@ -337,7 +337,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="*">
+                        <DataGridTemplateColumn Header="账号" Width="Auto" MinWidth="86">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
@@ -357,7 +357,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="加权" Width="Auto">
+                        <DataGridTemplateColumn Header="加权" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding WeightedWinrateText}"
@@ -368,14 +368,21 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="舰种" Width="Auto">
+                        <DataGridTemplateColumn Header="舰种" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                              <TextBlock Text="{Binding ClassMasteryText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                         TextAlignment="Right"
-                                         VerticalAlignment="Center" />
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding ClassBattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ClassWinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ClassDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
@@ -468,7 +475,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="*">
+                        <DataGridTemplateColumn Header="账号" Width="Auto" MinWidth="86">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
@@ -488,7 +495,7 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="加权" Width="Auto">
+                        <DataGridTemplateColumn Header="加权" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding WeightedWinrateText}"
@@ -499,14 +506,21 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="舰种" Width="Auto">
+                        <DataGridTemplateColumn Header="舰种" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                              <TextBlock Text="{Binding ClassMasteryText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                         TextAlignment="Right"
-                                         VerticalAlignment="Center" />
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding ClassBattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ClassWinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ClassDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
