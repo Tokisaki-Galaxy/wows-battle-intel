@@ -238,7 +238,14 @@ public sealed class MainViewModel : ViewModelBase
     public bool IsBusy
     {
         get => isBusy;
-        private set => SetField(ref isBusy, value);
+        private set
+        {
+            if (SetField(ref isBusy, value))
+            {
+                // 进度反馈统一走顶部状态文本，不再单设状态栏。
+                OnPropertyChanged(nameof(ObservationStatusText));
+            }
+        }
     }
 
     /// <summary>是否正在实时观测。</summary>
@@ -258,10 +265,12 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>观测按钮文本。</summary>
     public string ObservationButtonText => isObserving ? "停止观测" : "开始观测";
 
-    /// <summary>观测状态说明。</summary>
-    public string ObservationStatusText => isObserving
-        ? $"观测中 · 待处理 {services.Monitor.PendingCount}"
-        : "未观测";
+    /// <summary>观测状态说明。忙碌时显示加载中，空闲时显示观测状态。</summary>
+    public string ObservationStatusText => isBusy
+        ? "加载中..."
+        : isObserving
+            ? $"观测中 · 待处理 {services.Monitor.PendingCount}"
+            : "未观测";
 
     /// <summary>
     /// 启动实时观测。
@@ -349,8 +358,6 @@ public sealed class MainViewModel : ViewModelBase
                     SelectedBattleSummary = reselect;
                 }
             }
-
-            StatusMessage = $"已加载 {RecentBattles.Count} 局";
         }
         catch (OperationCanceledException)
         {

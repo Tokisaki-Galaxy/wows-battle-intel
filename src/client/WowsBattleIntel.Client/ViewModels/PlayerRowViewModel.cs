@@ -151,7 +151,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
     /// 水平分类的颜色资源键。
     /// </summary>
     /// <remarks>
-    /// 海王用金色、猴子用紫色，普通与隐藏战绩用灰。具体色值由主题资源决定，
+    /// 海王用紫色、猴子用红色，普通与隐藏战绩用灰。具体色值由主题资源决定，
     /// 这里只给语义键名，经 BrushKeyConverter 换成画刷。
     /// </remarks>
     public string TierBrushKey => TierLabel switch
@@ -167,7 +167,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
     public string WinrateBrushKey => WinrateBrushKeyFor(source?.AccountWinrate ?? -1, source?.AccountBattles ?? -1, requireHasStats: true);
 
     /// <summary>
-    /// 胜率类着色统一口径：海王金、猴子紫、中间主文本色，未知灰。
+    /// 胜率类着色统一口径：海王紫、猴子红、中间主文本色，未知灰。
     /// requireHasStats 用于账号胜率，隐藏战绩玩家没有快照，与未知区分口径一致。
     /// </summary>
     private string WinrateBrushKeyFor(double winrate, double battles, bool requireHasStats = false)
@@ -221,7 +221,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         : source.ShipWinrate.ToString("P1");
 
     /// <summary>
-    /// 本局船胜率的颜色资源键。与账号胜率同一套口径：海王金、猴子紫、
+    /// 本局船胜率的颜色资源键。与账号胜率同一套口径：海王紫、猴子红、
     /// 中间保持主文本色。场次不足的海王判定沿用到单船。
     /// </summary>
     public string ShipWinrateBrushKey => WinrateBrushKeyFor(source?.ShipWinrate ?? -1, source?.ShipBattles ?? -1);

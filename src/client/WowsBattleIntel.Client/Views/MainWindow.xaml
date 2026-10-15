@@ -56,7 +56,6 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
-      <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
     <!-- 标题栏 -->
@@ -100,7 +99,6 @@
 
     <!-- 主标签页 -->
     <TabControl Grid.Row="1">
-
       <!-- 对局情报 -->
       <TabItem Header="对局情报">
         <Grid Margin="0,12,0,0">
@@ -306,10 +304,17 @@
                     </Grid>
                     <DataGrid ItemsSource="{Binding Allies}">
                       <DataGrid.Resources>
-                        <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明 -->
+                        <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明。
+                             BasedOn 隐式 DataGridRow 样式，hover 反馈在主题 DataGrid 隐式样式的 RowStyle 中已移除，
+                             这里补充 hover 触发避免与背景绑定打架 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
+                          <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                              <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            </Trigger>
+                          </Style.Triggers>
                         </Style>
                       </DataGrid.Resources>
                       <DataGrid.Columns>
@@ -423,9 +428,13 @@
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
+                          <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                              <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            </Trigger>
+                          </Style.Triggers>
                         </Style>
-                      </DataGrid.Resources>
-                      <DataGrid.Columns>
+                      </DataGrid.Resources>                      <DataGrid.Columns>
                         <DataGridTemplateColumn Header="玩家" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
@@ -811,25 +820,5 @@
         </ScrollViewer>
       </TabItem>
     </TabControl>
-
-    <!-- 状态栏 -->
-    <StatusBar Grid.Row="2" Margin="0,12,0,0" Background="Transparent">
-      <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource SecondaryTextStyle}" />
-      <ProgressBar IsIndeterminate="True"
-                   Width="80"
-                   Margin="12,0,0,0"
-                   VerticalAlignment="Center">
-        <ProgressBar.Style>
-          <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-              <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                <Setter Property="Visibility" Value="Visible" />
-              </DataTrigger>
-            </Style.Triggers>
-          </Style>
-        </ProgressBar.Style>
-      </ProgressBar>
-    </StatusBar>
   </Grid>
 </Window>

@@ -53,11 +53,11 @@
   <Color x:Key="Shadow2Color">#24000000</Color>
   <Color x:Key="Shadow3Color">#1F000000</Color>
 
-  <!-- 业务色：阵营与水平分档，浅色下保持可读性 -->
+  <!-- 业务色：阵营与水平分档，浅色下保持可读性。海王紫、猴子红 -->
   <Color x:Key="AllyColor">#FF2F6FD6</Color>
   <Color x:Key="EnemyColor">#FFE04F52</Color>
-  <Color x:Key="UnicumColor">#FFC8931F</Color>
-  <Color x:Key="ApeColor">#FF8A3FD6</Color>
+  <Color x:Key="UnicumColor">#FF8A3FD6</Color>
+  <Color x:Key="ApeColor">#FFE04F52</Color>
   <Color x:Key="HiddenColor">#FF8A8F94</Color>
 
   <!-- 舰种行底色：已弃用，保留占位注释说明语义迁移。行背景现按水平分档：海王紫、猴子红 -->
