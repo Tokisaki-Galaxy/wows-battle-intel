@@ -29,37 +29,93 @@ public sealed class PlayerRowViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(player);
 
-        var vm = new PlayerRowViewModel { source = player };
+        var vm = new PlayerRowViewModel();
+        vm.Apply(player);
+        return vm;
+    }
+
+    /// <summary>
+    /// 用新的领域模型刷新本行。
+    /// </summary>
+    /// <remarks>
+    /// 渐进式补拉完成后增量更新行内容：行对象按引用持有在名单集合里，
+    /// 这里重算全部格式化属性并逐项通知，不重建集合也不引起重排。
+    /// </remarks>
+    public void RefreshFrom(PlayerRecord player)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+
+        Apply(player);
+
+        // 派生属性全部重新求值：可写字段经 Apply 幂等重算，派生只读属性
+        // 依赖 source 的字段，这里统一通知一遍。
+        OnPropertyChanged(nameof(PlayerName));
+        OnPropertyChanged(nameof(ClanTag));
+        OnPropertyChanged(nameof(ShipText));
+        OnPropertyChanged(nameof(ShipTypeText));
+        OnPropertyChanged(nameof(WeightedWinrateText));
+        OnPropertyChanged(nameof(TierRoman));
+        OnPropertyChanged(nameof(ShipClass));
+        OnPropertyChanged(nameof(DivisionSize));
+        OnPropertyChanged(nameof(PlayerLineText));
+        OnPropertyChanged(nameof(ShipLineText));
+        OnPropertyChanged(nameof(WinrateText));
+        OnPropertyChanged(nameof(BattlesText));
+        OnPropertyChanged(nameof(DivisionMark));
+        OnPropertyChanged(nameof(IsHidden));
+        OnPropertyChanged(nameof(IsBot));
+        OnPropertyChanged(nameof(TierLabel));
+        OnPropertyChanged(nameof(TierBrushKey));
+        OnPropertyChanged(nameof(WinrateBrushKey));
+        OnPropertyChanged(nameof(DamageText));
+        OnPropertyChanged(nameof(KillsText));
+        OnPropertyChanged(nameof(AvgDamageText));
+        OnPropertyChanged(nameof(ClassMasteryText));
+        OnPropertyChanged(nameof(ClassMasteryBrushKey));
+        OnPropertyChanged(nameof(AvgDamageBrushKey));
+        OnPropertyChanged(nameof(ShipBattlesText));
+        OnPropertyChanged(nameof(ShipWinrateText));
+        OnPropertyChanged(nameof(ShipWinrateBrushKey));
+        OnPropertyChanged(nameof(WeightedWinrateBrushKey));
+        OnPropertyChanged(nameof(ShipDamageText));
+        OnPropertyChanged(nameof(ShipDamageBrushKey));
+        OnPropertyChanged(nameof(BattlesBrushKey));
+    }
+
+    /// <summary>
+    /// 把领域模型换算成显示字段。构造与增量刷新共用，保证口径一致。
+    /// </summary>
+    private void Apply(PlayerRecord player)
+    {
+        source = player;
 
         // 组队标记：单排不显示，双排显示 2，三排显示 3。
-        vm.DivisionMark = player.DivisionSize switch
+        DivisionMark = player.DivisionSize switch
         {
             2 => "双排",
             3 => "三排",
             _ => string.Empty,
         };
 
-        vm.WinrateText = player.AccountWinrate >= 0
+        WinrateText = player.AccountWinrate >= 0
             ? player.AccountWinrate.ToString("P1")
             : "隐藏";
 
-        vm.BattlesText = player.AccountBattles >= 0
+        BattlesText = player.AccountBattles >= 0
             ? ((int)player.AccountBattles).ToString("N0")
             : "-";
 
-        vm.ShipText = string.IsNullOrEmpty(player.ShipName)
+        ShipText = string.IsNullOrEmpty(player.ShipName)
             ? player.ShipId
             : player.ShipName;
 
-        vm.ShipTypeText = $"{ShipClassLabel(player.ShipClass)} {player.ShipTier}";
+        ShipTypeText = $"{ShipClassLabel(player.ShipClass)} {player.ShipTier}";
 
         // 加权胜率与罗马数字等级在读取阶段一次性格式化，避免列绑定重复计算。
-        vm.WeightedWinrateText = player.WeightedWinrate >= 0
+        WeightedWinrateText = player.WeightedWinrate >= 0
             ? player.WeightedWinrate.ToString("P1")
             : "-";
-        vm.TierRoman = ToRoman(player.ShipTier);
-
-        return vm;
+        TierRoman = ToRoman(player.ShipTier);
     }
 
     /// <summary>昵称。</summary>

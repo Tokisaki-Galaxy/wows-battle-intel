@@ -21,6 +21,15 @@ public sealed class MainViewModel : ViewModelBase
     private readonly AppServices services;
     private readonly SynchronizationContext? syncContext;
 
+    // 详情加载的代次与取消源。每次选择新对局都递增代次并取消旧的
+    // 后台补拉，防止快速连点时旧任务的回写污染新对局的名单。
+    private CancellationTokenSource? detailsCts;
+    private int detailsVersion;
+
+    // 名单行按账号标识的索引，阶段二增量刷新行内容时定位用。
+    private readonly Dictionary<string, PlayerRowViewModel> allyRowsByAccount = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlayerRowViewModel> enemyRowsByAccount = new(StringComparer.Ordinal);
+
     private BattleRecord? selectedBattle;
     private BattleSummaryViewModel? selectedSummary;
     private PredictionResult? currentPrediction;
@@ -30,6 +39,15 @@ public sealed class MainViewModel : ViewModelBase
     private string enemySummaryText = "-";
     private bool isBusy;
     private bool isObserving;
+
+    /// <summary>
+    /// 补拉进度轮询的间隔。补拉按玩家逐个推进，每次到点把已落地的
+    /// 数据刷上界面，200 毫秒约对应一到两名玩家的节奏。
+    /// </summary>
+    private static readonly TimeSpan StatsProgressInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>补拉进度提示的状态栏前缀，换局时据此识别并清掉旧进度。</summary>
+    private const string StatsFetchStatusPrefix = "正在补充 ";
 
     /// <summary>
     /// 构造视图模型。
@@ -43,6 +61,7 @@ public sealed class MainViewModel : ViewModelBase
 
         syncContext = SynchronizationContext.Current;
         Calibration = new CalibrationViewModel(services);
+        Logs = new LogViewModel(services.Logs);
         Settings = new SettingsViewModel(services, pathPicker ?? new NullPathPicker());
         Settings.SettingsApplied += OnSettingsApplied;
 
@@ -66,6 +85,12 @@ public sealed class MainViewModel : ViewModelBase
 
     /// <summary>校准统计子视图模型。</summary>
     public CalibrationViewModel Calibration { get; }
+
+    /// <summary>运行日志页签的视图模型。</summary>
+    public LogViewModel Logs { get; }
+
+    /// <summary>运行日志埋点通道，取自应用服务装配。与界面侧 Logs 展示模型区分。</summary>
+    private LogService LogSink => services.Logs;
 
     /// <summary>配置子视图模型。</summary>
     public SettingsViewModel Settings { get; }
@@ -286,6 +311,7 @@ public sealed class MainViewModel : ViewModelBase
         services.StartObservation();
         IsObserving = true;
         StatusMessage = "已开始观测回放目录";
+        LogSink.Info("用户开始观测回放目录");
     }
 
     /// <summary>
@@ -301,6 +327,7 @@ public sealed class MainViewModel : ViewModelBase
         services.StopObservation();
         IsObserving = false;
         StatusMessage = "已停止观测";
+        LogSink.Info("用户停止观测");
     }
 
     /// <summary>
@@ -367,6 +394,7 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"加载失败: {ex.Message}";
+            LogSink.Error($"对局列表加载失败: {ex.Message}");
         }
         finally
         {
@@ -376,12 +404,35 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 加载选中对局详情：填名单，读取该局预测，对照真实结果。
+    /// 加载选中对局详情，渐进式三阶段：阶段一读库加快照合并后立即显示
+    /// 名单；阶段二后台补拉缺失统计并逐个刷新行；阶段三收尾重算队伍汇总。
     /// </summary>
+    /// <remarks>
+    /// 阶段一是仅有的阻塞段，持有 IsBusy；阶段二三在后台推进，不设 IsBusy，
+    /// 按钮不闪烁。排序在阶段一固定，依据舰种、等级、账号标识，全部来自
+    /// 回放自带数据，与补拉结果无关，阶段二只刷行内容不重排，避免行跳动。
+    /// </remarks>
     private async Task LoadBattleDetailsAsync(BattleRecord? battle)
     {
+        // 新选择作废旧的后台补拉：取消令牌让拉取尽快退出，代次校验让
+        // 已在途的界面回写失效。
+        detailsCts?.Cancel();
+        detailsCts?.Dispose();
+        detailsCts = new CancellationTokenSource();
+        detailsVersion++;
+        int version = detailsVersion;
+        CancellationToken token = detailsCts.Token;
+
+        // 上一局的后台补拉提示还在时清掉，避免新对局显示旧进度。
+        if (statusMessage.StartsWith(StatsFetchStatusPrefix, StringComparison.Ordinal))
+        {
+            StatusMessage = "就绪";
+        }
+
         Allies.Clear();
         Enemies.Clear();
+        allyRowsByAccount.Clear();
+        enemyRowsByAccount.Clear();
         currentPrediction = null;
         actualOutcome = BattleOutcome.Unknown;
         AllySummaryText = "-";
@@ -394,10 +445,11 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         IsBusy = true;
+        BattleRecord full;
         try
         {
             // 列表查询不加载参战者，详情按标识补一次完整读取。
-            var full = await services.Repository.GetBattleAsync(battle.BattleId).ConfigureAwait(true)
+            full = await services.Repository.GetBattleAsync(battle.BattleId).ConfigureAwait(true)
                 ?? battle;
 
             // battle_players 表不保存战绩字段，账号层统计走快照合并。
@@ -409,9 +461,6 @@ public sealed class MainViewModel : ViewModelBase
                     .GetAwaiter()
                     .GetResult());
 
-            // 名单里还有玩家缺统计时在线补拉一次并落快照，下次点开直接命中缓存。
-            full = await FetchMissingStatsAsync(full).ConfigureAwait(true);
-
             actualOutcome = full.Outcome;
 
             // 名单按舰种分组排序：航母、战列、巡洋、驱逐、潜艇，
@@ -421,7 +470,9 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenByDescending(p => p.ShipTier)
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
-                Allies.Add(PlayerRowViewModel.FromPlayer(p));
+                var row = PlayerRowViewModel.FromPlayer(p);
+                allyRowsByAccount[p.AccountId] = row;
+                Allies.Add(row);
             }
 
             foreach (var p in full.Enemies
@@ -429,9 +480,12 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenByDescending(p => p.ShipTier)
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
-                Enemies.Add(PlayerRowViewModel.FromPlayer(p));
+                var row = PlayerRowViewModel.FromPlayer(p);
+                enemyRowsByAccount[p.AccountId] = row;
+                Enemies.Add(row);
             }
 
+            // 阶段一先给一版汇总，基于快照合并结果；阶段三补拉完成后重算。
             AllySummaryText = BuildTeamSummary(full.Allies);
             EnemySummaryText = BuildTeamSummary(full.Enemies);
 
@@ -443,24 +497,31 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"加载详情失败: {ex.Message}";
+            LogSink.Error($"详情加载失败: {ex.Message}");
+            return;
         }
         finally
         {
             IsBusy = false;
             NotifyDetailsChanged();
         }
+
+        // 阶段二三在后台推进。快照缺失的玩家行此刻显示占位符，
+        // 补拉结果落地后增量刷新。
+        await FetchMissingStatsInBackgroundAsync(full, version, token).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// 对缺统计的玩家在线补拉一次，结果落快照缓存。
+    /// 阶段二：检测缺统计的玩家并在线补拉，拉到即刷新对应行；阶段三：
+    /// 全部拉完后落快照、重算行内容与队伍汇总。
     /// </summary>
     /// <remarks>
-    /// 存量对局的名单没有战绩字段，快照又缺账号场均或单船数据时，界面会
-    /// 整列显示占位符。这里选点开的那一局按需拉取：账号统计一次批量请求，
-    /// 单船统计逐玩家。拉到的写回快照表，下次点开同一局直接命中缓存。
-    /// 拉取失败不影响展示，保留占位符。
+    /// 存量对局的名单没有战绩字段，快照又缺账号场均或单船数据时，界面
+    /// 显示占位符。这里按需在线拉取：账号统计一次批量请求，单船统计逐
+    /// 玩家。补拉把统计就地写进玩家记录，轮询把已到的数据增量刷上界面。
+    /// 拉取失败不影响展示，保留占位符，用户重试即可。
     /// </remarks>
-    private async Task<BattleRecord> FetchMissingStatsAsync(BattleRecord battle)
+    private async Task FetchMissingStatsInBackgroundAsync(BattleRecord battle, int version, CancellationToken token)
     {
         var missing = battle.Players
             .Where(p => !p.IsBot && p.AccountId != "-1" && p.AccountId != string.Empty)
@@ -469,20 +530,48 @@ public sealed class MainViewModel : ViewModelBase
 
         if (missing.Count == 0)
         {
-            return battle;
+            return;
         }
+
+        string progressText = $"{StatsFetchStatusPrefix}{missing.Count} 名玩家的统计...";
+        StatusMessage = progressText;
+        LogSink.Info($"快照在线补拉开始，缺统计玩家 {missing.Count} 名");
 
         try
         {
-            await services.StatsProvider.FetchStatsAsync(missing).ConfigureAwait(true);
+            var fetchTask = services.StatsProvider.FetchStatsAsync(missing, token);
+
+            // 补拉按玩家逐个推进，轮询到点把已落地的数据刷上界面。
+            // 行对象按引用持有，RefreshFrom 只更新内容，不改集合结构。
+            while (!fetchTask.IsCompleted)
+            {
+                await Task.Delay(StatsProgressInterval, token).ConfigureAwait(false);
+                Post(() => RefreshRowsFor(version, battle.Players));
+            }
+
+            await fetchTask.ConfigureAwait(false);
+            LogSink.Info("快照在线补拉完成");
         }
-        catch (Exception)
+        catch (OperationCanceledException)
+        {
+            // 已被新选择作废，静默退出。
+            return;
+        }
+        catch (Exception ex)
         {
             // 网络失败或限流，保留占位符，用户重试即可。
-            return battle;
+            LogSink.Warn($"快照在线补拉失败: {ex.Message}");
+            Post(() =>
+            {
+                if (IsDetailsCurrent(version) && statusMessage == progressText)
+                {
+                    StatusMessage = "就绪";
+                }
+            });
+            return;
         }
 
-        // 拉到统计的玩家落快照，单船数据与本局船绑定。
+        // 拉到统计的玩家落快照，单船数据与本局船绑定，下次点开直接命中缓存。
         var capturedAt = DateTimeOffset.UtcNow;
         var snapshots = missing
             .Where(p => p.HasStats)
@@ -491,20 +580,63 @@ public sealed class MainViewModel : ViewModelBase
 
         if (snapshots.Count > 0)
         {
-            await services.Repository
-                .SaveSnapshotsAsync(snapshots)
-                .ConfigureAwait(true);
-
-            // 用新数据重排：快照合并后重新生成名单行。
-            return SnapshotFeatureBuilder.Enrich(battle, (accountId, server) =>
-                services.Repository
-                    .GetLatestSnapshotAsync(accountId, server)
-                    .GetAwaiter()
-                    .GetResult());
+            try
+            {
+                await services.Repository.SaveSnapshotsAsync(snapshots).ConfigureAwait(false);
+                LogSink.Info($"快照已落库 {snapshots.Count} 条");
+            }
+            catch (Exception)
+            {
+                // 落库失败只影响下次缓存命中，本次展示继续。
+            }
         }
 
-        return battle;
+        // 阶段三：快照合并后重算。分舰种聚合与单船口径都以合并结果为准，
+        // 与阶段一的展示口径完全一致。
+        BattleRecord enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server) =>
+            services.Repository
+                .GetLatestSnapshotAsync(accountId, server)
+                .GetAwaiter()
+                .GetResult());
+
+        Post(() =>
+        {
+            if (!IsDetailsCurrent(version))
+            {
+                return;
+            }
+
+            RefreshRowsFor(version, enriched.Players);
+            AllySummaryText = BuildTeamSummary(enriched.Allies);
+            EnemySummaryText = BuildTeamSummary(enriched.Enemies);
+            if (statusMessage == progressText)
+            {
+                StatusMessage = "就绪";
+            }
+        });
     }
+
+    /// <summary>
+    /// 按账号标识把最新记录刷进已有名单行，只更新行内容，不改集合结构。
+    /// 代次不匹配时直接跳过，旧任务不得回写新对局的名单。
+    /// </summary>
+    private void RefreshRowsFor(int version, IEnumerable<PlayerRecord> players)
+    {
+        if (!IsDetailsCurrent(version))
+        {
+            return;
+        }
+
+        foreach (var player in players)
+        {
+            var row = player.IsAlly
+                ? allyRowsByAccount.GetValueOrDefault(player.AccountId)
+                : enemyRowsByAccount.GetValueOrDefault(player.AccountId);
+            row?.RefreshFrom(player);
+        }
+    }
+
+    private bool IsDetailsCurrent(int version) => version == detailsVersion;
 
     /// <summary>
     /// 计算队伍汇总文本，ApeRadar 口径：平均数据一行给出账号胜率、加权胜率与平均场次。

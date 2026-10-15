@@ -333,4 +333,77 @@ public class PlayerRowViewModelTests
     {
         Assert.Equal(expected, PlayerRowViewModel.ShipClassSortKey(shipClass));
     }
+
+    [Fact]
+    public void RefreshFrom_UpdatesPlaceholderRowWithStats()
+    {
+        // 阶段一：快照缺失，行显示占位符。
+        var placeholder = MakePlayer("LateLoader", -1, -1);
+        placeholder.AccountId = "2002";
+        placeholder.ShipWinrate = -1;
+        placeholder.ShipBattles = -1;
+        var vm = PlayerRowViewModel.FromPlayer(placeholder);
+
+        Assert.Equal("-", vm.BattlesText);
+        Assert.Equal("-", vm.WeightedWinrateText);
+        Assert.Equal("-", vm.ShipWinrateText);
+        Assert.Equal("隐藏", vm.TierLabel);
+        Assert.Equal("HiddenBrush", vm.WinrateBrushKey);
+        Assert.Equal("HiddenBrush", vm.WeightedWinrateBrushKey);
+
+        // 阶段二：补拉落地，同一行对象原地刷新为真实统计。
+        var fetched = MakePlayer("LateLoader", 0.62, 5000);
+        fetched.AccountId = "2002";
+        fetched.AccountAvgDamage = 95000;
+        fetched.FavoriteTier = 10;
+        fetched.WeightedWinrate = 0.55;
+        fetched.ShipBattles = 300;
+        fetched.ShipWinrate = 0.64;
+        fetched.ShipAvgDamage = 80000;
+        fetched.ClassBattles = 2100;
+        fetched.ClassWins = 1302;
+
+        vm.RefreshFrom(fetched);
+
+        Assert.Equal("5,000", vm.BattlesText);
+        Assert.Equal("62.0%", vm.WinrateText);
+        Assert.Equal("55.0%", vm.WeightedWinrateText);
+        Assert.Equal("海王", vm.TierLabel);
+        Assert.Equal("(X) 95,000", vm.AvgDamageText);
+        Assert.Equal("UnicumBrush", vm.WinrateBrushKey);
+        // 加权 55% 在中段，保持主文本色。
+        Assert.Equal("TextPrimaryBrush", vm.WeightedWinrateBrushKey);
+        Assert.Equal("300", vm.ShipBattlesText);
+        Assert.Equal("64.0%", vm.ShipWinrateText);
+        Assert.Equal("80,000", vm.ShipDamageText);
+        Assert.Equal("2,100 / 62.0%", vm.ClassMasteryText);
+    }
+
+    [Fact]
+    public void RefreshFrom_RaisesChangeNotificationsForDerivedProperties()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", -1, -1));
+
+        var notified = new List<string>();
+        vm.PropertyChanged += (_, e) => notified.Add(e.PropertyName ?? string.Empty);
+
+        var fetched = MakePlayer("A", 0.62, 5000);
+        fetched.WeightedWinrate = 0.55;
+        vm.RefreshFrom(fetched);
+
+        // 渐进式更新依赖属性通知驱动界面刷新，关键列都必须有通知。
+        Assert.Contains(nameof(PlayerRowViewModel.WinrateText), notified);
+        Assert.Contains(nameof(PlayerRowViewModel.BattlesText), notified);
+        Assert.Contains(nameof(PlayerRowViewModel.WeightedWinrateText), notified);
+        Assert.Contains(nameof(PlayerRowViewModel.TierLabel), notified);
+        Assert.Contains(nameof(PlayerRowViewModel.WinrateBrushKey), notified);
+        Assert.Contains(nameof(PlayerRowViewModel.ShipWinrateText), notified);
+    }
+
+    [Fact]
+    public void RefreshFrom_NullRecord_Throws()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Throws<ArgumentNullException>(() => vm.RefreshFrom(null!));
+    }
 }
