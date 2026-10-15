@@ -12,6 +12,7 @@ import { handleGetBaselines, handleGetCalibration } from "./handlers/analytics.j
  * - 对局众包采集，积累训练数据
  * - 模型分发
  * - 服务器基线与校准统计查询
+ * - 静态资源服务（下载指引页）
  *
  * 不做实时预测推理。推理在客户端本地完成（见 ADR 0003）。
  */
@@ -20,8 +21,13 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // 非 API 路径交给静态资源服务（下载指引页等）。
+    if (!path.startsWith("/api/")) {
+      return env.ASSETS.fetch(request);
+    }
+
     // 健康检查，不鉴权。
-    if (path === "/health" || path === "/") {
+    if (path === "/api/health") {
       return json<{ status: string; environment: string }>({
         ok: true,
         data: { status: "healthy", environment: env.ENVIRONMENT },

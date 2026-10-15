@@ -97,6 +97,9 @@ function createEnv(): Env {
     STATS_CACHE: createMockKV(),
     DB: createMockD1(),
     MODELS: {} as R2Bucket,
+    ASSETS: {
+      fetch: () => Promise.resolve(new Response("not found", { status: 404 })),
+    } as unknown as Fetcher,
     ENVIRONMENT: "test",
   };
 }
@@ -105,15 +108,21 @@ const ctx = {} as ExecutionContext;
 
 describe("边缘后端路由", () => {
   it("健康检查返回 ok", async () => {
-    const res = await worker.fetch(new Request("https://example.com/health"), createEnv(), ctx);
+    const res = await worker.fetch(new Request("https://example.com/api/health"), createEnv(), ctx);
     expect(res.status).toBe(200);
     const body = await res.json<{ ok: boolean; data: { status: string } }>();
     expect(body.ok).toBe(true);
     expect(body.data.status).toBe("healthy");
   });
 
-  it("未知路由返回 404", async () => {
-    const res = await worker.fetch(new Request("https://example.com/nope"), createEnv(), ctx);
+  it("非 API 路径交给静态资源服务", async () => {
+    const env = createEnv();
+    const res = await worker.fetch(new Request("https://example.com/"), env, ctx);
+    expect(res.status).toBe(404);
+  });
+
+  it("未知 API 路由返回 404 JSON", async () => {
+    const res = await worker.fetch(new Request("https://example.com/api/nope"), createEnv(), ctx);
     expect(res.status).toBe(404);
   });
 

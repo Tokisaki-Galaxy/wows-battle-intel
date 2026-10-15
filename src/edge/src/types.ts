@@ -13,6 +13,9 @@ export interface Env {
   /** R2：模型产物、训练数据导出、原始回放。 */
   MODELS: R2Bucket;
 
+  /** 静态资源：下载指引页等，来自 public 目录。 */
+  ASSETS: Fetcher;
+
   /** 环境标识。 */
   ENVIRONMENT: string;
 }

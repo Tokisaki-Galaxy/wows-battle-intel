@@ -31,6 +31,13 @@
       "bucket_name": "wows-battle-intel-models"
     }
   ],
+  // 静态资源目录：下载指引页。非 /api/ 路径由 Worker 内 env.ASSETS 转发，
+  // 不启用 automatic 占位（not_found_handling 用 none，404 由 API 层或页面自行处理）。
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "none"
+  },
   // Previews 不继承顶层生产设置，绑定与 vars 必须在 previews 块内重新声明。
   // 当前 Preview 与生产共享同一批资源；需要隔离时改为独立的预览资源 ID。
   "previews": {
@@ -56,6 +63,11 @@
         "binding": "MODELS",
         "bucket_name": "wows-battle-intel-models"
       }
-    ]
+    ],
+    "assets": {
+      "directory": "./public",
+      "binding": "ASSETS",
+      "not_found_handling": "none"
+    }
   }
 }

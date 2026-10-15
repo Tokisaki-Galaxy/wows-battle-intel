@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>战舰世界战斗情报 - 下载</title>
+  <meta name="description" content="战舰世界战斗情报与胜负预测工具，本地解析回放，赛前给出胜率预测。" />
+  <style>
+    /*
+      设计令牌：与客户端 Tokens.Dark.xaml / Tokens.Light.xaml 同源翻译。
+      改色只动这里的 :root 与 prefers-color-scheme 两块。
+    */
+    :root {
+      /* 深色档（默认），对应 Tokens.Dark.xaml */
+      --bg: #000000;
+      --surface: #141416;
+      --surface-2: #29292d;
+      --surface-3: #34343a;
+      --surface-inset: #19191c;
+      --control-bg: #3e3e43;
+      --control-hover: #49494f;
+
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.20);
+      --hairline: rgba(255, 255, 255, 0.09);
+
+      --text-primary: #f3f3f3;
+      --text-secondary: #cecece;
+      --text-muted: #b7b7b7;
+
+      --primary: #0484ff;
+      --primary-hover: #2896ff;
+      --primary-soft: rgba(4, 132, 255, 0.15);
+      --primary-bd: rgba(4, 132, 255, 0.38);
+
+      --ok: #00bc7d;
+      --warn: #fe9a00;
+
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 40px;
+      --font: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+      --shadow: 0 8px 24px rgba(0, 0, 0, 0.40);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        /* 浅色档，对应 Tokens.Light.xaml */
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface-2: #f0f1f3;
+        --surface-3: #e6e8eb;
+        --surface-inset: #f4f5f7;
+        --control-bg: #ecedf0;
+        --control-hover: #dfe1e5;
+
+        --border: rgba(0, 0, 0, 0.12);
+        --border-strong: rgba(0, 0, 0, 0.24);
+        --hairline: rgba(0, 0, 0, 0.08);
+
+        --text-primary: #202124;
+        --text-secondary: #4a4c50;
+        --text-muted: #6f7175;
+
+        --primary: #0484ff;
+        --primary-hover: #036fd6;
+        --primary-soft: rgba(4, 132, 255, 0.12);
+        --primary-bd: rgba(4, 132, 255, 0.32);
+
+        --ok: #00a66a;
+
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: var(--space-xl) var(--space-md) 80px;
+    }
+
+    /* 顶栏：产品名与状态点 */
+    .masthead {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: var(--space-xl);
+    }
+    .brand-bar {
+      width: 4px;
+      height: 20px;
+      border-radius: 2px;
+      background: var(--primary);
+    }
+    .brand {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    /* 主卡片 */
+    .hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow);
+    }
+    .hero h1 {
+      margin: 0 0 var(--space-sm);
+      font-size: 26px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .hero .sub {
+      margin: 0 0 var(--space-lg);
+      color: var(--text-secondary);
+    }
+
+    /* 主按钮：实底蓝，悬停提亮，与客户端 ButtonPrimary 同族 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--primary-bd);
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: var(--primary-hover); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+      font-weight: 400;
+    }
+    .btn-ghost:hover { background: var(--control-bg); }
+
+    .download-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      flex-wrap: wrap;
+    }
+    .version-note {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    /* 信息区：分节标题带主色竖条，与客户端分节标题同构 */
+    section { margin-top: var(--space-xl); }
+    .sec-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: var(--space-md);
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .sec-bar {
+      width: 3px;
+      height: 12px;
+      border-radius: 1px;
+      background: var(--text-muted);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-md) var(--space-lg);
+    }
+    .card ul { margin: 0; padding-left: 20px; }
+    .card li { margin: 4px 0; }
+    .card code {
+      background: var(--surface-inset);
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 13px;
+      font-family: Consolas, "Cascadia Mono", monospace;
+    }
+
+    /* 步骤列表：数字圆标 */
+    .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding-left: 40px;
+      margin: 10px 0;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 2px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--primary-soft);
+      border: 1px solid var(--primary-bd);
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 隐私说明里的强调色 */
+    .ok-text { color: var(--ok); }
+    .muted { color: var(--text-muted); font-size: 13px; }
+
+    footer {
+      margin-top: var(--space-xl);
+      padding-top: var(--space-md);
+      border-top: 1px solid var(--hairline);
+      color: var(--text-muted);
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+    }
+    footer a { color: var(--text-muted); text-decoration: none; }
+    footer a:hover { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div class="brand-bar"></div>
+      <div class="brand">战舰世界战斗情报</div>
+    </header>
+
+    <div class="hero">
+      <h1>赛前知道这一局能不能赢</h1>
+      <p class="sub">
+        本地解析对局回放，自动补齐双方玩家历史战绩，机器学习模型在加载界面给出友方胜率预测。
+        名单按战绩染色，海王与猴子一眼可辨。
+      </p>
+      <div class="download-row">
+        <a class="btn" href="https://github.com/tokisaki/wows-battle-intel/releases/latest" id="download-link">下载最新版</a>
+        <a class="btn btn-ghost" href="https://github.com/tokisaki/wows-battle-intel">GitHub 仓库</a>
+        <span class="version-note">Windows x64 · 免安装 · zip 约 7 MB</span>
+      </div>
+    </div>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>运行要求</div>
+      <div class="card">
+        <ul>
+          <li>Windows 10 1903 或更高（x64）</li>
+          <li><a class="ok-text" href="https://dotnet.microsoft.com/download/dotnet/10.0/runtime">.NET 10 桌面运行时</a>（若打不开程序先装它）</li>
+          <li>战舰世界客户端（用于定位回放目录）</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>安装步骤</div>
+      <div class="card">
+        <ol class="steps">
+          <li>下载并解压 zip 到任意目录，例如 <code>D:\WowsBattleIntel</code></li>
+          <li>运行 <code>WowsBattleIntel.Client.exe</code>，首次启动在设置页填入游戏安装路径</li>
+          <li>开一局游戏，回到加载界面时程序会自动捕获对局并给出预测</li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>数据与隐私</div>
+      <div class="card">
+        <ul>
+          <li>战绩数据通过战舰世界官方公开 API 查询，与第三方战绩网站同源</li>
+          <li>预测模型在本地运行，回放文件不上传</li>
+          <li>可选择参与对局数据协作：上报内容仅含匿名化的对局统计（账号 ID、船只、比分），可在设置中关闭</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <span>战舰世界战斗情报 · 本工具与 Wargaming.net 无隶属关系</span>
+      <a href="/api/health">服务状态</a>
+    </footer>
+  </div>
+</body>
+</html>
