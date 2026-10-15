@@ -300,6 +300,7 @@ public sealed class SettingsViewModel : ViewModelBase
             StatusMessage = services.PredictionInfo.UsedFallback
                 ? $"已保存 · 使用基线预测器: {services.PredictionInfo.Reason}"
                 : "已保存 · 已加载模型";
+            services.Logs.Info("配置已保存并重新装配服务");
             SettingsApplied?.Invoke();
         }
         catch (OperationCanceledException)
@@ -309,6 +310,7 @@ public sealed class SettingsViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"保存失败: {ex.Message}";
+            services.Logs.Error($"配置保存失败: {ex.Message}");
         }
         finally
         {

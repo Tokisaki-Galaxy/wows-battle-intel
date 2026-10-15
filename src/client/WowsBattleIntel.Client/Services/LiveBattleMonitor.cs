@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading.Channels;
 
 namespace WowsBattleIntel.Client.Services;
@@ -22,6 +23,7 @@ public sealed class LiveBattleMonitor : IDisposable
     private readonly Func<string, CancellationToken, Task<IngestionResult>> ingest;
     private readonly Channel<string> queue;
     private readonly object stateLock = new();
+    private readonly LogService? logs;
     private ReplayObserver? observer;
     private TaskCompletionSource idleSource = CreateIdleSource();
     private CancellationTokenSource? cts;
@@ -35,10 +37,12 @@ public sealed class LiveBattleMonitor : IDisposable
     /// <param name="ingest">解析并入库的委托，通常是 BattleIngestionService.IngestAsync。</param>
     /// <param name="observer">回放观测器。测试时可为空，改用 Enqueue 直接投喂路径。</param>
     /// <param name="capacity">待处理队列上限。超出时丢弃本次投递。</param>
+    /// <param name="logs">运行日志服务。可为空，测试场景不依赖日志。</param>
     public LiveBattleMonitor(
         Func<string, CancellationToken, Task<IngestionResult>> ingest,
         ReplayObserver? observer = null,
-        int capacity = 128)
+        int capacity = 128,
+        LogService? logs = null)
     {
         ArgumentNullException.ThrowIfNull(ingest);
         if (capacity <= 0)
@@ -48,6 +52,7 @@ public sealed class LiveBattleMonitor : IDisposable
 
         this.ingest = ingest;
         this.observer = observer;
+        this.logs = logs;
         queue = Channel.CreateBounded<string>(new BoundedChannelOptions(capacity)
         {
             // 队列满时 TryWrite 直接失败，由调用方决定丢弃。
@@ -213,6 +218,7 @@ public sealed class LiveBattleMonitor : IDisposable
         // 队列满或通道已关闭时写入失败，回退计数以免等待空闲时挂住。
         if (!queue.Writer.TryWrite(replayPath))
         {
+            logs?.Warn($"待处理队列已满，丢弃回放: {Path.GetFileName(replayPath)}");
             CompleteOne();
         }
     }
@@ -257,11 +263,16 @@ public sealed class LiveBattleMonitor : IDisposable
             var result = await ingest(replayPath, cancellationToken).ConfigureAwait(false);
             if (result.Success)
             {
+                logs?.Info(result.IsDuplicate
+                    ? $"同局重复，已收敛: {Path.GetFileName(replayPath)}"
+                    : $"对局已入库: {Path.GetFileName(replayPath)}");
                 BattleIngested?.Invoke(result);
             }
             else
             {
-                IngestionFailed?.Invoke(replayPath, result.Message ?? "解析失败，未提供原因。");
+                string reason = result.Message ?? "解析失败，未提供原因。";
+                logs?.Warn($"回放处理失败: {Path.GetFileName(replayPath)} · {reason}");
+                IngestionFailed?.Invoke(replayPath, reason);
             }
         }
         catch (OperationCanceledException)
@@ -271,6 +282,7 @@ public sealed class LiveBattleMonitor : IDisposable
         catch (Exception ex)
         {
             // 单份回放失败不能中断整条流水线。
+            logs?.Error($"回放处理异常: {Path.GetFileName(replayPath)} · {ex.Message}");
             IngestionFailed?.Invoke(replayPath, ex.Message);
         }
     }

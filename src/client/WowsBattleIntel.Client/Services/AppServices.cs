@@ -33,13 +33,15 @@ public sealed class AppServices : IDisposable
         StatsProvider = statsProvider;
         Predictor = predictor;
         PredictionInfo = predictionInfo;
+        Logs = new LogService();
         ReplayParser = new ReplayService(config);
         Ingestion = new BattleIngestionService(ReplayParser, repository, predictor);
         Observer = observer;
         // 委托在调用时读取 Ingestion 属性，重配置后自动指向新实例。
         Monitor = new LiveBattleMonitor(
             (path, token) => Ingestion.IngestAsync(path, token),
-            observer);
+            observer,
+            logs: Logs);
     }
 
     /// <summary>当前配置。配置变更后会被替换。</summary>
@@ -56,6 +58,9 @@ public sealed class AppServices : IDisposable
 
     /// <summary>预测器装配信息，含是否降级及原因。</summary>
     public PredictionFallbackInfo PredictionInfo { get; private set; }
+
+    /// <summary>运行日志服务。进程级共享，重配置不重建，日志跨配置版本保留。</summary>
+    public LogService Logs { get; }
 
     /// <summary>回放解析服务。</summary>
     public ReplayService ReplayParser { get; private set; }
@@ -110,6 +115,7 @@ public sealed class AppServices : IDisposable
             return;
         }
 
+        Logs.Info("观测启动");
         Monitor.Start();
     }
 
@@ -119,6 +125,7 @@ public sealed class AppServices : IDisposable
     public void StopObservation()
     {
         Monitor.Stop();
+        Logs.Info("观测停止");
     }
 
     /// <summary>
@@ -187,6 +194,7 @@ public sealed class AppServices : IDisposable
         disposed = true;
         Monitor.Dispose();
         (Predictor as IDisposable)?.Dispose();
+        Logs.Info("应用退出");
     }
 }
 

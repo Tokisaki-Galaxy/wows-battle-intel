@@ -113,7 +113,6 @@ public sealed class BattleIngestionService
 
         return IngestionResult.Succeeded(battle, null);
     }
-
     /// <summary>
     /// 批量处理一个目录下的回放。
     /// </summary>
