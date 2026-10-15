@@ -84,25 +84,31 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // 单船统计三列。快照默认只存账号层，带 ship_id 时才填这组值。
-        if (!existing.Contains("ship_id"))
+        // 单船统计与常用等级各列。逐列独立检查，塞在同一个代码块里时
+        // 旧库已带 ship_battles 会跳过整块，后续新增列永远加不上。
+        await AddColumnIfMissing(existing, connection, "ship_id", "TEXT");
+        await AddColumnIfMissing(existing, connection, "ship_battles", "INTEGER");
+        await AddColumnIfMissing(existing, connection, "ship_winrate", "REAL");
+        await AddColumnIfMissing(existing, connection, "ship_avg_damage", "REAL");
+        await AddColumnIfMissing(existing, connection, "favorite_tier", "INTEGER");
+    }
+
+    /// <summary>列不存在时加列，已存在则跳过。迁移幂等，重复执行安全。</summary>
+    private static async Task AddColumnIfMissing(
+        HashSet<string> existing,
+        SqliteConnection connection,
+        string columnName,
+        string columnType)
+    {
+        if (existing.Contains(columnName))
         {
-            await using var command = connection.CreateCommand();
-            command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN ship_id TEXT;";
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        if (!existing.Contains("ship_battles"))
-        {
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                ALTER TABLE player_snapshots ADD COLUMN ship_battles INTEGER;
-                ALTER TABLE player_snapshots ADD COLUMN ship_winrate REAL;
-                ALTER TABLE player_snapshots ADD COLUMN ship_avg_damage REAL;
-                ALTER TABLE player_snapshots ADD COLUMN favorite_tier INTEGER;
-                """;
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+        await using var command = connection.CreateCommand();
+        // 列名与类型来自调用方字面量，不来自用户输入，拼接安全。
+        command.CommandText = $"ALTER TABLE player_snapshots ADD COLUMN {columnName} {columnType};";
+        await command.ExecuteNonQueryAsync();
     }
 
     /// <inheritdoc />
