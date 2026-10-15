@@ -31,7 +31,21 @@ public class MainWindowSmokeTests
                         new ResourceDictionary
                         {
                             Source = new Uri(
-                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme/Controls.Dark.xaml",
+                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme/Tokens.Dark.xaml",
+                                UriKind.Absolute),
+                        });
+                    app.Resources.MergedDictionaries.Add(
+                        new ResourceDictionary
+                        {
+                            Source = new Uri(
+                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme.xaml",
+                                UriKind.Absolute),
+                        });
+                    app.Resources.MergedDictionaries.Add(
+                        new ResourceDictionary
+                        {
+                            Source = new Uri(
+                                "pack://application:,,,/WowsBattleIntel.Client;component/Resources/Theme/Controls.Shared.xaml",
                                 UriKind.Absolute),
                         });
                 }

@@ -4,7 +4,8 @@
         Title="wows-battle-intel · 战斗情报与胜负预测"
         Height="800" Width="1280"
         MinHeight="600" MinWidth="1000"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Style="{StaticResource AppWindowStyle}">
 
   <Window.Resources>
     <!-- 列表项模板：两行信息加右侧胶囊结果徽章，选中指示条由 ListBoxItem 样式提供 -->

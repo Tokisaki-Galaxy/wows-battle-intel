@@ -1,0 +1,111 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+  <!--
+    浅色主题令牌。唯一事实来源，装配时与控件样式一起合并。
+    改色改几何只动本文件，禁止在样式里写死具体数值。
+  -->
+
+  <!-- 表面层级：画布亮灰，卡片纯白，控件填充与承载面分离 -->
+  <Color x:Key="BgColor">#FFF7F8FA</Color>
+  <Color x:Key="SurfaceColor">#FFFFFFFF</Color>
+  <Color x:Key="Surface2Color">#FFF0F1F3</Color>
+  <Color x:Key="Surface3Color">#FFE6E8EB</Color>
+  <Color x:Key="SurfaceRaisedColor">#FFFFFFFF</Color>
+  <Color x:Key="SurfaceInsetColor">#FFF4F5F7</Color>
+  <Color x:Key="ControlBgColor">#FFECEDF0</Color>
+  <Color x:Key="ControlHoverColor">#FFDFE1E5</Color>
+
+  <!-- 边框：黑色按透明度分档，发丝线负责行分隔 -->
+  <Color x:Key="BorderColor">#1F000000</Color>
+  <Color x:Key="BorderStrongColor">#3D000000</Color>
+  <Color x:Key="HairlineColor">#14000000</Color>
+  <Color x:Key="ControlBdColor">#33000000</Color>
+  <Color x:Key="ControlBdHoverColor">#4D000000</Color>
+
+  <!-- 文本三档，禁用态取主文本 45% -->
+  <Color x:Key="TextPrimaryColor">#FF202124</Color>
+  <Color x:Key="TextSecondaryColor">#FF4A4C50</Color>
+  <Color x:Key="TextMutedColor">#FF6F7175</Color>
+  <Color x:Key="TextDisabledColor">#73202124</Color>
+
+  <!-- 品牌蓝与派生：soft 主色 12%，bd 主色 32%，焦点环 22%，glow 28% -->
+  <Color x:Key="PrimaryColor">#FF0484FF</Color>
+  <Color x:Key="PrimaryHoverColor">#FF036FD6</Color>
+  <Color x:Key="PrimaryFgColor">#FF036FD6</Color>
+  <Color x:Key="PrimarySoftColor">#1F0484FF</Color>
+  <Color x:Key="PrimaryBdColor">#520484FF</Color>
+  <Color x:Key="FocusRingColor">#380484FF</Color>
+  <Color x:Key="ButtonGlowColor">#470484FF</Color>
+
+  <!-- 语义色 -->
+  <Color x:Key="OkColor">#FF00A66A</Color>
+  <Color x:Key="WarnColor">#FFD97700</Color>
+  <Color x:Key="DangerColor">#FFE04F52</Color>
+  <Color x:Key="InfoColor">#FF0176B4</Color>
+
+  <!-- 导航选中 -->
+  <Color x:Key="NavSelectedBgColor">#FFDCEBFF</Color>
+  <Color x:Key="NavSelectedFgColor">#FF0B3D7A</Color>
+
+  <!-- 阴影：卡片 14% 黑，弹窗 12% 黑 -->
+  <Color x:Key="Shadow2Color">#24000000</Color>
+  <Color x:Key="Shadow3Color">#1F000000</Color>
+
+  <!-- 业务色：阵营与水平分档，浅色下保持可读性 -->
+  <Color x:Key="AllyColor">#FF2F6FD6</Color>
+  <Color x:Key="EnemyColor">#FFE04F52</Color>
+  <Color x:Key="UnicumColor">#FFC8931F</Color>
+  <Color x:Key="ApeColor">#FF8A3FD6</Color>
+  <Color x:Key="HiddenColor">#FF8A8F94</Color>
+
+  <!-- 徽章三件套：浅色下柔底 8%、描边 24% -->
+  <Color x:Key="OkSoftColor">#1400A66A</Color>
+  <Color x:Key="OkBdColor">#3D00A66A</Color>
+  <Color x:Key="WarnSoftColor">#14D97700</Color>
+  <Color x:Key="WarnBdColor">#3DD97700</Color>
+  <Color x:Key="DangerSoftColor">#14E04F52</Color>
+  <Color x:Key="DangerBdColor">#3DE04F52</Color>
+  <Color x:Key="InfoSoftColor">#140176B4</Color>
+  <Color x:Key="InfoBdColor">#3D0176B4</Color>
+  <Color x:Key="NeutralSoftColor">#148A8F94</Color>
+  <Color x:Key="NeutralBdColor">#3D8A8F94</Color>
+  <Color x:Key="AllySoftColor">#142F6FD6</Color>
+  <Color x:Key="AllyBdColor">#3D2F6FD6</Color>
+  <Color x:Key="EnemySoftColor">#14E04F52</Color>
+  <Color x:Key="EnemyBdColor">#3DE04F52</Color>
+
+  <!-- 圆角族：xs 8 / sm 9.6 / md 12.8 / lg 16 / xl 22.4，胶囊 999 -->
+  <CornerRadius x:Key="RadiusXs">8</CornerRadius>
+  <CornerRadius x:Key="RadiusSm">9.6</CornerRadius>
+  <CornerRadius x:Key="RadiusMd">12.8</CornerRadius>
+  <CornerRadius x:Key="RadiusLg">16</CornerRadius>
+  <CornerRadius x:Key="RadiusXl">22.4</CornerRadius>
+  <CornerRadius x:Key="RadiusPill">999</CornerRadius>
+  <CornerRadius x:Key="RadiusTopLg">16,16,0,0</CornerRadius>
+
+  <!-- 字体族：英文走 Segoe UI，中文回落微软雅黑 -->
+  <FontFamily x:Key="AppFontFamily">Segoe UI, Microsoft YaHei</FontFamily>
+
+  <!-- 字号族：基准 13，控件 12.5，小字 12，表头 10.5，面板标题 13.5，品牌标题 18，大读数 34 -->
+  <sys:Double x:Key="FontSizeBase">13</sys:Double>
+  <sys:Double x:Key="FontSizeControl">12.5</sys:Double>
+  <sys:Double x:Key="FontSizeSmall">12</sys:Double>
+  <sys:Double x:Key="FontSizeTableHeader">10.5</sys:Double>
+  <sys:Double x:Key="FontSizePanelTitle">13.5</sys:Double>
+  <sys:Double x:Key="FontSizeBrand">18</sys:Double>
+  <sys:Double x:Key="FontSizeDisplay">34</sys:Double>
+  <sys:Double x:Key="FontSizeBadge">11.5</sys:Double>
+
+  <!-- 间距族 -->
+  <Thickness x:Key="SpacingXs">4</Thickness>
+  <Thickness x:Key="SpacingSm">8</Thickness>
+  <Thickness x:Key="SpacingMd">12</Thickness>
+  <Thickness x:Key="SpacingLg">16</Thickness>
+  <Thickness x:Key="PaddingCell">14,8</Thickness>
+  <Thickness x:Key="PaddingField">8,5</Thickness>
+  <Thickness x:Key="PaddingBadge">8,3</Thickness>
+  <Thickness x:Key="PaddingRow">0,2</Thickness>
+
+</ResourceDictionary>

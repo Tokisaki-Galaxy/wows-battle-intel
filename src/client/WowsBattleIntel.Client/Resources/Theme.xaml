@@ -3,14 +3,12 @@
                     xmlns:views="clr-namespace:WowsBattleIntel.Client.Views.Converters">
 
   <!--
-    主题装配层。画刷、文本样式与隐式控件样式全部引用 Tokens.Dark.xaml 里的令牌，
+    主题装配层。画刷、文本样式与隐式控件样式全部引用主题字典里的令牌，
     本文件不出现具体色值与字号，保证令牌是唯一事实来源。
     兼容键保留：ViewModel 经 BrushKeyConverter 按字符串键名取画刷，测试断言这些键名。
+    装配时先合并一份主题令牌字典（Tokens.Dark.xaml 或 Tokens.Light.xaml），
+    再合并本文件，最后合并 Controls.Shared.xaml。
   -->
-
-  <ResourceDictionary.MergedDictionaries>
-    <ResourceDictionary Source="Theme/Tokens.Dark.xaml" />
-  </ResourceDictionary.MergedDictionaries>
 
   <!-- 表面与边框画刷 -->
   <SolidColorBrush x:Key="BgBrush" Color="{StaticResource BgColor}" />
@@ -58,21 +56,21 @@
   <SolidColorBrush x:Key="PositiveBrush" Color="{StaticResource OkColor}" />
   <SolidColorBrush x:Key="NegativeBrush" Color="{StaticResource DangerColor}" />
 
-  <!-- 徽章三件套画刷：实色、柔底、同族描边，柔底 10% 同色 alpha，描边 28% -->
-  <SolidColorBrush x:Key="OkSoftBrush" Color="#1A00BC7D" />
-  <SolidColorBrush x:Key="OkBdBrush" Color="#4800BC7D" />
-  <SolidColorBrush x:Key="WarnSoftBrush" Color="#1AFE9A00" />
-  <SolidColorBrush x:Key="WarnBdBrush" Color="#48FE9A00" />
-  <SolidColorBrush x:Key="DangerSoftBrush" Color="#1AFF6467" />
-  <SolidColorBrush x:Key="DangerBdBrush" Color="#48FF6467" />
-  <SolidColorBrush x:Key="InfoSoftBrush" Color="#1A018DCF" />
-  <SolidColorBrush x:Key="InfoBdBrush" Color="#48018DCF" />
-  <SolidColorBrush x:Key="NeutralSoftBrush" Color="#1A7A8088" />
-  <SolidColorBrush x:Key="NeutralBdBrush" Color="#487A8088" />
-  <SolidColorBrush x:Key="AllySoftBrush" Color="#1A4C8BF5" />
-  <SolidColorBrush x:Key="AllyBdBrush" Color="#484C8BF5" />
-  <SolidColorBrush x:Key="EnemySoftBrush" Color="#1AFF6467" />
-  <SolidColorBrush x:Key="EnemyBdBrush" Color="#48FF6467" />
+  <!-- 徽章三件套画刷：实色、柔底、同族描边 -->
+  <SolidColorBrush x:Key="OkSoftBrush" Color="{StaticResource OkSoftColor}" />
+  <SolidColorBrush x:Key="OkBdBrush" Color="{StaticResource OkBdColor}" />
+  <SolidColorBrush x:Key="WarnSoftBrush" Color="{StaticResource WarnSoftColor}" />
+  <SolidColorBrush x:Key="WarnBdBrush" Color="{StaticResource WarnBdColor}" />
+  <SolidColorBrush x:Key="DangerSoftBrush" Color="{StaticResource DangerSoftColor}" />
+  <SolidColorBrush x:Key="DangerBdBrush" Color="{StaticResource DangerBdColor}" />
+  <SolidColorBrush x:Key="InfoSoftBrush" Color="{StaticResource InfoSoftColor}" />
+  <SolidColorBrush x:Key="InfoBdBrush" Color="{StaticResource InfoBdColor}" />
+  <SolidColorBrush x:Key="NeutralSoftBrush" Color="{StaticResource NeutralSoftColor}" />
+  <SolidColorBrush x:Key="NeutralBdBrush" Color="{StaticResource NeutralBdColor}" />
+  <SolidColorBrush x:Key="AllySoftBrush" Color="{StaticResource AllySoftColor}" />
+  <SolidColorBrush x:Key="AllyBdBrush" Color="{StaticResource AllyBdColor}" />
+  <SolidColorBrush x:Key="EnemySoftBrush" Color="{StaticResource EnemySoftColor}" />
+  <SolidColorBrush x:Key="EnemyBdBrush" Color="{StaticResource EnemyBdColor}" />
 
   <!-- 卡片阴影与主按钮光晕 -->
   <DropShadowEffect x:Key="CardShadow" BlurRadius="26" ShadowDepth="10" Direction="270" Opacity="0.4" />

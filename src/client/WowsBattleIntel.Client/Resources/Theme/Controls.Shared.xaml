@@ -2,15 +2,13 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!--
-    隐式控件样式。全部引用 Theme.xaml 里的令牌画刷与几何令牌，
+    隐式控件样式。全部引用主题字典里的令牌画刷与几何令牌，
     本文件不出现具体色值与字号，保证令牌是唯一事实来源。
+    深色与浅色主题各提供一套同名画刷，装配时按需合并。
   -->
 
-  <ResourceDictionary.MergedDictionaries>
-    <ResourceDictionary Source="../Theme.xaml" />
-  </ResourceDictionary.MergedDictionaries>
-  <!-- 全局字体与窗口底色：纯黑画布 -->
-  <Style TargetType="Window">
+  <!-- 窗口样式：隐式 TargetType=Window 不会作用到派生窗口，必须显式 Style -->
+  <Style x:Key="AppWindowStyle" TargetType="Window">
     <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeBase}" />
     <Setter Property="Background" Value="{StaticResource BgBrush}" />
@@ -203,6 +201,38 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Padding" Value="0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabControl">
+          <Grid Background="{TemplateBinding Background}"
+                KeyboardNavigation.TabNavigation="Local">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TabPanel x:Name="HeaderPanel"
+                      Grid.Row="0"
+                      Panel.ZIndex="1"
+                      Margin="0"
+                      IsItemsHost="True"
+                      KeyboardNavigation.TabIndex="1"
+                      Background="Transparent" />
+            <Border x:Name="ContentPanel"
+                    Grid.Row="1"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    KeyboardNavigation.DirectionalNavigation="Contained"
+                    KeyboardNavigation.TabIndex="2"
+                    KeyboardNavigation.TabNavigation="Local">
+              <ContentPresenter x:Name="PART_SelectedContentHost"
+                                ContentSource="SelectedContent"
+                                SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+            </Border>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style TargetType="TabItem">
@@ -372,7 +402,7 @@
     <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="FontSize" Value="{StaticResource FontSizeControl}" />
-    <Setter Property="Padding" Value="{StaticResource PaddingSm}" />
+    <Setter Property="Padding" Value="{StaticResource SpacingSm}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ToolTip">

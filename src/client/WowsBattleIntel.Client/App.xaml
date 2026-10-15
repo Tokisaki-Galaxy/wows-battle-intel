@@ -5,8 +5,12 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
+        <!-- 主题令牌：换主题时替换为 Theme/Tokens.Light.xaml -->
+        <ResourceDictionary Source="Resources/Theme/Tokens.Dark.xaml" />
+        <!-- 主题装配层：画刷与文本样式 -->
         <ResourceDictionary Source="Resources/Theme.xaml" />
-        <ResourceDictionary Source="Resources/Theme/Controls.Dark.xaml" />
+        <!-- 共享控件样式 -->
+        <ResourceDictionary Source="Resources/Theme/Controls.Shared.xaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>

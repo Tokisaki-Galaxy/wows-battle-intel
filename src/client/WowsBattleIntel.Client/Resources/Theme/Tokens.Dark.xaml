@@ -61,6 +61,22 @@
   <Color x:Key="ApeColor">#FFB05CF0</Color>
   <Color x:Key="HiddenColor">#FF7A8088</Color>
 
+  <!-- 徽章三件套画刷：实色、柔底、同族描边，柔底 10% 同色 alpha，描边 28% -->
+  <Color x:Key="OkSoftColor">#1A00BC7D</Color>
+  <Color x:Key="OkBdColor">#4800BC7D</Color>
+  <Color x:Key="WarnSoftColor">#1AFE9A00</Color>
+  <Color x:Key="WarnBdColor">#48FE9A00</Color>
+  <Color x:Key="DangerSoftColor">#1AFF6467</Color>
+  <Color x:Key="DangerBdColor">#48FF6467</Color>
+  <Color x:Key="InfoSoftColor">#1A018DCF</Color>
+  <Color x:Key="InfoBdColor">#48018DCF</Color>
+  <Color x:Key="NeutralSoftColor">#1A7A8088</Color>
+  <Color x:Key="NeutralBdColor">#487A8088</Color>
+  <Color x:Key="AllySoftColor">#1A4C8BF5</Color>
+  <Color x:Key="AllyBdColor">#484C8BF5</Color>
+  <Color x:Key="EnemySoftColor">#1AFF6467</Color>
+  <Color x:Key="EnemyBdColor">#48FF6467</Color>
+
   <!-- 圆角族：xs 8 / sm 9.6 / md 12.8 / lg 16 / xl 22.4，胶囊 999 -->
   <CornerRadius x:Key="RadiusXs">8</CornerRadius>
   <CornerRadius x:Key="RadiusSm">9.6</CornerRadius>
