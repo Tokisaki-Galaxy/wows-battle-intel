@@ -44,7 +44,11 @@ public sealed class AppServices : IDisposable
             (path, token) => Ingestion.IngestAsync(path, token),
             observer,
             logs: Logs);
+        ArenaWatcher = new ArenaInfoWatcher(config);
     }
+
+    /// <summary>赛前名单观测器。常驻实例，配置变更走 Rebind 换绑。</summary>
+    public ArenaInfoWatcher ArenaWatcher { get; }
 
     /// <summary>当前配置。配置变更后会被替换。</summary>
     public AppConfig Config { get; private set; }
@@ -151,6 +155,7 @@ public sealed class AppServices : IDisposable
 
         Logs.Info("观测启动");
         Monitor.Start();
+        ArenaWatcher.Start();
     }
 
     /// <summary>
@@ -159,6 +164,7 @@ public sealed class AppServices : IDisposable
     public void StopObservation()
     {
         Monitor.Stop();
+        ArenaWatcher.Stop();
         Logs.Info("观测停止");
     }
 
@@ -205,6 +211,9 @@ public sealed class AppServices : IDisposable
 
         // 换绑在锁外做，它会启停后台协程，不应长时间持锁。
         Monitor.Rebind(observer);
+
+        // 赛前观测器常驻，只换配置，事件订阅保留。
+        ArenaWatcher.Rebind(updated);
     }
 
     private static IPlayerStatsProvider CreateStatsProvider(AppConfig config)
@@ -239,6 +248,7 @@ public sealed class AppServices : IDisposable
 
         disposed = true;
         Monitor.Dispose();
+        ArenaWatcher.Dispose();
         (Predictor as IDisposable)?.Dispose();
         Logs.Info("应用退出");
     }

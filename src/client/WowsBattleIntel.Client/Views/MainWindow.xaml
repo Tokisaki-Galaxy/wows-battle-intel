@@ -236,6 +236,20 @@
                   <Run Text="{Binding BattleSubtitle, Mode=OneWay}" />
                 </TextBlock>
 
+                <!-- 右上角数据刷新倒计时：赛前补拉循环运行时可见，主色提醒用户读数在收敛。限宽防长文案挤压中栏 -->
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Right"
+                            MaxWidth="360">
+                  <TextBlock Text="{Binding CountdownText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             Foreground="{StaticResource PrimaryFgBrush}"
+                             TextTrimming="CharacterEllipsis"
+                             ToolTip="{Binding CountdownText, TargetNullValue=正在在线补齐玩家数据}"
+                             Visibility="{Binding CountdownText, Converter={StaticResource EmptyStringToCollapsedConverter}}" />
+                </StackPanel>
+
                 <!-- 重算胜率按钮 -->
                 <Button Grid.Column="2"
                         Content="重算胜率"

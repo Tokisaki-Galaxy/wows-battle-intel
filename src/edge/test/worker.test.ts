@@ -100,6 +100,8 @@ function createEnv(): Env {
     ASSETS: {
       fetch: () => Promise.resolve(new Response("not found", { status: 404 })),
     } as unknown as Fetcher,
+    REPORT_SALT: "test-salt",
+    ADMIN_TOKEN: "test-admin",
     ENVIRONMENT: "test",
   };
 }

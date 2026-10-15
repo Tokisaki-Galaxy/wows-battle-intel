@@ -3,6 +3,9 @@ import { handleUploadBatch } from "./handlers/upload.js";
 import { handleGetStats, handlePutStats } from "./handlers/stats.js";
 import { handleGetModel, handleListModels } from "./handlers/models.js";
 import { handleGetBaselines, handleGetCalibration } from "./handlers/analytics.js";
+import { handleAdminRejections } from "./handlers/admin.js";
+import { handleDeviceRegister } from "./handlers/devices.js";
+import { handlePlayerQuery, handlePlayerReport } from "./handlers/players.js";
 
 /**
  * 中央协调库边缘后端入口。
@@ -43,8 +46,9 @@ export default {
       return json({ ok: false, error: "未找到路由" }, 404);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // 详情只进日志，对外回固定文案，避免表名与 SQL 片段外泄。
       console.error(`请求处理失败 ${path}: ${message}`);
-      return json({ ok: false, error: message }, 500);
+      return json({ ok: false, error: "内部错误" }, 500);
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -83,6 +87,24 @@ async function route(
   if (path.startsWith("/api/v1/models/") && method === "GET") {
     const version = path.slice("/api/v1/models/".length);
     return handleGetModel(version, request, env);
+  }
+
+  // 设备注册（匿名即发，IP 限流在 handler 内部）
+  if (path === "/api/v1/devices/register" && method === "POST") {
+    return handleDeviceRegister(request, env);
+  }
+
+  // 协作缓存 v1：批量查询与回传
+  if (path === "/api/v1/players/query" && method === "POST") {
+    return handlePlayerQuery(request, env, ctx);
+  }
+  if (path === "/api/v1/players/report" && method === "POST") {
+    return handlePlayerReport(request, env);
+  }
+
+  // 管理端点：拒绝日志观察面，Bearer ADMIN_TOKEN 鉴权
+  if (path === "/api/v1/admin/rejections" && method === "GET") {
+    return handleAdminRejections(request, env, ctx);
   }
 
   // 服务器基线与校准统计

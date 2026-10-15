@@ -516,11 +516,12 @@ public class MainViewModelTests
         Assert.Equal("-", vm.Allies[0].WeightedWinrateText);
 
         // 阶段二在后台拉取，测试环境网络必败，占位符保留为合法终态。
-        // 补拉失败前会先尝试分舰种目录的十几次网络请求，窗口放宽到 30 秒。
+        // 补拉失败前会先尝试分舰种目录的十几次网络请求，窗口放宽到 60 秒：
+        // 有代理的环境下请求从秒拒变慢速超时，30 秒不够。
         await WaitUntilAsync(
             () => !vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
             "阶段二补拉结束",
-            timeoutSeconds: 30);
+            timeoutSeconds: 60);
         Assert.Equal("-", vm.Allies[0].BattlesText);
         Assert.Single(vm.Allies);
         Assert.Single(vm.Enemies);
