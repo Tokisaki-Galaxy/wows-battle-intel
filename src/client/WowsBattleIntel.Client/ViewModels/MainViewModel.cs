@@ -961,11 +961,17 @@ public sealed class MainViewModel : ViewModelBase
                 : $"已入库 {name}{suffix}";
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
-        });
 
-        // 正式回放入库后清掉赛前判重键：下一局的 tempArenaInfo 是新对局，
-        // 要能再次触发。同局重复回放靠 BattleId 天然幂等，无需担忧。
-        Post(() => preBattleKey = null);
+            // 正式回放入库后清掉赛前判重键，下一局的 tempArenaInfo 是新
+            // 对局，要能再次触发。只在与当前键对应同局时清：无关回放入库
+            // （如补扫历史文件）不得放行同局重触发。
+            if (result.Battle is not null
+                && preBattleKey is not null
+                && preBattleKey.StartsWith(result.Battle.BattleId, StringComparison.Ordinal))
+            {
+                preBattleKey = null;
+            }
+        });
     }
 
     private void OnIngestionFailed(string replayPath, string message)
@@ -1002,6 +1008,11 @@ public sealed class MainViewModel : ViewModelBase
         LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType}");
         StatusMessage = $"已捕获对局名单（{DisplayLabels.BattleType(battle.BattleType)}），预测生成中...";
 
+        // 记代次：SelectedBattle 触发的 LoadBattleDetailsAsync 是异步的，
+        // 它末尾会查一次（必然为空的）入库预测。预测推理完成晚于那次查询
+        // 时，这里必须校验用户没有切走，否则会把别人的界面值覆盖。
+        int version = detailsVersion;
+
         // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
         // 渐进补拉链路。Outcome 保持 Unknown，对照徽章自然显示"待对照"。
         SelectedBattleSummary = null;
@@ -1029,6 +1040,13 @@ public sealed class MainViewModel : ViewModelBase
             });
 
             var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
+
+            // 推理期间用户点选了别的对局，本轮预测作废。
+            if (!IsDetailsCurrent(version))
+            {
+                return;
+            }
+
             currentPrediction = prediction;
 
             StatusMessage = $"赛前预测就绪 · {prediction.ModelVersion}";
