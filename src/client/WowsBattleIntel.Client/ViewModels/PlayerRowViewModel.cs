@@ -112,8 +112,11 @@ public sealed class PlayerRowViewModel : ViewModelBase
             ? ((int)player.AccountBattles).ToString("N0")
             : "-";
 
+        // 临时名单的 ShipName 为空，先查船目录，再退回船 ID。
         ShipText = string.IsNullOrEmpty(player.ShipName)
-            ? player.ShipId
+            ? ShipCatalog.TryGetChineseName(player.ShipId, out string? preName) && preName is not null
+                ? preName
+                : player.ShipId
             : player.ShipName;
 
         ShipTypeText = $"{ShipClassLabel(player.ShipClass)} {player.ShipTier}";
