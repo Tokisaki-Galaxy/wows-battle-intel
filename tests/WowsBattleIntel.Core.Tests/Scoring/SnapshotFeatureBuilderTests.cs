@@ -94,6 +94,68 @@ public class SnapshotFeatureBuilderTests
     }
 
     [Fact]
+    public void Enrich_FillsShipStatsWhenShipIdMatches()
+    {
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+
+        var snapshot = MakeSnapshot("1001", 0.58);
+        snapshot.ShipId = "TEST001";
+        snapshot.ShipBattles = 230;
+        snapshot.ShipWinrate = 0.62;
+        snapshot.ShipAvgDamage = 71200;
+        var snapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001"] = snapshot,
+        };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+
+        var player = enriched.Players[0];
+        Assert.Equal(230, player.ShipBattles);
+        Assert.Equal(0.62, player.ShipWinrate, precision: 6);
+        Assert.Equal(71200, player.ShipAvgDamage, precision: 6);
+    }
+
+    [Fact]
+    public void Enrich_KeepsPlayerShipStatsWhenShipIdDiffers()
+    {
+        // 快照的单船数据属于另一艘船，不得覆盖本局船只的原值。
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+        battle.Players[0].ShipBattles = 100;
+        battle.Players[0].ShipWinrate = 0.55;
+        battle.Players[0].ShipAvgDamage = 50000;
+
+        var snapshot = MakeSnapshot("1001", 0.58);
+        snapshot.ShipId = "OTHER";
+        snapshot.ShipBattles = 999;
+        snapshot.ShipWinrate = 0.9;
+        snapshot.ShipAvgDamage = 99999;
+        var snapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001"] = snapshot,
+        };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+
+        var player = enriched.Players[0];
+        Assert.Equal(100, player.ShipBattles);
+        Assert.Equal(0.55, player.ShipWinrate, precision: 6);
+        Assert.Equal(50000, player.ShipAvgDamage, precision: 6);
+    }
+
+    [Fact]
     public void Enrich_PreservesBattlePerformance()
     {
         var battle = new BattleRecord

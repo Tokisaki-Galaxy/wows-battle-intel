@@ -60,10 +60,11 @@ public static class SnapshotFeatureBuilder
     }
 
     /// <summary>
-    /// 把快照的账号层特征并入玩家记录。
+    /// 把快照的账号层与单船层特征并入玩家记录。
     /// </summary>
     /// <remarks>
-    /// 只补账号层字段，单局表现与组队信息保持回放原值。
+    /// 账号层字段无条件并入；单船层只在快照带 ship_id 且与本局船只一致时并入，
+    /// 账号级快照的单船哨兵值不会覆盖玩家已有数据。
     /// 返回新对象，不改动入参。
     /// </remarks>
     private static PlayerRecord Merge(PlayerRecord player, PlayerSnapshot snapshot)
@@ -100,10 +101,10 @@ public static class SnapshotFeatureBuilder
             WeightedWinrate = snapshot.WeightedWinrate,
             ClassStatsJson = snapshot.ClassStatsJson ?? string.Empty,
 
-            // 单船统计，来自快照。
-            ShipBattles = player.ShipBattles,
-            ShipWinrate = player.ShipWinrate,
-            ShipAvgDamage = player.ShipAvgDamage,
+            // 单船统计。快照带匹配的 ship_id 时并入，否则保持玩家原值。
+            ShipBattles = ShipValue(player, snapshot, p => p.ShipBattles),
+            ShipWinrate = ShipValue(player, snapshot, p => p.ShipWinrate),
+            ShipAvgDamage = ShipValue(player, snapshot, p => p.ShipAvgDamage),
             ShipAvgExp = player.ShipAvgExp,
 
             // 分舰种统计，从快照 JSON 按本局舰种解析。
@@ -121,6 +122,31 @@ public static class SnapshotFeatureBuilder
             ExpEarned = player.ExpEarned,
         };
     }
+
+    /// <summary>
+    /// 取单船统计值。快照带 ship_id 且与本局船只一致时用快照值，
+    /// 否则保持玩家原值。字符串比较用 Ordinal：船标识是稳定 ID。
+    /// </summary>
+    private static double ShipValue(
+        PlayerRecord player,
+        PlayerSnapshot snapshot,
+        ShipField pick) =>
+        !string.IsNullOrEmpty(snapshot.ShipId)
+            && string.Equals(snapshot.ShipId, player.ShipId, StringComparison.Ordinal)
+            ? pick(ToShipRecord(snapshot))
+            : pick(player);
+
+    /// <summary>单船字段的选取器。</summary>
+    private delegate double ShipField(PlayerRecord player);
+
+    /// <summary>把快照的单船字段映射成临时记录，复用玩家记录的选取器。</summary>
+    private static PlayerRecord ToShipRecord(PlayerSnapshot snapshot) =>
+        new()
+        {
+            ShipBattles = snapshot.ShipBattles,
+            ShipWinrate = snapshot.ShipWinrate,
+            ShipAvgDamage = snapshot.ShipAvgDamage,
+        };
 
     /// <summary>
     /// 从快照的分舰种 JSON 解析本局舰种的场次与胜场。

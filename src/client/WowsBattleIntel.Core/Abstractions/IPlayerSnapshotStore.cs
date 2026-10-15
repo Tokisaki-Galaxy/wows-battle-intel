@@ -91,6 +91,18 @@ public sealed class PlayerSnapshot
     /// </summary>
     public string? ClassStatsJson { get; set; }
 
+    /// <summary>快照对应本局船只的标识，空表示纯账号级快照。</summary>
+    public string ShipId { get; set; } = string.Empty;
+
+    /// <summary>本局船只的账号场次，-1 表示未知。</summary>
+    public double ShipBattles { get; set; } = -1;
+
+    /// <summary>本局船只的账号胜率，-1 表示未知。</summary>
+    public double ShipWinrate { get; set; } = -1;
+
+    /// <summary>本局船只的账号场均伤害，-1 表示未知。</summary>
+    public double ShipAvgDamage { get; set; } = -1;
+
     /// <summary>数据来源。</summary>
     public string Source { get; set; } = string.Empty;
 
@@ -117,6 +129,10 @@ public sealed class PlayerSnapshot
             AccountBattlesDiv3 = (int)Math.Max(0, player.AccountBattlesDiv3),
             WeightedWinrate = player.WeightedWinrate,
             ClassStatsJson = player.ClassStatsJson,
+            ShipId = player.ShipId,
+            ShipBattles = player.ShipBattles,
+            ShipWinrate = player.ShipWinrate,
+            ShipAvgDamage = player.ShipAvgDamage,
         };
     }
 }

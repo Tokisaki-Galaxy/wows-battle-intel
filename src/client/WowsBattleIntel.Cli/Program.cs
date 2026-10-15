@@ -512,6 +512,9 @@ internal static class Program
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
             SkipShipStats = fast,
+
+            // 分舰种聚合与单船统计同 endpoint，一次请求两者都拿，默认开启。
+            FetchClassStats = true,
         });
 
         var capturedAt = DateTimeOffset.UtcNow;
@@ -583,12 +586,13 @@ internal static class Program
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT DISTINCT account_id, server, player_name
+            SELECT account_id, server, player_name, ship_id
             FROM battle_players
             WHERE is_bot = 0 AND account_id <> '-1' AND account_id <> ''
             ORDER BY account_id;
             """;
 
+        // 同一账号玩多艘船时只保留第一次出现的船，保证补采的可重复性。
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
@@ -607,6 +611,7 @@ internal static class Program
                     ? sv
                     : Core.Models.GameServer.Auto,
                 PlayerName = reader.GetString(2),
+                ShipId = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
             });
         }
 

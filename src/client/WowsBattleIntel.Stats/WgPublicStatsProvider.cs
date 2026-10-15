@@ -391,6 +391,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             {
                 player.ShipBattles = entry.Battles;
                 player.ShipWinrate = entry.Battles > 0 ? entry.Wins / entry.Battles : -1;
+                player.ShipAvgDamage = entry.Battles > 0 ? entry.DamageDealt / entry.Battles : -1;
             }
 
             string? classKey = ResolveClassKey(shipId);

@@ -208,6 +208,9 @@ internal static class WgApiParser
     {
         public double Battles { get; set; }
         public double Wins { get; set; }
+
+        /// <summary>累计伤害，用于计算场均。旧数据无此字段时为 -1。</summary>
+        public double DamageDealt { get; set; } = -1;
     }
 
     /// <summary>
@@ -252,10 +255,12 @@ internal static class WgApiParser
                     continue;
                 }
 
+                double? damage = pvp["damage_dealt"]?.Value<double?>();
                 byShip[shipId] = new ShipStatsEntry
                 {
                     Battles = battles.Value,
                     Wins = wins.Value,
+                    DamageDealt = damage ?? -1,
                 };
             }
 

@@ -83,6 +83,25 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN account_avg_damage REAL;";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        // 单船统计三列。快照默认只存账号层，带 ship_id 时才填这组值。
+        if (!existing.Contains("ship_id"))
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN ship_id TEXT;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!existing.Contains("ship_battles"))
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE player_snapshots ADD COLUMN ship_battles INTEGER;
+                ALTER TABLE player_snapshots ADD COLUMN ship_winrate REAL;
+                ALTER TABLE player_snapshots ADD COLUMN ship_avg_damage REAL;
+                """;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -593,7 +612,8 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         {
             await using var command = connection.CreateCommand();
             command.Transaction = (SqliteTransaction)transaction;
-            // 相同账号同一时间戳只保留一条。
+            // 相同账号同一时间戳只保留一条。带 ship_id 时写入单船统计，
+            // 账号层与单船层共存一张表，读侧按需取用。
             command.CommandText = """
                 INSERT INTO player_snapshots (
                     account_id, server, captured_at,
@@ -601,14 +621,16 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     account_winrate_solo, account_battles_solo,
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
-                    weighted_winrate, pr, source, class_stats
+                    weighted_winrate, pr, source, class_stats,
+                    ship_id, ship_battles, ship_winrate, ship_avg_damage
                 ) VALUES (
                     $accountId, $server, $capturedAt,
                     $battles, $winrate, $avgDamage,
                     $wrSolo, $bSolo,
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
-                    $weighted, NULL, $source, $classStats
+                    $weighted, NULL, $source, $classStats,
+                    $shipId, $shipBattles, $shipWinrate, $shipAvgDamage
                 )
                 ON CONFLICT(account_id, server, captured_at) DO NOTHING;
                 """;
@@ -631,6 +653,11 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             classStats.Value = string.IsNullOrEmpty(s.ClassStatsJson)
                 ? DBNull.Value
                 : s.ClassStatsJson;
+            var shipId = command.Parameters.Add("$shipId", SqliteType.Text);
+            shipId.Value = string.IsNullOrEmpty(s.ShipId) ? DBNull.Value : s.ShipId;
+            command.Parameters.AddWithValue("$shipBattles", s.ShipBattles);
+            command.Parameters.AddWithValue("$shipWinrate", s.ShipWinrate);
+            command.Parameters.AddWithValue("$shipAvgDamage", s.ShipAvgDamage);
 
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -672,6 +699,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     /// <summary>从读取器当前位置构造快照对象。</summary>
     private static PlayerSnapshot ReadSnapshot(SqliteDataReader reader)
     {
+        int shipIdOrdinal = TryGetOrdinal(reader, "ship_id");
         return new PlayerSnapshot
         {
             AccountId = reader.GetString(reader.GetOrdinal("account_id")),
@@ -695,7 +723,35 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             ClassStatsJson = reader.IsDBNull(reader.GetOrdinal("class_stats"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("class_stats")),
+
+            // 单船三列，旧快照与账号级快照均无值，落回 -1 哨兵。
+            ShipId = shipIdOrdinal >= 0 && !reader.IsDBNull(shipIdOrdinal)
+                ? reader.GetString(shipIdOrdinal)
+                : string.Empty,
+            ShipBattles = TryGetDouble(reader, "ship_battles"),
+            ShipWinrate = TryGetDouble(reader, "ship_winrate"),
+            ShipAvgDamage = TryGetDouble(reader, "ship_avg_damage"),
         };
+    }
+
+    /// <summary>按列名取序号，列不存在时返回 -1，兼容旧库结构。</summary>
+    private static int TryGetOrdinal(SqliteDataReader reader, string name)
+    {
+        try
+        {
+            return reader.GetOrdinal(name);
+        }
+        catch (ArgumentException)
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>按列名取可空实数，列不存在或为 NULL 时返回 -1 哨兵。</summary>
+    private static double TryGetDouble(SqliteDataReader reader, string name)
+    {
+        int ordinal = TryGetOrdinal(reader, name);
+        return ordinal < 0 || reader.IsDBNull(ordinal) ? -1 : reader.GetDouble(ordinal);
     }
 
     /// <inheritdoc />

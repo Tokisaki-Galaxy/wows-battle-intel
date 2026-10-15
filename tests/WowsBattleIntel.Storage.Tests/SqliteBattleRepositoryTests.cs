@@ -444,4 +444,57 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         Assert.NotNull(loaded);
         Assert.Equal(61700, loaded.AccountAvgDamage, precision: 6);
     }
+
+    [Fact]
+    public async Task SaveSnapshot_RoundTripsShipStats()
+    {
+        var snapshot = new WowsBattleIntel.Core.Abstractions.PlayerSnapshot
+        {
+            AccountId = "1002",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 800,
+            AccountWinrate = 0.5,
+            ShipId = "SHIP-A",
+            ShipBattles = 230,
+            ShipWinrate = 0.62,
+            ShipAvgDamage = 71200,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        var loaded = await repository.GetLatestSnapshotBeforeAsync(
+            "1002", GameServer.Asia, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.NotNull(loaded);
+        Assert.Equal("SHIP-A", loaded.ShipId);
+        Assert.Equal(230, loaded.ShipBattles);
+        Assert.Equal(0.62, loaded.ShipWinrate, precision: 6);
+        Assert.Equal(71200, loaded.ShipAvgDamage, precision: 6);
+    }
+
+    [Fact]
+    public async Task SaveSnapshot_AccountLevel_KeepsShipSentinels()
+    {
+        // 账号级快照不带 ship_id，读回时单船字段保持 -1 哨兵。
+        var snapshot = new WowsBattleIntel.Core.Abstractions.PlayerSnapshot
+        {
+            AccountId = "1003",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 500,
+            AccountWinrate = 0.5,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        var loaded = await repository.GetLatestSnapshotBeforeAsync(
+            "1003", GameServer.Asia, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.NotNull(loaded);
+        Assert.Equal(string.Empty, loaded.ShipId);
+        Assert.Equal(-1, loaded.ShipBattles);
+        Assert.Equal(-1, loaded.ShipWinrate);
+        Assert.Equal(-1, loaded.ShipAvgDamage);
+    }
 }
