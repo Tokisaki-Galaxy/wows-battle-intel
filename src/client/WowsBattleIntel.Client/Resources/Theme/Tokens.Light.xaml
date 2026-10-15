@@ -60,6 +60,13 @@
   <Color x:Key="ApeColor">#FF8A3FD6</Color>
   <Color x:Key="HiddenColor">#FF8A8F94</Color>
 
+  <!-- 舰种行底色：浅色下透明度减半，避免喧宾夺主 -->
+  <Color x:Key="RowCvColor">#14E04F52</Color>
+  <Color x:Key="RowBbColor">#1400A66A</Color>
+  <Color x:Key="RowCaColor">#142F6FD6</Color>
+  <Color x:Key="RowDdColor">#14D97700</Color>
+  <Color x:Key="RowSsColor">#14018DA0</Color>
+
   <!-- 徽章三件套：浅色下柔底 8%、描边 24% -->
   <Color x:Key="OkSoftColor">#1400A66A</Color>
   <Color x:Key="OkBdColor">#3D00A66A</Color>

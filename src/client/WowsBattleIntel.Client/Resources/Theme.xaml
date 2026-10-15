@@ -56,6 +56,14 @@
   <SolidColorBrush x:Key="PositiveBrush" Color="{StaticResource OkColor}" />
   <SolidColorBrush x:Key="NegativeBrush" Color="{StaticResource DangerColor}" />
 
+  <!-- 舰种行底色画刷与通用透明画刷 -->
+  <SolidColorBrush x:Key="RowCvBrush" Color="{StaticResource RowCvColor}" />
+  <SolidColorBrush x:Key="RowBbBrush" Color="{StaticResource RowBbColor}" />
+  <SolidColorBrush x:Key="RowCaBrush" Color="{StaticResource RowCaColor}" />
+  <SolidColorBrush x:Key="RowDdBrush" Color="{StaticResource RowDdColor}" />
+  <SolidColorBrush x:Key="RowSsBrush" Color="{StaticResource RowSsColor}" />
+  <SolidColorBrush x:Key="TransparentBrush" Color="Transparent" />
+
   <!-- 徽章三件套画刷：实色、柔底、同族描边 -->
   <SolidColorBrush x:Key="OkSoftBrush" Color="{StaticResource OkSoftColor}" />
   <SolidColorBrush x:Key="OkBdBrush" Color="{StaticResource OkBdColor}" />
@@ -118,6 +126,8 @@
 
   <!-- 转换器 -->
   <views:ResourceKeyToBrushConverter x:Key="BrushKeyConverter" />
+  <views:ShipClassToBrushKeyConverter x:Key="ShipClassBrushKeyConverter" />
+  <views:DivisionBadgeBrushConverter x:Key="DivisionBadgeBrushConverter" />
   <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
   <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
   <views:ProbabilityToGridLengthConverter x:Key="ProbabilityToGridLengthConverter" />

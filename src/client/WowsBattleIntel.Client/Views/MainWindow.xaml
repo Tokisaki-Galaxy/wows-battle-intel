@@ -285,35 +285,102 @@
                           Background="{StaticResource AllyBrush}"
                           CornerRadius="16,16,0,0" />
                   <DockPanel Grid.Row="1">
-                    <TextBlock DockPanel.Dock="Top" Text="友方"
-                               Style="{StaticResource HeadingTextStyle}"
-                               Foreground="{StaticResource AllyBrush}"
-                               Margin="{StaticResource SpacingSm}" />
-                    <!-- 队伍汇总：平均胜率与平均伤害，发丝线与表格分隔 -->
-                    <Border DockPanel.Dock="Bottom"
-                            BorderBrush="{StaticResource HairlineBrush}"
-                            BorderThickness="0,1,0,0"
-                            Padding="{StaticResource SpacingSm}">
-                      <TextBlock Text="{Binding AllySummaryText}"
-                                 Style="{StaticResource SecondaryTextStyle}" />
-                    </Border>
+                    <!-- 队名与平均数据同一行，ApeRadar 式头部 -->
+                    <Grid DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Text="友方"
+                                 Style="{StaticResource HeadingTextStyle}"
+                                 Foreground="{StaticResource AllyBrush}" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center">
+                        <TextBlock Text="平均数据: "
+                                   Style="{StaticResource SecondaryTextStyle}" />
+                        <TextBlock Text="{Binding AllySummaryText}"
+                                   Style="{StaticResource SecondaryTextStyle}"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                      </StackPanel>
+                    </Grid>
                     <DataGrid ItemsSource="{Binding Allies}">
+                      <DataGrid.Resources>
+                        <!-- 行背景按舰种着色，viewmodel 只给枚举，键名与色值留在主题层 -->
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                          <Setter Property="Background"
+                                  Value="{Binding DataContext.ShipClass, RelativeSource={RelativeSource Self}, Converter={StaticResource ShipClassBrushKeyConverter}, ConverterParameter=soft}" />
+                        </Style>
+                      </DataGrid.Resources>
                       <DataGrid.Columns>
-                        <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
-                        <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
-                        <DataGridTextColumn Header="战舰" Binding="{Binding ShipText}" Width="Auto" />
-                        <DataGridTextColumn Header="场数" Binding="{Binding BattlesText}" Width="Auto"
-                                            Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto"
-                                            Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="平均伤害" Binding="{Binding AvgDamageText}" Width="Auto"
-                                            Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="战舰场数" Binding="{Binding ShipBattlesText}" Width="Auto" />
-                        <DataGridTextColumn Header="战舰胜率" Binding="{Binding ShipWinrateText}" Width="Auto"
-                                            Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="战舰伤害" Binding="{Binding ShipDamageText}" Width="Auto"
-                                            Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
+                        <DataGridTemplateColumn Header="玩家" Width="*">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                  <TextBlock Text="{Binding PlayerLineText}"
+                                             Style="{StaticResource BodyTextStyle}" />
+                                  <Border VerticalAlignment="Top" Margin="3,1,0,0"
+                                          Width="8" Height="8" CornerRadius="2"
+                                          ToolTip="小队"
+                                          Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding ShipLineText}"
+                                           Style="{StaticResource SecondaryTextStyle}" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="账号" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding BattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding WinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding AvgDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="加权" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding WeightedWinrateText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center" />
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="单船" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding ShipBattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ShipWinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ShipDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                       </DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>
@@ -331,35 +398,102 @@
                           Background="{StaticResource EnemyBrush}"
                           CornerRadius="16,16,0,0" />
                   <DockPanel Grid.Row="1">
-                    <TextBlock DockPanel.Dock="Top" Text="敌方"
-                               Style="{StaticResource HeadingTextStyle}"
-                               Foreground="{StaticResource EnemyBrush}"
-                               Margin="{StaticResource SpacingSm}" />
-                    <!-- 队伍汇总：平均胜率与平均伤害，发丝线与表格分隔 -->
-                    <Border DockPanel.Dock="Bottom"
-                            BorderBrush="{StaticResource HairlineBrush}"
-                            BorderThickness="0,1,0,0"
-                            Padding="{StaticResource SpacingSm}">
-                      <TextBlock Text="{Binding EnemySummaryText}"
-                                 Style="{StaticResource SecondaryTextStyle}" />
-                    </Border>
+                    <!-- 队名与平均数据同一行，ApeRadar 式头部 -->
+                    <Grid DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Text="敌方"
+                                 Style="{StaticResource HeadingTextStyle}"
+                                 Foreground="{StaticResource EnemyBrush}" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center">
+                        <TextBlock Text="平均数据: "
+                                   Style="{StaticResource SecondaryTextStyle}" />
+                        <TextBlock Text="{Binding EnemySummaryText}"
+                                   Style="{StaticResource SecondaryTextStyle}"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                      </StackPanel>
+                    </Grid>
                     <DataGrid ItemsSource="{Binding Enemies}">
+                      <DataGrid.Resources>
+                        <!-- 行背景按舰种着色，与友方同一套样式 -->
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                          <Setter Property="Background"
+                                  Value="{Binding DataContext.ShipClass, RelativeSource={RelativeSource Self}, Converter={StaticResource ShipClassBrushKeyConverter}, ConverterParameter=soft}" />
+                        </Style>
+                      </DataGrid.Resources>
                       <DataGrid.Columns>
-                        <DataGridTextColumn Header="昵称" Binding="{Binding PlayerName}" Width="*" />
-                        <DataGridTextColumn Header="公会" Binding="{Binding ClanTag}" Width="Auto" />
-                        <DataGridTextColumn Header="战舰" Binding="{Binding ShipText}" Width="Auto" />
-                        <DataGridTextColumn Header="场数" Binding="{Binding BattlesText}" Width="Auto"
-                                            Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="胜率" Binding="{Binding WinrateText}" Width="Auto"
-                                            Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="平均伤害" Binding="{Binding AvgDamageText}" Width="Auto"
-                                            Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="战舰场数" Binding="{Binding ShipBattlesText}" Width="Auto" />
-                        <DataGridTextColumn Header="战舰胜率" Binding="{Binding ShipWinrateText}" Width="Auto"
-                                            Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="战舰伤害" Binding="{Binding ShipDamageText}" Width="Auto"
-                                            Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}" />
-                        <DataGridTextColumn Header="组队" Binding="{Binding DivisionMark}" Width="Auto" />
+                        <DataGridTemplateColumn Header="玩家" Width="*">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                  <TextBlock Text="{Binding PlayerLineText}"
+                                             Style="{StaticResource BodyTextStyle}" />
+                                  <Border VerticalAlignment="Top" Margin="3,1,0,0"
+                                          Width="8" Height="8" CornerRadius="2"
+                                          ToolTip="小队"
+                                          Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding ShipLineText}"
+                                           Style="{StaticResource SecondaryTextStyle}" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="账号" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding BattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding WinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding AvgDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="加权" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding WeightedWinrateText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center" />
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="单船" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <StackPanel HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding ShipBattlesText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ShipWinrateText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                                <TextBlock Text="{Binding ShipDamageText}"
+                                           Style="{StaticResource BodyTextStyle}"
+                                           Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                           TextAlignment="Right" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                       </DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>

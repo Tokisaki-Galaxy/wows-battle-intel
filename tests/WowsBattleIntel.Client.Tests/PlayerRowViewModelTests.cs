@@ -211,4 +211,75 @@ public class PlayerRowViewModelTests
         var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, battles));
         Assert.Equal(expected, vm.BattlesBrushKey);
     }
+
+    [Fact]
+    public void PlayerLineText_CombinesClanTagAndName()
+    {
+        var player = MakePlayer("Motivations", 0.5, 100);
+        player.ClanTag = "ABC";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("[ABC] Motivations", vm.PlayerLineText);
+    }
+
+    [Fact]
+    public void PlayerLineText_WithoutClanTag_ShowsNameOnly()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("SoloPlayer", 0.5, 100));
+        Assert.Equal("SoloPlayer", vm.PlayerLineText);
+    }
+
+    [Theory]
+    [InlineData(6, "VI TestShip")]
+    [InlineData(7, "VII TestShip")]
+    [InlineData(10, "X TestShip")]
+    [InlineData(11, "XI TestShip")]
+    public void ShipLineText_UsesRomanTier(int tier, string expected)
+    {
+        var player = MakePlayer("A", 0.5, 100, tier: tier);
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal(expected, vm.ShipLineText);
+        Assert.Equal(tier == 11 ? "XI" : expected.Split(' ')[0], vm.TierRoman);
+    }
+
+    [Fact]
+    public void WeightedWinrateText_Unknown_ShowsDash()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Equal("-", vm.WeightedWinrateText);
+        Assert.Equal("HiddenBrush", vm.WeightedWinrateBrushKey);
+    }
+
+    [Fact]
+    public void WeightedWinrateText_Known_FormatsPercent()
+    {
+        var player = MakePlayer("A", 0.5, 1000);
+        player.WeightedWinrate = 0.4582;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("45.8%", vm.WeightedWinrateText);
+    }
+
+    [Theory]
+    [InlineData(0.62, 1000, "UnicumBrush")]
+    [InlineData(0.45, 1000, "ApeBrush")]
+    [InlineData(0.52, 1000, "TextPrimaryBrush")]
+    public void WeightedWinrateBrushKey_FollowsWinrateThresholds(
+        double winrate, double battles, string expected)
+    {
+        var player = MakePlayer("A", 0.5, battles);
+        player.WeightedWinrate = winrate;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal(expected, vm.WeightedWinrateBrushKey);
+    }
+
+    [Theory]
+    [InlineData(ShipClass.Carrier, 0)]
+    [InlineData(ShipClass.Battleship, 1)]
+    [InlineData(ShipClass.Cruiser, 2)]
+    [InlineData(ShipClass.Destroyer, 3)]
+    [InlineData(ShipClass.Submarine, 4)]
+    [InlineData(ShipClass.Unknown, 5)]
+    public void ShipClassSortKey_OrdersCarrierFirst(ShipClass shipClass, int expected)
+    {
+        Assert.Equal(expected, PlayerRowViewModel.ShipClassSortKey(shipClass));
+    }
 }

@@ -1,5 +1,6 @@
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Client.ViewModels;
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 
 namespace WowsBattleIntel.Client.Tests;
@@ -298,5 +299,115 @@ public class MainViewModelTests
 
         Assert.Equal("势均力敌", vm.TierText);
         Assert.Equal("50.0%", vm.PredictedWinrateText);
+    }
+
+    [Fact]
+    public async Task SelectBattle_SortsRosterByShipClassThenAccountId()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 四种舰种乱序入库，账号标识故意与舰种顺序错开。
+        var battle = new BattleRecord
+        {
+            BattleId = "battle-sort",
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            GameVersion = "15.6.0",
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "900", PlayerName = "DdPlayer", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Destroyer, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "100", PlayerName = "CvPlayer", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Carrier, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "500", PlayerName = "BbPlayerB", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "300", PlayerName = "BbPlayerA", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "700", PlayerName = "CaPlayer", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Cruiser, ShipTier = 10,
+                },
+            ],
+        };
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count == 5, "友方名单加载");
+
+        // 舰种次序航母、战列、巡洋、驱逐，同舰种内按账号标识。
+        Assert.Equal(
+            ["CvPlayer", "BbPlayerA", "BbPlayerB", "CaPlayer", "DdPlayer"],
+            vm.Allies.Select(p => p.PlayerName).ToArray());
+    }
+
+    [Fact]
+    public async Task SelectBattle_TeamSummaryShowsAccountWeightedAndBattles()
+    {
+        using var holder = await TestServices.CreateAsync();
+        var battle = MakeBattle("battle-summary", BattleOutcome.Win, DateTimeOffset.UtcNow.AddMinutes(-1));
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        // 种一份赛前快照，友方玩家的账号层数据经合并后进汇总。
+        await holder.Services.Repository.SaveSnapshotAsync(new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = battle.StartedAt.AddMinutes(-5),
+            AccountBattles = 1000,
+            AccountWinrate = 0.56,
+            WeightedWinrate = 0.5,
+        });
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
+
+        // 友方有快照：账号胜率、加权胜率与场次进汇总；敌方无快照显示占位符。
+        Assert.Equal("账号: 56.00%  加权: 50.00%  场次: 1000.0", vm.AllySummaryText);
+        Assert.Equal("-", vm.EnemySummaryText);
+    }
+
+    [Fact]
+    public void BuildTeamSummary_CoversAccountWeightedAndBattles()
+    {
+        // 汇总口径直接验证：账号胜率、加权胜率、平均场次三项各取有样本的玩家。
+        var players = new List<PlayerRecord>
+        {
+            new()
+            {
+                AccountId = "1",
+                AccountWinrate = 0.56,
+                WeightedWinrate = 0.50,
+                AccountBattles = 1000,
+            },
+            new()
+            {
+                AccountId = "2",
+                AccountWinrate = 0.48,
+                AccountBattles = 2000,
+                // 无加权胜率数据，加权项只统计第一个玩家。
+            },
+        };
+
+        Assert.Equal("账号: 52.00%  加权: 50.00%  场次: 1500.0", MainViewModel.BuildTeamSummary(players));
+        Assert.Equal("-", MainViewModel.BuildTeamSummary([new PlayerRecord { AccountId = "3" }]));
     }
 }

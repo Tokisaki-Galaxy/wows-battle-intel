@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Models;
+using WowsBattleIntel.Core.Scoring;
 
 namespace WowsBattleIntel.Client.ViewModels;
 
@@ -386,14 +387,27 @@ public sealed class MainViewModel : ViewModelBase
             var full = await services.Repository.GetBattleAsync(battle.BattleId).ConfigureAwait(true)
                 ?? battle;
 
+            // battle_players 表不保存战绩字段，账号层统计走赛前快照合并。
+            // 取对局开始时间之前的最新快照，维持赛前可得原则。
+            full = SnapshotFeatureBuilder.Enrich(full, (accountId, server) =>
+                services.Repository
+                    .GetLatestSnapshotBeforeAsync(accountId, server, full.StartedAt)
+                    .GetAwaiter()
+                    .GetResult());
+
             actualOutcome = full.Outcome;
 
-            foreach (var p in full.Allies.OrderByDescending(p => p.AccountWinrate))
+            // 名单按舰种分组排序：航母、战列、巡洋、驱逐、潜艇，同舰种内按账号标识稳定次序。
+            foreach (var p in full.Allies
+                .OrderBy(p => PlayerRowViewModel.ShipClassSortKey(p.ShipClass))
+                .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 Allies.Add(PlayerRowViewModel.FromPlayer(p));
             }
 
-            foreach (var p in full.Enemies.OrderByDescending(p => p.AccountWinrate))
+            foreach (var p in full.Enemies
+                .OrderBy(p => PlayerRowViewModel.ShipClassSortKey(p.ShipClass))
+                .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 Enemies.Add(PlayerRowViewModel.FromPlayer(p));
             }
@@ -422,26 +436,33 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 计算队伍汇总文本，只统计有战绩的玩家。两项都无有效样本时显示 "-"。
+    /// 计算队伍汇总文本，ApeRadar 口径：平均数据一行给出账号胜率、加权胜率与平均场次。
+    /// 只统计有对应数据的玩家，三项都无有效样本时显示 "-"。
+    /// 内部静态以便测试直接验证口径。
     /// </summary>
-    private static string BuildTeamSummary(IEnumerable<PlayerRecord> players)
+    internal static string BuildTeamSummary(IEnumerable<PlayerRecord> players)
     {
-        var withWinrate = players.Where(p => p.AccountWinrate >= 0).ToList();
-        var withDamage = players.Where(p => p.AccountAvgDamage >= 0).ToList();
+        var list = players.ToList();
+        var withWinrate = list.Where(p => p.AccountWinrate >= 0).ToList();
+        var withWeighted = list.Where(p => p.WeightedWinrate >= 0).ToList();
+        var withBattles = list.Where(p => p.AccountBattles >= 0).ToList();
 
-        if (withWinrate.Count == 0 && withDamage.Count == 0)
+        if (withWinrate.Count == 0 && withWeighted.Count == 0 && withBattles.Count == 0)
         {
             return "-";
         }
 
         string winratePart = withWinrate.Count == 0
             ? "-"
-            : withWinrate.Average(p => p.AccountWinrate).ToString("P1");
-        string damagePart = withDamage.Count == 0
+            : withWinrate.Average(p => p.AccountWinrate).ToString("P2");
+        string weightedPart = withWeighted.Count == 0
             ? "-"
-            : ((int)withDamage.Average(p => p.AccountAvgDamage)).ToString("N0");
+            : withWeighted.Average(p => p.WeightedWinrate).ToString("P2");
+        string battlesPart = withBattles.Count == 0
+            ? "-"
+            : withBattles.Average(p => p.AccountBattles).ToString("F1");
 
-        return $"胜率: {winratePart}  伤害: {damagePart}";
+        return $"账号: {winratePart}  加权: {weightedPart}  场次: {battlesPart}";
     }
 
     private void ToggleObservation()
