@@ -30,5 +30,32 @@
       "binding": "MODELS",
       "bucket_name": "wows-battle-intel-models"
     }
-  ]
+  ],
+  // Previews 不继承顶层生产设置，绑定与 vars 必须在 previews 块内重新声明。
+  // 当前 Preview 与生产共享同一批资源；需要隔离时改为独立的预览资源 ID。
+  "previews": {
+    "vars": {
+      "ENVIRONMENT": "preview"
+    },
+    "kv_namespaces": [
+      {
+        "binding": "STATS_CACHE",
+        "id": "280cc520506c4772a3f2e0b1b7bacbad"
+      }
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "wows-battle-intel",
+        "database_id": "a9d14c05-93b1-4065-9b2a-03dc666baad4",
+        "migrations_dir": "migrations"
+      }
+    ],
+    "r2_buckets": [
+      {
+        "binding": "MODELS",
+        "bucket_name": "wows-battle-intel-models"
+      }
+    ]
+  }
 }
