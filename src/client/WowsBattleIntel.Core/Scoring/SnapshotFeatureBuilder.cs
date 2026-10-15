@@ -149,7 +149,18 @@ public static class SnapshotFeatureBuilder
         try
         {
             var data = JObject.Parse(json);
-            if (data[player.ShipClass.ToStorageString()] is not JObject entry)
+            // 聚合端写入用稳定键（BB/CA/DD/CV/SS），解析端必须用同一套键。
+            // ShipClass.ToStorageString 返回枚举名（Cruiser），与聚合键不一致。
+            string key = player.ShipClass switch
+            {
+                ShipClass.Destroyer => "DD",
+                ShipClass.Cruiser => "CA",
+                ShipClass.Battleship => "BB",
+                ShipClass.Carrier => "CV",
+                ShipClass.Submarine => "SS",
+                _ => string.Empty,
+            };
+            if (key.Length == 0 || data[key] is not JObject entry)
             {
                 return (-1, -1);
             }

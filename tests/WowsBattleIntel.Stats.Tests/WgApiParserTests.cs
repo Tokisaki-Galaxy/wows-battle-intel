@@ -270,11 +270,11 @@ public class WgApiParserTests
     }
 
     [Fact]
-    public void ParseEncyclopediaPageTotal_ReadsMeta()
+    public void ParseShipsPageTotal_ReadsMeta()
     {
         const string json = """{ "status": "ok", "meta": { "page_total": 6 } }""";
 
-        Assert.Equal(6, WgApiParser.ParseEncyclopediaPageTotal(json));
+        Assert.Equal(6, WgApiParser.ParseShipsPageTotal(json));
     }
 
     [Fact]

@@ -274,9 +274,9 @@ internal static class WgApiParser
     }
 
     /// <summary>
-    /// 解析 encyclopedia/info 响应，取舰船目录总页数。
+    /// 解析 encyclopedia/ships 响应 meta 节点，取目录总页数。
     /// </summary>
-    public static int ParseEncyclopediaPageTotal(string json)
+    public static int ParseShipsPageTotal(string json)
     {
         var root = JObject.Parse(json);
         return root["meta"]?["page_total"]?.Value<int?>() ?? 1;

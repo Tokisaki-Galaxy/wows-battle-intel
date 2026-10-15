@@ -249,7 +249,9 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         string host,
         CancellationToken cancellationToken)
     {
-        const string fields = "pvp.wins%2Cpvp.battles%2Cpvp.damage_dealt%2Cpvp.original_exp";
+        // original_exp 是账号 statistics 端点的字段，ships/stats 不认，
+        // 带上会让整个请求报 INVALID_FIELDS。
+        const string fields = "pvp.wins%2Cpvp.battles%2Cpvp.damage_dealt";
 
         foreach (var player in group)
         {
@@ -301,14 +303,12 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
 
         try
         {
-            string infoUrl = $"https://{host}/wows/encyclopedia/info/"
-                + $"?application_id={options.ApplicationId}&fields=page_total";
-            string infoJson = await GetStringAsync(infoUrl, cancellationToken).ConfigureAwait(false);
-            int pageTotal = WgApiParser.ParseEncyclopediaPageTotal(infoJson);
-
+            // 页数从 encyclopedia/ships 端点自己的 meta.page_total 取，
+            // encyclopedia/info 没有页数字段，旧实现先请求 info 的路径
+            // 字段写错被 API 拒绝，catch 吞掉后目录永远为空。
             var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
             var tierLookup = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int page = 1; page <= pageTotal; page++)
+            for (int page = 1; ; page++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string url = $"https://{host}/wows/encyclopedia/ships/"
@@ -316,10 +316,13 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
                 WgApiParser.ParseShipClasses(json, lookup, tierLookup);
 
-                if (page < pageTotal)
+                int pageTotal = WgApiParser.ParseShipsPageTotal(json);
+                if (page >= pageTotal)
                 {
-                    await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+                    break;
                 }
+
+                await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
             }
 
             if (lookup.Count > 0)
@@ -347,7 +350,9 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         string host,
         CancellationToken cancellationToken)
     {
-        const string fields = "ship_id%2Cpvp.wins%2Cpvp.battles%2Cpvp.damage_dealt%2Cpvp.original_exp";
+        // original_exp 是账号 statistics 端点的字段，ships/stats 不认，
+        // 带上会让整个请求报 INVALID_FIELDS。
+        const string fields = "ship_id%2Cpvp.wins%2Cpvp.battles%2Cpvp.damage_dealt";
 
         foreach (var player in group)
         {

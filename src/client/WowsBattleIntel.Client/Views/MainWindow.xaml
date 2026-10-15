@@ -317,7 +317,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="*">
+                        <DataGridTemplateColumn Header="玩家" Width="2*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
@@ -331,7 +331,8 @@
                                           Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
                                 <TextBlock Text="{Binding ShipLineText}"
-                                           Style="{StaticResource SecondaryTextStyle}" />
+                                           Style="{StaticResource SecondaryTextStyle}"
+                                           TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
@@ -447,7 +448,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="*">
+                        <DataGridTemplateColumn Header="玩家" Width="2*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
@@ -461,7 +462,8 @@
                                           Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
                                 <TextBlock Text="{Binding ShipLineText}"
-                                           Style="{StaticResource SecondaryTextStyle}" />
+                                           Style="{StaticResource SecondaryTextStyle}"
+                                           TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
