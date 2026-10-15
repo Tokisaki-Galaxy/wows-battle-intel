@@ -10,6 +10,15 @@ namespace WowsBattleIntel.Client.ViewModels;
 /// </remarks>
 public sealed class PlayerRowViewModel : ViewModelBase
 {
+    // 场均伤害粗分档位。PotatoAlert 按舰种与服务器分位值精化着色，本应用先用
+    // 固定阈值粗分，后续可接服务器分位值再细化。
+    private const double DamageDangerThreshold = 30000;
+    private const double DamageOkThreshold = 60000;
+    private const double DamageUnicumThreshold = 90000;
+
+    // 账号场次低于此值判定样本不稳，标提醒色。
+    private const double LowBattlesThreshold = 1000;
+
     private PlayerRecord? source;
 
     /// <summary>
@@ -146,6 +155,101 @@ public sealed class PlayerRowViewModel : ViewModelBase
     public string KillsText => source is null || source.Kills == 0
         ? "-"
         : source.Kills.ToString();
+
+    /// <summary>账号场均伤害显示，未知显示 "-"。</summary>
+    public string AvgDamageText => source is null || source.AccountAvgDamage < 0
+        ? "-"
+        : ((int)source.AccountAvgDamage).ToString("N0");
+
+    /// <summary>
+    /// 账号场均伤害的颜色资源键。按固定阈值粗分档位，低伤害标危险色，
+    /// 中段保持主文本色，高伤害给良与优的强调色。
+    /// </summary>
+    public string AvgDamageBrushKey => DamageBrushKey(source?.AccountAvgDamage ?? -1);
+
+    /// <summary>本局船的场次显示，未知显示 "-"。</summary>
+    public string ShipBattlesText => source is null || source.ShipBattles < 0
+        ? "-"
+        : ((int)source.ShipBattles).ToString("N0");
+
+    /// <summary>本局船的胜率显示，未知显示 "-"。</summary>
+    public string ShipWinrateText => source is null || source.ShipWinrate < 0
+        ? "-"
+        : source.ShipWinrate.ToString("P1");
+
+    /// <summary>
+    /// 本局船胜率的颜色资源键。与账号胜率同一套口径：海王金、猴子紫、
+    /// 中间保持主文本色。场次不足的海王判定沿用到单船。
+    /// </summary>
+    public string ShipWinrateBrushKey
+    {
+        get
+        {
+            if (source is null || source.ShipWinrate < 0)
+            {
+                return "HiddenBrush";
+            }
+
+            double wr = source.ShipWinrate;
+            if (wr > 0.58 && source.ShipBattles >= 500)
+            {
+                return "UnicumBrush";
+            }
+
+            return wr <= 0.47 ? "ApeBrush" : "TextPrimaryBrush";
+        }
+    }
+
+    /// <summary>本局船的场均伤害显示，未知显示 "-"。</summary>
+    public string ShipDamageText => source is null || source.ShipAvgDamage < 0
+        ? "-"
+        : ((int)source.ShipAvgDamage).ToString("N0");
+
+    /// <summary>
+    /// 本局船场均伤害的颜色资源键。与账号场均伤害同一套粗分阈值。
+    /// </summary>
+    public string ShipDamageBrushKey => DamageBrushKey(source?.ShipAvgDamage ?? -1);
+
+    /// <summary>
+    /// 账号场次的颜色资源键。场次过少时样本不稳，标提醒色，其余保持主文本色。
+    /// </summary>
+    public string BattlesBrushKey
+    {
+        get
+        {
+            if (source is null || source.AccountBattles < 0)
+            {
+                return "TextSecondaryBrush";
+            }
+
+            return source.AccountBattles < LowBattlesThreshold
+                ? "WarnBrush"
+                : "TextPrimaryBrush";
+        }
+    }
+
+    /// <summary>
+    /// 场均伤害粗分着色。未知保持主文本色，其余按固定阈值分四档。
+    /// </summary>
+    private static string DamageBrushKey(double avgDamage)
+    {
+        if (avgDamage < 0)
+        {
+            return "TextSecondaryBrush";
+        }
+
+        if (avgDamage < DamageDangerThreshold)
+        {
+            return "DangerBrush";
+        }
+
+        if (avgDamage < DamageOkThreshold)
+        {
+            return "TextPrimaryBrush";
+        }
+
+        return avgDamage < DamageUnicumThreshold ? "OkBrush" : "UnicumBrush";
+    }
 
     private static string ShipClassLabel(ShipClass shipClass) => shipClass switch
     {

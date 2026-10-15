@@ -174,6 +174,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             var batch = accountIds.Skip(offset).Take(batchSize).ToList();
             string idList = string.Join("%2C", batch);
             const string fields = "hidden_profile%2Cstatistics.pvp.wins%2Cstatistics.pvp.battles"
+                + "%2Cstatistics.pvp.damage_dealt"
                 + "%2Cstatistics.pvp_solo.wins%2Cstatistics.pvp_solo.battles"
                 + "%2Cstatistics.pvp_div2.wins%2Cstatistics.pvp_div2.battles"
                 + "%2Cstatistics.pvp_div3.wins%2Cstatistics.pvp_div3.battles";
@@ -225,6 +226,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
 
             player.AccountBattles = stats.Battles;
             player.AccountWinrate = stats.Winrate;
+            player.AccountAvgDamage = stats.AvgDamage;
             player.AccountBattlesSolo = stats.BattlesSolo;
             player.AccountWinrateSolo = stats.WinrateSolo;
             player.AccountBattlesDiv2 = stats.BattlesDiv2;

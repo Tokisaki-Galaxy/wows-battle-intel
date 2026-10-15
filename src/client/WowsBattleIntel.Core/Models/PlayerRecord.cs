@@ -54,6 +54,9 @@ public sealed class PlayerRecord
     /// <summary>账号总胜率，0 到 1。</summary>
     public double AccountWinrate { get; set; } = -1;
 
+    /// <summary>账号场均伤害，由总伤害除以总场次得出。</summary>
+    public double AccountAvgDamage { get; set; } = -1;
+
     /// <summary>单人场次。</summary>
     public double AccountBattlesSolo { get; set; } = -1;
 

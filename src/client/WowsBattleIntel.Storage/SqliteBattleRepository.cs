@@ -76,6 +76,13 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN class_stats TEXT;";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        if (!existing.Contains("account_avg_damage"))
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE player_snapshots ADD COLUMN account_avg_damage REAL;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -525,14 +532,14 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.CommandText = """
                 INSERT INTO player_snapshots (
                     account_id, server, captured_at,
-                    account_battles, account_winrate,
+                    account_battles, account_winrate, account_avg_damage,
                     account_winrate_solo, account_battles_solo,
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
                     weighted_winrate, pr, source, class_stats
                 ) VALUES (
                     $accountId, $server, $capturedAt,
-                    $battles, $winrate,
+                    $battles, $winrate, $avgDamage,
                     $wrSolo, $bSolo,
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
@@ -546,6 +553,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$capturedAt", s.CapturedAt.ToUnixTimeMilliseconds());
             command.Parameters.AddWithValue("$battles", s.AccountBattles);
             command.Parameters.AddWithValue("$winrate", s.AccountWinrate);
+            command.Parameters.AddWithValue("$avgDamage", s.AccountAvgDamage);
             command.Parameters.AddWithValue("$wrSolo", s.AccountWinrateSolo);
             command.Parameters.AddWithValue("$bSolo", s.AccountBattlesSolo);
             command.Parameters.AddWithValue("$wrDiv2", s.AccountWinrateDiv2);
@@ -602,6 +610,10 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 reader.GetInt64(reader.GetOrdinal("captured_at"))),
             AccountBattles = reader.GetInt32(reader.GetOrdinal("account_battles")),
             AccountWinrate = reader.GetDouble(reader.GetOrdinal("account_winrate")),
+            // 旧快照无此列，迁移加列后为 NULL，落回 -1 哨兵。
+            AccountAvgDamage = reader.IsDBNull(reader.GetOrdinal("account_avg_damage"))
+                ? -1
+                : reader.GetDouble(reader.GetOrdinal("account_avg_damage")),
             AccountWinrateSolo = reader.GetDouble(reader.GetOrdinal("account_winrate_solo")),
             AccountBattlesSolo = reader.GetInt32(reader.GetOrdinal("account_battles_solo")),
             AccountWinrateDiv2 = reader.GetDouble(reader.GetOrdinal("account_winrate_div2")),

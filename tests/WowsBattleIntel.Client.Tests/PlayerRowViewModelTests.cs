@@ -113,4 +113,102 @@ public class PlayerRowViewModelTests
         var vm = PlayerRowViewModel.FromPlayer(player);
         Assert.Equal("81,230", vm.DamageText);
     }
+
+    [Fact]
+    public void AvgDamageText_Unknown_ShowsDash()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Equal("-", vm.AvgDamageText);
+    }
+
+    [Fact]
+    public void AvgDamageText_Known_FormatsNumber()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountAvgDamage = 61700;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("61,700", vm.AvgDamageText);
+    }
+
+    [Theory]
+    [InlineData(20000, "DangerBrush")]
+    [InlineData(30000, "TextPrimaryBrush")]
+    [InlineData(45000, "TextPrimaryBrush")]
+    [InlineData(60000, "OkBrush")]
+    [InlineData(80000, "OkBrush")]
+    [InlineData(90000, "UnicumBrush")]
+    [InlineData(120000, "UnicumBrush")]
+    public void AvgDamageBrushKey_FollowsThresholds(double damage, string expected)
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountAvgDamage = damage;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal(expected, vm.AvgDamageBrushKey);
+    }
+
+    [Fact]
+    public void AvgDamageBrushKey_Unknown_ShowsSecondary()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Equal("TextSecondaryBrush", vm.AvgDamageBrushKey);
+    }
+
+    [Fact]
+    public void ShipStats_Unknown_ShowsDashes()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Equal("-", vm.ShipBattlesText);
+        Assert.Equal("-", vm.ShipWinrateText);
+        Assert.Equal("-", vm.ShipDamageText);
+        Assert.Equal("HiddenBrush", vm.ShipWinrateBrushKey);
+    }
+
+    [Fact]
+    public void ShipStats_Known_FormatsValues()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ShipBattles = 230;
+        player.ShipWinrate = 0.623;
+        player.ShipAvgDamage = 71200;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal("230", vm.ShipBattlesText);
+        Assert.Equal("62.3%", vm.ShipWinrateText);
+        Assert.Equal("71,200", vm.ShipDamageText);
+    }
+
+    [Theory]
+    [InlineData(0.62, 600, "UnicumBrush")]
+    [InlineData(0.62, 100, "TextPrimaryBrush")]
+    [InlineData(0.45, 600, "ApeBrush")]
+    [InlineData(0.52, 600, "TextPrimaryBrush")]
+    public void ShipWinrateBrushKey_FollowsWinrateThresholds(
+        double winrate, double battles, string expected)
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ShipWinrate = winrate;
+        player.ShipBattles = battles;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal(expected, vm.ShipWinrateBrushKey);
+    }
+
+    [Fact]
+    public void ShipDamageBrushKey_MatchesAccountThresholds()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ShipAvgDamage = 95000;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("UnicumBrush", vm.ShipDamageBrushKey);
+    }
+
+    [Theory]
+    [InlineData(300, "WarnBrush")]
+    [InlineData(999, "WarnBrush")]
+    [InlineData(1000, "TextPrimaryBrush")]
+    [InlineData(8000, "TextPrimaryBrush")]
+    public void BattlesBrushKey_LowBattlesMarkedWarn(double battles, string expected)
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, battles));
+        Assert.Equal(expected, vm.BattlesBrushKey);
+    }
 }

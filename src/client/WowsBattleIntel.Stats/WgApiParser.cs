@@ -46,6 +46,7 @@ internal static class WgApiParser
     {
         public double Battles { get; set; } = -1;
         public double Winrate { get; set; } = -1;
+        public double AvgDamage { get; set; } = -1;
         public double BattlesSolo { get; set; } = -1;
         public double WinrateSolo { get; set; } = -1;
         public double BattlesDiv2 { get; set; } = -1;
@@ -88,28 +89,30 @@ internal static class WgApiParser
 
             var statistics = entry["statistics"]!;
 
-            ReadPvp(statistics, "pvp", out double battles, out double winrate, out bool hasPvp);
+            ReadPvp(statistics, "pvp", out double battles, out double winrate,
+                out double avgDamage, out bool hasPvp);
             if (hasPvp)
             {
                 stats.Battles = battles;
                 stats.Winrate = winrate;
+                stats.AvgDamage = avgDamage;
             }
 
-            ReadPvp(statistics, "pvp_solo", out double bSolo, out double wSolo, out bool hasSolo);
+            ReadPvp(statistics, "pvp_solo", out double bSolo, out double wSolo, out _, out bool hasSolo);
             if (hasSolo)
             {
                 stats.BattlesSolo = bSolo;
                 stats.WinrateSolo = wSolo;
             }
 
-            ReadPvp(statistics, "pvp_div2", out double bDiv2, out double wDiv2, out bool hasDiv2);
+            ReadPvp(statistics, "pvp_div2", out double bDiv2, out double wDiv2, out _, out bool hasDiv2);
             if (hasDiv2)
             {
                 stats.BattlesDiv2 = bDiv2;
                 stats.WinrateDiv2 = wDiv2;
             }
 
-            ReadPvp(statistics, "pvp_div3", out double bDiv3, out double wDiv3, out bool hasDiv3);
+            ReadPvp(statistics, "pvp_div3", out double bDiv3, out double wDiv3, out _, out bool hasDiv3);
             if (hasDiv3)
             {
                 stats.BattlesDiv3 = bDiv3;
@@ -123,17 +126,19 @@ internal static class WgApiParser
     }
 
     /// <summary>
-    /// 从 statistics 节点读取某个模式分组的场次与胜率。
+    /// 从 statistics 节点读取某个模式分组的场次、胜率与场均伤害。
     /// </summary>
     private static void ReadPvp(
         JToken statistics,
         string key,
         out double battles,
         out double winrate,
+        out double avgDamage,
         out bool hasData)
     {
         battles = -1;
         winrate = -1;
+        avgDamage = -1;
         hasData = false;
 
         if (statistics[key] is not JObject block || !block.HasValues)
@@ -150,6 +155,14 @@ internal static class WgApiParser
 
         battles = b.Value;
         winrate = b.Value == 0 ? 0 : w.Value / b.Value;
+
+        // 伤害为可选字段，缺省时保持 -1 哨兵。
+        double? damage = block["damage_dealt"]?.Value<double?>();
+        if (damage.HasValue)
+        {
+            avgDamage = b.Value == 0 ? 0 : damage.Value / b.Value;
+        }
+
         hasData = true;
     }
 

@@ -421,4 +421,27 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
 
         Assert.Null(await repository.FindEquivalentBattleAsync(second));
     }
+
+    [Fact]
+    public async Task SaveSnapshot_RoundTripsAccountAvgDamage()
+    {
+        var snapshot = new WowsBattleIntel.Core.Abstractions.PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 1000,
+            AccountWinrate = 0.52,
+            AccountAvgDamage = 61700,
+            WeightedWinrate = 0.52,
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        var loaded = await repository.GetLatestSnapshotBeforeAsync(
+            "1001", GameServer.Asia, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.NotNull(loaded);
+        Assert.Equal(61700, loaded.AccountAvgDamage, precision: 6);
+    }
 }

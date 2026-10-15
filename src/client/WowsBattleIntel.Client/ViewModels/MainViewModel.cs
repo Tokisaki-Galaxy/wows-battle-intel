@@ -24,6 +24,8 @@ public sealed class MainViewModel : ViewModelBase
     private PredictionResult? currentPrediction;
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
     private string statusMessage = "就绪";
+    private string allySummaryText = "-";
+    private string enemySummaryText = "-";
     private bool isBusy;
     private bool isObserving;
 
@@ -217,6 +219,20 @@ public sealed class MainViewModel : ViewModelBase
         private set => SetField(ref statusMessage, value);
     }
 
+    /// <summary>友方队伍汇总，平均胜率与平均伤害，参照 PotatoAlert 底部汇总条。</summary>
+    public string AllySummaryText
+    {
+        get => allySummaryText;
+        private set => SetField(ref allySummaryText, value);
+    }
+
+    /// <summary>敌方队伍汇总，平均胜率与平均伤害。</summary>
+    public string EnemySummaryText
+    {
+        get => enemySummaryText;
+        private set => SetField(ref enemySummaryText, value);
+    }
+
     /// <summary>是否正在处理。</summary>
     public bool IsBusy
     {
@@ -354,6 +370,8 @@ public sealed class MainViewModel : ViewModelBase
         Enemies.Clear();
         currentPrediction = null;
         actualOutcome = BattleOutcome.Unknown;
+        AllySummaryText = "-";
+        EnemySummaryText = "-";
 
         if (battle is null)
         {
@@ -380,6 +398,9 @@ public sealed class MainViewModel : ViewModelBase
                 Enemies.Add(PlayerRowViewModel.FromPlayer(p));
             }
 
+            AllySummaryText = BuildTeamSummary(full.Allies);
+            EnemySummaryText = BuildTeamSummary(full.Enemies);
+
             // 预测取自已入库记录。入库时算过，这里不重算，保证展示的是当时那一版。
             currentPrediction = await services.Repository
                 .GetPredictionAsync(full.BattleId)
@@ -398,6 +419,29 @@ public sealed class MainViewModel : ViewModelBase
             IsBusy = false;
             NotifyDetailsChanged();
         }
+    }
+
+    /// <summary>
+    /// 计算队伍汇总文本，只统计有战绩的玩家。两项都无有效样本时显示 "-"。
+    /// </summary>
+    private static string BuildTeamSummary(IEnumerable<PlayerRecord> players)
+    {
+        var withWinrate = players.Where(p => p.AccountWinrate >= 0).ToList();
+        var withDamage = players.Where(p => p.AccountAvgDamage >= 0).ToList();
+
+        if (withWinrate.Count == 0 && withDamage.Count == 0)
+        {
+            return "-";
+        }
+
+        string winratePart = withWinrate.Count == 0
+            ? "-"
+            : withWinrate.Average(p => p.AccountWinrate).ToString("P1");
+        string damagePart = withDamage.Count == 0
+            ? "-"
+            : ((int)withDamage.Average(p => p.AccountAvgDamage)).ToString("N0");
+
+        return $"胜率: {winratePart}  伤害: {damagePart}";
     }
 
     private void ToggleObservation()

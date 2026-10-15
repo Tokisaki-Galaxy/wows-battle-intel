@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
     captured_at         INTEGER NOT NULL,
     account_battles     INTEGER,
     account_winrate     REAL,
+    account_avg_damage  REAL,
     account_winrate_solo REAL,
     account_battles_solo INTEGER,
     account_winrate_div2 REAL,

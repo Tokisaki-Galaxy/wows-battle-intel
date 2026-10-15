@@ -61,6 +61,9 @@ public sealed class PlayerSnapshot
     /// <summary>账号总胜率。</summary>
     public double AccountWinrate { get; set; } = -1;
 
+    /// <summary>账号场均伤害，-1 表示未知，旧快照无此字段。</summary>
+    public double AccountAvgDamage { get; set; } = -1;
+
     /// <summary>单人胜率。</summary>
     public double AccountWinrateSolo { get; set; } = -1;
 
@@ -105,6 +108,7 @@ public sealed class PlayerSnapshot
             CapturedAt = capturedAt,
             AccountBattles = (int)Math.Max(0, player.AccountBattles),
             AccountWinrate = player.AccountWinrate,
+            AccountAvgDamage = player.AccountAvgDamage,
             AccountWinrateSolo = player.AccountWinrateSolo,
             AccountBattlesSolo = (int)Math.Max(0, player.AccountBattlesSolo),
             AccountWinrateDiv2 = player.AccountWinrateDiv2,

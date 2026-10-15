@@ -90,6 +90,7 @@ public static class SnapshotFeatureBuilder
             // 账号层特征，来自快照。
             AccountBattles = snapshot.AccountBattles,
             AccountWinrate = snapshot.AccountWinrate,
+            AccountAvgDamage = snapshot.AccountAvgDamage,
             AccountWinrateSolo = snapshot.AccountWinrateSolo,
             AccountBattlesSolo = snapshot.AccountBattlesSolo,
             AccountWinrateDiv2 = snapshot.AccountWinrateDiv2,

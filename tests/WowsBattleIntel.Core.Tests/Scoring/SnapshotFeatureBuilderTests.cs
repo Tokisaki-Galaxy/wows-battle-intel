@@ -71,6 +71,29 @@ public class SnapshotFeatureBuilderTests
     }
 
     [Fact]
+    public void Enrich_FillsAccountAvgDamageFromSnapshot()
+    {
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+
+        var snapshot = MakeSnapshot("1001", 0.58);
+        snapshot.AccountAvgDamage = 61700;
+        var snapshots = new Dictionary<string, PlayerSnapshot>
+        {
+            ["Asia:1001"] = snapshot,
+        };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server) => snapshots.GetValueOrDefault($"{server}:{id}"));
+
+        Assert.Equal(61700, enriched.Players[0].AccountAvgDamage, precision: 6);
+    }
+
+    [Fact]
     public void Enrich_PreservesBattlePerformance()
     {
         var battle = new BattleRecord

@@ -68,6 +68,50 @@ public class WgApiParserTests
     }
 
     [Fact]
+    public void ParseAccountStats_ComputesAvgDamageFromDamageAndBattles()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "data": {
+                "1001": {
+                  "hidden_profile": false,
+                  "statistics": {
+                    "pvp": { "wins": 600, "battles": 1000, "damage_dealt": 42600000 }
+                  }
+                }
+              }
+            }
+            """;
+
+        var stats = WgApiParser.ParseAccountStats(json);
+
+        Assert.Equal(42600, stats["1001"].AvgDamage, precision: 6);
+    }
+
+    [Fact]
+    public void ParseAccountStats_MissingDamage_KeepsSentinel()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "data": {
+                "1001": {
+                  "hidden_profile": false,
+                  "statistics": {
+                    "pvp": { "wins": 600, "battles": 1000 }
+                  }
+                }
+              }
+            }
+            """;
+
+        var stats = WgApiParser.ParseAccountStats(json);
+
+        Assert.Equal(-1, stats["1001"].AvgDamage);
+    }
+
+    [Fact]
     public void ParseAccountStats_HiddenProfile_MarksHidden()
     {
         const string json = """
