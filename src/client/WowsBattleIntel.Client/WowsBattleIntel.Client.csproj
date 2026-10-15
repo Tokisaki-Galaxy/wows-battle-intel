@@ -13,10 +13,17 @@
     <AssemblyName>WowsBattleIntel.Client</AssemblyName>
     <IsPackable>false</IsPackable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 可执行文件与任务栏图标，逐尺寸帧见 Resources/AppIcon.ico -->
+    <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 窗口与设置页展示用的位图，编入程序集资源 -->
+    <Resource Include="Resources\Images\*.png" />
   </ItemGroup>
 
   <ItemGroup>

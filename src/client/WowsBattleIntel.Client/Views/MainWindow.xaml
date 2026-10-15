@@ -5,6 +5,7 @@
         Height="800" Width="1440"
         MinHeight="600" MinWidth="1360"
         WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/WowsBattleIntel.Client;component/Resources/Images/AppIcon.png"
         Style="{StaticResource AppWindowStyle}">
 
   <Window.Resources>
@@ -967,6 +968,19 @@
                          VerticalAlignment="Center"
                          Margin="12,0,0,0"
                          TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- 品牌落款：图标取自 Resources/Images/AppIcon.png，与窗口及可执行文件同源 -->
+            <StackPanel Orientation="Horizontal" Margin="0,28,0,4">
+              <Image Source="pack://application:,,,/WowsBattleIntel.Client;component/Resources/Images/AppIcon.png"
+                     Width="64" Height="64"
+                     RenderOptions.BitmapScalingMode="HighQuality" />
+              <StackPanel VerticalAlignment="Center" Margin="12,0,0,0">
+                <TextBlock Text="wows-battle-intel" Style="{StaticResource HeadingTextStyle}" />
+                <TextBlock Text="{Binding VersionText}"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           Margin="0,3,0,0" />
+              </StackPanel>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>

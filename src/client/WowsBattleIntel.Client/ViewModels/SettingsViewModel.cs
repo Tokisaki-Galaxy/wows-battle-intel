@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using WowsBattleIntel.Client.Configuration;
 using WowsBattleIntel.Client.Services;
 
@@ -217,6 +218,33 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>保存并应用命令。</summary>
     public System.Windows.Input.ICommand SaveCommand { get; }
+
+    /// <summary>
+    /// 程序集版本号，用于设置页落款展示，如 v0.1.0。
+    /// </summary>
+    /// <remarks>
+    /// 版本号来自 Directory.Build.props 的 Version 属性，经 InformationalVersion 落进程序集。
+    /// 该值带源码修订后缀时截断到数字段，让界面上只出现可读的语义版本。
+    /// </remarks>
+    public string VersionText
+    {
+        get
+        {
+            string raw = typeof(SettingsViewModel).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+                ?? typeof(SettingsViewModel).Assembly.GetName().Version?.ToString()
+                ?? "0.0.0";
+
+            int plus = raw.IndexOf('+', StringComparison.Ordinal);
+            if (plus >= 0)
+            {
+                raw = raw[..plus];
+            }
+
+            return $"v{raw}";
+        }
+    }
 
     /// <summary>
     /// 校验当前字段。
