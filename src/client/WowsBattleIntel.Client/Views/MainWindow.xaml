@@ -42,10 +42,10 @@
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Foreground" Value="{StaticResource HiddenBrush}" />
                 <Style.Triggers>
-                  <DataTrigger Binding="{Binding ResultLabel}" Value="胜">
+                  <DataTrigger Binding="{Binding ResultLabel}" Value="胜利">
                     <Setter Property="Foreground" Value="{StaticResource WinBrush}" />
                   </DataTrigger>
-                  <DataTrigger Binding="{Binding ResultLabel}" Value="负">
+                  <DataTrigger Binding="{Binding ResultLabel}" Value="失败">
                     <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
                   </DataTrigger>
                 </Style.Triggers>
@@ -136,7 +136,7 @@
                       Background="{StaticResource HairlineBrush}"
                       Margin="{StaticResource SpacingSm}" />
 
-              <!-- 历史对局区 -->
+              <!-- 历史对局区：带模式与日期筛选 -->
               <StackPanel DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                   <Border Width="3"
@@ -147,6 +147,27 @@
                   <TextBlock Text="历史对局"
                              Style="{StaticResource SecondaryTextStyle}"
                              Margin="6,0,0,0" />
+                  <ComboBox FontSize="11"
+                            MinWidth="72"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"
+                            SelectedIndex="{Binding HistoryBattleTypeFilterIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="全部模式" />
+                    <ComboBoxItem Content="随机" />
+                    <ComboBoxItem Content="排位" />
+                    <ComboBoxItem Content="联合作战" />
+                    <ComboBoxItem Content="其他" />
+                  </ComboBox>
+                  <ComboBox FontSize="11"
+                            MinWidth="64"
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            SelectedIndex="{Binding HistoryDaysFilterIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="全部时间" />
+                    <ComboBoxItem Content="近1天" />
+                    <ComboBoxItem Content="近7天" />
+                    <ComboBoxItem Content="近30天" />
+                  </ComboBox>
                 </StackPanel>
               </StackPanel>
               <ListBox ItemsSource="{Binding HistoryBattles}"

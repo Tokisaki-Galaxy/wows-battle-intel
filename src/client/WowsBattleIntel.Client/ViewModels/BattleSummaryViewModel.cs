@@ -40,10 +40,10 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     public DateTimeOffset StartedAt => Battle.StartedAt;
 
     /// <summary>
-    /// 列表首行显示文本：地图名与对局类型。
+    /// 列表首行显示文本：对局类型与地图名。
     /// </summary>
     public string DisplayText =>
-        $"{Battle.MapId}  {BattleTypeLabel}";
+        $"{BattleTypeLabel} {Battle.MapId}";
 
     /// <summary>
     /// 列表次行显示文本：时间、服务器与时长。

@@ -13,9 +13,9 @@ internal static class DisplayLabels
     /// <summary>对局结果单字。</summary>
     public static string Outcome(BattleOutcome outcome) => outcome switch
     {
-        BattleOutcome.Win => "胜",
-        BattleOutcome.Loss => "负",
-        BattleOutcome.Draw => "平",
+        BattleOutcome.Win => "胜利",
+        BattleOutcome.Loss => "失败",
+        BattleOutcome.Draw => "平局",
         _ => "未知",
     };
 

@@ -109,7 +109,7 @@ public class MainViewModelTests
         var item = Assert.Single(vm.RecentBattles);
         Assert.Equal("battle-001", item.Battle.BattleId);
         Assert.Equal(0.68, item.PredictedWinProbability);
-        Assert.Equal("胜", item.ResultLabel);
+        Assert.Equal("胜利", item.ResultLabel);
         Assert.Equal("预测 68%", item.PredictionText);
         Assert.Contains("亚服", item.SecondaryText);
     }

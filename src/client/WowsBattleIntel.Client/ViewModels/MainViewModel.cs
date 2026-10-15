@@ -27,6 +27,10 @@ public sealed class MainViewModel : ViewModelBase
     private CancellationTokenSource? detailsCts;
     private int detailsVersion;
 
+    // 历史对局筛选条件。null 表示不限。
+    private BattleType? historyBattleTypeFilter;
+    private int? historyDaysFilter;
+
     // 名单行按账号标识的索引，阶段二增量刷新行内容时定位用。
     private readonly Dictionary<string, PlayerRowViewModel> allyRowsByAccount = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlayerRowViewModel> enemyRowsByAccount = new(StringComparer.Ordinal);
@@ -113,12 +117,82 @@ public sealed class MainViewModel : ViewModelBase
     public IReadOnlyList<BattleSummaryViewModel> LiveBattles =>
         RecentBattles.Where(s => s.IsLive).ToList();
 
-    /// <summary>历史对局，实时区之外的所有记录。</summary>
+    /// <summary>历史对局，实时区之外、符合筛选条件的记录。</summary>
     public IReadOnlyList<BattleSummaryViewModel> HistoryBattles =>
-        RecentBattles.Where(s => !s.IsLive).ToList();
+        RecentBattles
+            .Where(s => !s.IsLive)
+            .Where(s => HistoryBattleTypeFilter is null || s.Battle.BattleType == HistoryBattleTypeFilter)
+            .Where(s => HistoryDaysFilter is null
+                || s.StartedAt >= DateTimeOffset.UtcNow.AddDays(-HistoryDaysFilter.Value))
+            .ToList();
 
     /// <summary>是否存在实时对局，用于控制空态提示。</summary>
     public bool HasLiveBattles => RecentBattles.Any(s => s.IsLive);
+
+    /// <summary>历史对局的模式筛选。null 表示全部模式。</summary>
+    public BattleType? HistoryBattleTypeFilter
+    {
+        get => historyBattleTypeFilter;
+        set
+        {
+            if (SetField(ref historyBattleTypeFilter, value))
+            {
+                OnPropertyChanged(nameof(HistoryBattles));
+            }
+        }
+    }
+
+    /// <summary>历史对局的日期筛选天数。null 表示不限，例如 7 表示近七天。</summary>
+    public int? HistoryDaysFilter
+    {
+        get => historyDaysFilter;
+        set
+        {
+            if (SetField(ref historyDaysFilter, value))
+            {
+                OnPropertyChanged(nameof(HistoryBattles));
+            }
+        }
+    }
+
+    /// <summary>历史模式筛选的下拉索引。0 全部，1 随机，2 排位，3 联合作战，4 其他（非上述模式）。</summary>
+    public int HistoryBattleTypeFilterIndex
+    {
+        get => historyBattleTypeFilter switch
+        {
+            BattleType.Random => 1,
+            BattleType.Ranked => 2,
+            BattleType.Coop => 3,
+            _ => historyBattleTypeFilter.HasValue ? 4 : 0,
+        };
+        set => HistoryBattleTypeFilter = value switch
+        {
+            1 => BattleType.Random,
+            2 => BattleType.Ranked,
+            3 => BattleType.Coop,
+            4 => BattleType.Unknown,
+            _ => null,
+        };
+    }
+
+    /// <summary>历史日期筛选的下拉索引。0 为全部，1 近一天，2 近七天，3 近三十天。</summary>
+    public int HistoryDaysFilterIndex
+    {
+        get => historyDaysFilter switch
+        {
+            1 => 1,
+            7 => 2,
+            30 => 3,
+            _ => 0,
+        };
+        set => HistoryDaysFilter = value switch
+        {
+            1 => 1,
+            2 => 7,
+            3 => 30,
+            _ => null,
+        };
+    }
 
     /// <summary>一局新回放入库后触发，供视图刷新校准等派生数据。</summary>
     public event Action? BattleListChanged;
