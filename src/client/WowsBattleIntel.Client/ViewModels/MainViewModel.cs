@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
 
@@ -408,6 +409,9 @@ public sealed class MainViewModel : ViewModelBase
                     .GetAwaiter()
                     .GetResult());
 
+            // 名单里还有玩家缺统计时在线补拉一次并落快照，下次点开直接命中缓存。
+            full = await FetchMissingStatsAsync(full).ConfigureAwait(true);
+
             actualOutcome = full.Outcome;
 
             // 名单按舰种分组排序：航母、战列、巡洋、驱逐、潜艇，同舰种内按账号标识稳定次序。
@@ -442,6 +446,61 @@ public sealed class MainViewModel : ViewModelBase
             IsBusy = false;
             NotifyDetailsChanged();
         }
+    }
+
+    /// <summary>
+    /// 对缺统计的玩家在线补拉一次，结果落快照缓存。
+    /// </summary>
+    /// <remarks>
+    /// 存量对局的名单没有战绩字段，快照又缺账号场均或单船数据时，界面会
+    /// 整列显示占位符。这里选点开的那一局按需拉取：账号统计一次批量请求，
+    /// 单船统计逐玩家。拉到的写回快照表，下次点开同一局直接命中缓存。
+    /// 拉取失败不影响展示，保留占位符。
+    /// </remarks>
+    private async Task<BattleRecord> FetchMissingStatsAsync(BattleRecord battle)
+    {
+        var missing = battle.Players
+            .Where(p => !p.IsBot && p.AccountId != "-1" && p.AccountId != string.Empty)
+            .Where(p => p.AccountBattles < 0 || p.ShipBattles < 0)
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            return battle;
+        }
+
+        try
+        {
+            await services.StatsProvider.FetchStatsAsync(missing).ConfigureAwait(true);
+        }
+        catch (Exception)
+        {
+            // 网络失败或限流，保留占位符，用户重试即可。
+            return battle;
+        }
+
+        // 拉到统计的玩家落快照，单船数据与本局船绑定。
+        var capturedAt = DateTimeOffset.UtcNow;
+        var snapshots = missing
+            .Where(p => p.HasStats)
+            .Select(p => PlayerSnapshot.FromPlayer(p, capturedAt))
+            .ToList();
+
+        if (snapshots.Count > 0)
+        {
+            await services.Repository
+                .SaveSnapshotsAsync(snapshots)
+                .ConfigureAwait(true);
+
+            // 用新数据重排：快照合并后重新生成名单行。
+            return SnapshotFeatureBuilder.Enrich(battle, (accountId, server) =>
+                services.Repository
+                    .GetLatestSnapshotAsync(accountId, server)
+                    .GetAwaiter()
+                    .GetResult());
+        }
+
+        return battle;
     }
 
     /// <summary>

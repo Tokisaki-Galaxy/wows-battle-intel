@@ -317,7 +317,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="*">
+                        <DataGridTemplateColumn Header="玩家" Width="380" MaxWidth="440">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
@@ -435,7 +435,7 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="*">
+                        <DataGridTemplateColumn Header="玩家" Width="380" MaxWidth="440">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
