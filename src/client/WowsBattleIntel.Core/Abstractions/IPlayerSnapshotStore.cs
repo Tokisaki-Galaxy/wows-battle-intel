@@ -103,6 +103,9 @@ public sealed class PlayerSnapshot
     /// <summary>本局船只的账号场均伤害，-1 表示未知。</summary>
     public double ShipAvgDamage { get; set; } = -1;
 
+    /// <summary>账号最常玩等级，-1 表示未知。</summary>
+    public int FavoriteTier { get; set; } = -1;
+
     /// <summary>数据来源。</summary>
     public string Source { get; set; } = string.Empty;
 
@@ -133,6 +136,7 @@ public sealed class PlayerSnapshot
             ShipBattles = player.ShipBattles,
             ShipWinrate = player.ShipWinrate,
             ShipAvgDamage = player.ShipAvgDamage,
+            FavoriteTier = player.FavoriteTier,
         };
     }
 }

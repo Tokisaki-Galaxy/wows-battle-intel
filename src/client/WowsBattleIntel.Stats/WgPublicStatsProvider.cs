@@ -24,6 +24,10 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     // ship_id 到 WG 舰种字符串的映射，来自 encyclopedia 目录。
     // 惰性加载并缓存，过期时间由 ClassCatalogCacheDuration 控制。
     private Dictionary<string, string> shipClassLookup = new(StringComparer.Ordinal);
+
+    // ship_id 到等级的映射，与舰种映射同源同时加载，供常用等级计算。
+    private Dictionary<string, int> shipTierLookup = new(StringComparer.Ordinal);
+
     private DateTimeOffset shipClassLookupLoadedAt = DateTimeOffset.MinValue;
 
     /// <summary>
@@ -303,13 +307,14 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             int pageTotal = WgApiParser.ParseEncyclopediaPageTotal(infoJson);
 
             var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
+            var tierLookup = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int page = 1; page <= pageTotal; page++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string url = $"https://{host}/wows/encyclopedia/ships/"
-                    + $"?application_id={options.ApplicationId}&fields=type&page_no={page}";
+                    + $"?application_id={options.ApplicationId}&fields=type%2Ctier&page_no={page}";
                 string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-                WgApiParser.ParseShipClasses(json, lookup);
+                WgApiParser.ParseShipClasses(json, lookup, tierLookup);
 
                 if (page < pageTotal)
                 {
@@ -320,6 +325,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             if (lookup.Count > 0)
             {
                 shipClassLookup = lookup;
+                shipTierLookup = tierLookup;
                 shipClassLookupLoadedAt = DateTimeOffset.UtcNow;
             }
         }
@@ -376,13 +382,16 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
 
     /// <summary>
     /// 把全量船只统计写回玩家记录：单船数据取本局所开的船，分舰种聚合成
-    /// JSON 存入 ClassStatsJson。
+    /// JSON 存入 ClassStatsJson，账号最常玩等级取场次最多的等级。
     /// </summary>
     private void ApplyShipStats(
         PlayerRecord player,
         Dictionary<string, WgApiParser.ShipStatsEntry> byShip)
     {
         var classAgg = new Dictionary<string, (double Battles, double Wins)>(StringComparer.Ordinal);
+
+        // 账号层：等级到场次的直方图，最常玩等级取峰值。
+        var tierHistogram = new Dictionary<int, double>();
 
         foreach (var (shipId, entry) in byShip)
         {
@@ -394,14 +403,20 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 player.ShipAvgDamage = entry.Battles > 0 ? entry.DamageDealt / entry.Battles : -1;
             }
 
+            // 账号常用等级直方图，等级目录缺失的船跳过。
+            if (shipTierLookup.TryGetValue(shipId, out int tier))
+            {
+                tierHistogram[tier] = tierHistogram.TryGetValue(tier, out var cur) ? cur + entry.Battles : entry.Battles;
+            }
+
             string? classKey = ResolveClassKey(shipId);
             if (classKey is null)
             {
                 continue;
             }
 
-            var (battles, wins) = classAgg.TryGetValue(classKey, out var cur)
-                ? cur
+            var (battles, wins) = classAgg.TryGetValue(classKey, out var cur2)
+                ? cur2
                 : (0, 0);
             classAgg[classKey] = (battles + entry.Battles, wins + entry.Wins);
         }
@@ -417,6 +432,20 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             });
 
         player.ClassStatsJson = "{" + string.Join(",", parts) + "}";
+
+        // 最常玩等级：场次最多的等级。并列取高等级（现版本环境更有代表性）。
+        double maxBattles = 0;
+        int bestTier = -1;
+        foreach (var (tier, battles) in tierHistogram)
+        {
+            if (battles > maxBattles || (battles == maxBattles && tier > bestTier))
+            {
+                maxBattles = battles;
+                bestTier = tier;
+            }
+        }
+
+        player.FavoriteTier = bestTier;
     }
 
     /// <summary>

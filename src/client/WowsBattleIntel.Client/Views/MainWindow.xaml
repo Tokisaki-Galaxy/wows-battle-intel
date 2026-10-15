@@ -264,8 +264,8 @@
               </StackPanel>
             </Border>
 
-            <!-- 双方名单：阵营色顶边条 + 底部对照 -->
-            <Grid Grid.Row="1">
+            <!-- 双方名单：阵营色顶边条 + 底部对照。禁横向滚动，列宽压缩适应视口 -->
+            <Grid Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="12" />
@@ -302,7 +302,7 @@
                                    Foreground="{StaticResource TextPrimaryBrush}" />
                       </StackPanel>
                     </Grid>
-                    <DataGrid ItemsSource="{Binding Allies}">
+                    <DataGrid ItemsSource="{Binding Allies}" HorizontalScrollBarVisibility="Disabled" AutoGenerateColumns="False">
                       <DataGrid.RowStyle>
                         <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明。
                              直接挂 RowStyle 而非资源字典隐式样式，挂载点明确，避免优先级歧义 -->
@@ -317,13 +317,14 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="380" MaxWidth="440">
+                        <DataGridTemplateColumn Header="玩家" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                   <TextBlock Text="{Binding PlayerLineText}"
-                                             Style="{StaticResource BodyTextStyle}" />
+                                             Style="{StaticResource BodyTextStyle}"
+                                             TextTrimming="CharacterEllipsis" />
                                   <Border VerticalAlignment="Top" Margin="3,1,0,0"
                                           Width="8" Height="8" CornerRadius="2"
                                           ToolTip="小队"
@@ -361,6 +362,17 @@
                               <TextBlock Text="{Binding WeightedWinrateText}"
                                          Style="{StaticResource BodyTextStyle}"
                                          Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center" />
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="熟练" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding ClassMasteryText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
                                          TextAlignment="Right"
                                          VerticalAlignment="Center" />
                             </DataTemplate>
@@ -421,7 +433,7 @@
                                    Foreground="{StaticResource TextPrimaryBrush}" />
                       </StackPanel>
                     </Grid>
-                    <DataGrid ItemsSource="{Binding Enemies}">
+                    <DataGrid ItemsSource="{Binding Enemies}" HorizontalScrollBarVisibility="Disabled" AutoGenerateColumns="False">
                       <DataGrid.RowStyle>
                         <!-- 行背景按水平分档：与友方同一套样式 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
@@ -435,13 +447,14 @@
                         </Style>
                       </DataGrid.RowStyle>
                       <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="玩家" Width="380" MaxWidth="440">
+                        <DataGridTemplateColumn Header="玩家" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                   <TextBlock Text="{Binding PlayerLineText}"
-                                             Style="{StaticResource BodyTextStyle}" />
+                                             Style="{StaticResource BodyTextStyle}"
+                                             TextTrimming="CharacterEllipsis" />
                                   <Border VerticalAlignment="Top" Margin="3,1,0,0"
                                           Width="8" Height="8" CornerRadius="2"
                                           ToolTip="小队"
@@ -479,6 +492,17 @@
                               <TextBlock Text="{Binding WeightedWinrateText}"
                                          Style="{StaticResource BodyTextStyle}"
                                          Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center" />
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="熟练" Width="Auto">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding ClassMasteryText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
                                          TextAlignment="Right"
                                          VerticalAlignment="Center" />
                             </DataTemplate>

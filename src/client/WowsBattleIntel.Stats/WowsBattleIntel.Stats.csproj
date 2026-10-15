@@ -13,6 +13,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      船名词典，数字 ship_id 到中文名。取自 ApeRadar（GPL）随包分发的
+      ships.json，内容为游戏数据，代码许可不传染。以嵌入资源携带，
+      与 Storage 项目的 schema.sql 同一处理方式。
+    -->
+    <EmbeddedResource Include="Resources\ships.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 

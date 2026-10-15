@@ -100,7 +100,10 @@ public static class ReplaysharkMapper
             IsAlly = rp.TeamId == recorderTeamId,
             IsBot = rp.IsBot,
             IsHidden = rp.IsHiddenProfile,
-            ShipId = rp.ShipIndex,
+            // ship_id 是数字 ID，如 4286581900，WG API 的 ships/stats 端点只认它。
+            // 早年这里误存了 ship_index（PJSD012 之类的内部索引码），
+            // 导致单船统计查询永远落空，这里必须保持数字 ID。
+            ShipId = rp.ShipId.ToString(CultureInfo.InvariantCulture),
             ShipName = rp.ShipName,
             ShipTier = rp.ShipTier,
             ShipClass = MapShipClass(rp.ShipClass),

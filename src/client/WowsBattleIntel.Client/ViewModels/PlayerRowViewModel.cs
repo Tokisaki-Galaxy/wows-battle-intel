@@ -1,4 +1,5 @@
 using WowsBattleIntel.Core.Models;
+using WowsBattleIntel.Stats;
 
 namespace WowsBattleIntel.Client.ViewModels;
 
@@ -97,13 +98,28 @@ public sealed class PlayerRowViewModel : ViewModelBase
     }
 
     /// <summary>舰船完整形态：舰种缩写、罗马数字等级与船名拼一段，如 "DD X 君权"。</summary>
+    /// <remarks>
+    /// 船名优先取词典中文，按数字船 ID 匹配。存量库里旧记录的 ship_id 是
+    /// 内部索引码，词典查不到，保持英文船名回落。
+    /// </remarks>
     public string ShipLineText
     {
         get
         {
-            string ship = source is null
-                ? string.Empty
-                : string.IsNullOrEmpty(source.ShipName) ? source.ShipId : source.ShipName;
+            string ship;
+            if (source is null)
+            {
+                ship = string.Empty;
+            }
+            else if (ShipCatalog.TryGetChineseName(source.ShipId, out string? chinese))
+            {
+                ship = chinese!;
+            }
+            else
+            {
+                ship = string.IsNullOrEmpty(source.ShipName) ? source.ShipId : source.ShipName;
+            }
+
             string prefix = $"{ShipClassLabel(ShipClass)} {TierRoman}".Trim();
             return string.IsNullOrEmpty(prefix) ? ship : $"{prefix} {ship}".TrimEnd();
         }
@@ -199,10 +215,59 @@ public sealed class PlayerRowViewModel : ViewModelBase
         ? "-"
         : source.Kills.ToString();
 
-    /// <summary>账号场均伤害显示，未知显示 "-"。</summary>
+    /// <summary>账号场均伤害显示。带常用等级前缀，如 "(X) 34,444"，未知显示 "-"。</summary>
     public string AvgDamageText => source is null || source.AccountAvgDamage < 0
         ? "-"
-        : ((int)source.AccountAvgDamage).ToString("N0");
+        : TierPrefix is null
+            ? ((int)source.AccountAvgDamage).ToString("N0")
+            : $"{TierPrefix} {((int)source.AccountAvgDamage).ToString("N0")}";
+
+    /// <summary>常用等级的罗马数字前缀，如 "(X)"，未知为 null。</summary>
+    private string? TierPrefix => FavoriteTierRoman is null
+        ? null
+        : $"({FavoriteTierRoman})";
+
+    /// <summary>账号最常玩等级的罗马数字，未知为 null。</summary>
+    private string? FavoriteTierRoman => source is null || source.FavoriteTier < 1
+        ? null
+        : ToRoman(source.FavoriteTier);
+
+    /// <summary>
+    /// 舰种熟练显示：本局舰种的账号总场次与胜率，如 "3,412 / 56.8%"。
+    /// 分舰种数据缺失显示 "-"。
+    /// </summary>
+    public string ClassMasteryText
+    {
+        get
+        {
+            if (source is null || source.ClassBattles < 0 || source.ClassWins < 0)
+            {
+                return "-";
+            }
+
+            double winrate = source.ClassBattles > 0
+                ? source.ClassWins / source.ClassBattles
+                : -1;
+            string winratePart = winrate >= 0 ? winrate.ToString("P1") : "-";
+            return $"{((int)source.ClassBattles).ToString("N0")} / {winratePart}";
+        }
+    }
+
+    /// <summary>
+    /// 舰种熟练的颜色资源键。与胜率同一套口径，海王紫、猴子红、中间主文本。
+    /// </summary>
+    public string ClassMasteryBrushKey
+    {
+        get
+        {
+            if (source is null || source.ClassBattles <= 0 || source.ClassWins < 0)
+            {
+                return "TextSecondaryBrush";
+            }
+
+            return WinrateBrushKeyFor(source.ClassWins / source.ClassBattles, source.ClassBattles);
+        }
+    }
 
     /// <summary>
     /// 账号场均伤害的颜色资源键。按固定阈值粗分档位，低伤害标危险色，

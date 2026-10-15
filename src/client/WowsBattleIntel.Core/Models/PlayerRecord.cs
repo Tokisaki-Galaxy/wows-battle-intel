@@ -109,6 +109,12 @@ public sealed class PlayerRecord
     /// <summary>本局舰种的总胜场。</summary>
     public double ClassWins { get; set; } = -1;
 
+    /// <summary>
+    /// 账号最常玩等级，按全船只场次直方图取峰值。负数表示未知，
+    /// 等级目录加载失败或无船只数据时保持未知。
+    /// </summary>
+    public int FavoriteTier { get; set; } = -1;
+
     // --- 近期状态，来自本地累积的逐场记录 ---
 
     /// <summary>最近 20 场胜率，-1 表示样本不足。</summary>

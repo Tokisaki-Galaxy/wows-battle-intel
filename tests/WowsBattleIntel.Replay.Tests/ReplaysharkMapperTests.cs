@@ -57,8 +57,7 @@ public class ReplaysharkMapperTests
             IsHiddenProfile = false,
             ShipIndex = "TEST001",
             ShipId = 1234,
-            ShipName = "TestShip",
-            ShipClass = shipClass,
+            ShipName = "TestShip",            ShipClass = shipClass,
             ShipTier = tier,
             DivisionId = divisionId,
             TimeLivedSecs = 600,
@@ -88,6 +87,16 @@ public class ReplaysharkMapperTests
         Assert.Equal("15.6.0", battle.GameVersion);
         Assert.Equal(900, battle.DurationSeconds);
         Assert.Equal(GameServer.Asia, battle.Server);
+    }
+
+    [Fact]
+    public void Map_ShipIdUsesNumericIdNotShipIndex()
+    {
+        // 回归测试：ship_id 必须存数字 ID，WG API 的 ships/stats 只认它。
+        // 早年误存了 ship_index 索引码，导致单船统计查询全部落空。
+        var battle = ReplaysharkMapper.Map(MakeOutput())!;
+
+        Assert.All(battle.Players, p => Assert.Equal("1234", p.ShipId));
     }
 
     [Fact]

@@ -99,6 +99,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 ALTER TABLE player_snapshots ADD COLUMN ship_battles INTEGER;
                 ALTER TABLE player_snapshots ADD COLUMN ship_winrate REAL;
                 ALTER TABLE player_snapshots ADD COLUMN ship_avg_damage REAL;
+                ALTER TABLE player_snapshots ADD COLUMN favorite_tier INTEGER;
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -622,7 +623,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
                     weighted_winrate, pr, source, class_stats,
-                    ship_id, ship_battles, ship_winrate, ship_avg_damage
+                    ship_id, ship_battles, ship_winrate, ship_avg_damage, favorite_tier
                 ) VALUES (
                     $accountId, $server, $capturedAt,
                     $battles, $winrate, $avgDamage,
@@ -630,7 +631,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
                     $weighted, NULL, $source, $classStats,
-                    $shipId, $shipBattles, $shipWinrate, $shipAvgDamage
+                    $shipId, $shipBattles, $shipWinrate, $shipAvgDamage, $favoriteTier
                 )
                 ON CONFLICT(account_id, server, captured_at) DO NOTHING;
                 """;
@@ -658,6 +659,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$shipBattles", s.ShipBattles);
             command.Parameters.AddWithValue("$shipWinrate", s.ShipWinrate);
             command.Parameters.AddWithValue("$shipAvgDamage", s.ShipAvgDamage);
+            command.Parameters.AddWithValue("$favoriteTier", s.FavoriteTier);
 
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -731,6 +733,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             ShipBattles = TryGetDouble(reader, "ship_battles"),
             ShipWinrate = TryGetDouble(reader, "ship_winrate"),
             ShipAvgDamage = TryGetDouble(reader, "ship_avg_damage"),
+            FavoriteTier = (int)TryGetDouble(reader, "favorite_tier"),
         };
     }
 

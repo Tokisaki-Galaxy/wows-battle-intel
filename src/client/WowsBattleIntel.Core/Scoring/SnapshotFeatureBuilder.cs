@@ -72,6 +72,11 @@ public static class SnapshotFeatureBuilder
         string classStatsJson = snapshot.ClassStatsJson ?? string.Empty;
         var parsedClass = ParseClassStats(player, classStatsJson);
 
+        // 单船合并的前提是快照带本局船 ID。快照来自旧索引码时代的，
+        // ShipId 对不上，单船数据保持玩家原值。
+        bool shipMatches = !string.IsNullOrEmpty(snapshot.ShipId)
+            && string.Equals(snapshot.ShipId, player.ShipId, StringComparison.Ordinal);
+
         return new PlayerRecord
         {
             // 身份与对局信息，保持回放原值。
@@ -102,10 +107,13 @@ public static class SnapshotFeatureBuilder
             ClassStatsJson = snapshot.ClassStatsJson ?? string.Empty,
 
             // 单船统计。快照带匹配的 ship_id 时并入，否则保持玩家原值。
-            ShipBattles = ShipValue(player, snapshot, p => p.ShipBattles),
-            ShipWinrate = ShipValue(player, snapshot, p => p.ShipWinrate),
-            ShipAvgDamage = ShipValue(player, snapshot, p => p.ShipAvgDamage),
+            ShipBattles = shipMatches ? snapshot.ShipBattles : player.ShipBattles,
+            ShipWinrate = shipMatches ? snapshot.ShipWinrate : player.ShipWinrate,
+            ShipAvgDamage = shipMatches ? snapshot.ShipAvgDamage : player.ShipAvgDamage,
             ShipAvgExp = player.ShipAvgExp,
+
+            // 常用等级来自快照，负值表示快照没有该数据，保持玩家原值。
+            FavoriteTier = snapshot.FavoriteTier >= 0 ? snapshot.FavoriteTier : player.FavoriteTier,
 
             // 分舰种统计，从快照 JSON 按本局舰种解析。
             ClassBattles = parsedClass.Battles,
@@ -122,31 +130,6 @@ public static class SnapshotFeatureBuilder
             ExpEarned = player.ExpEarned,
         };
     }
-
-    /// <summary>
-    /// 取单船统计值。快照带 ship_id 且与本局船只一致时用快照值，
-    /// 否则保持玩家原值。字符串比较用 Ordinal：船标识是稳定 ID。
-    /// </summary>
-    private static double ShipValue(
-        PlayerRecord player,
-        PlayerSnapshot snapshot,
-        ShipField pick) =>
-        !string.IsNullOrEmpty(snapshot.ShipId)
-            && string.Equals(snapshot.ShipId, player.ShipId, StringComparison.Ordinal)
-            ? pick(ToShipRecord(snapshot))
-            : pick(player);
-
-    /// <summary>单船字段的选取器。</summary>
-    private delegate double ShipField(PlayerRecord player);
-
-    /// <summary>把快照的单船字段映射成临时记录，复用玩家记录的选取器。</summary>
-    private static PlayerRecord ToShipRecord(PlayerSnapshot snapshot) =>
-        new()
-        {
-            ShipBattles = snapshot.ShipBattles,
-            ShipWinrate = snapshot.ShipWinrate,
-            ShipAvgDamage = snapshot.ShipAvgDamage,
-        };
 
     /// <summary>
     /// 从快照的分舰种 JSON 解析本局舰种的场次与胜场。

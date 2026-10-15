@@ -127,7 +127,45 @@ public class PlayerRowViewModelTests
         var player = MakePlayer("A", 0.5, 100);
         player.AccountAvgDamage = 61700;
         var vm = PlayerRowViewModel.FromPlayer(player);
+        // 无常用等级数据时不带前缀。
         Assert.Equal("61,700", vm.AvgDamageText);
+    }
+
+    [Fact]
+    public void AvgDamageText_WithFavoriteTier_ShowsPrefix()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountAvgDamage = 61700;
+        player.FavoriteTier = 10;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("(X) 61,700", vm.AvgDamageText);
+    }
+
+    [Fact]
+    public void ClassMasteryText_Unknown_ShowsDash()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+        Assert.Equal("-", vm.ClassMasteryText);
+    }
+
+    [Fact]
+    public void ClassMasteryText_Known_ShowsBattlesAndWinrate()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClassBattles = 3412;
+        player.ClassWins = 1938;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("3,412 / 56.8%", vm.ClassMasteryText);
+    }
+
+    [Fact]
+    public void ClassMasteryBrushKey_FollowsWinrateThresholds()
+    {
+        var player = MakePlayer("A", 0.5, 1000);
+        player.ClassBattles = 2000;
+        player.ClassWins = 1240;
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("UnicumBrush", vm.ClassMasteryBrushKey);
     }
 
     [Theory]

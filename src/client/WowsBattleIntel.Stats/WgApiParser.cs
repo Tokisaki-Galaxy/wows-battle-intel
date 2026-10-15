@@ -290,7 +290,8 @@ internal static class WgApiParser
     /// </remarks>
     public static Dictionary<string, string> ParseShipClasses(
         string json,
-        Dictionary<string, string> into)
+        Dictionary<string, string> into,
+        Dictionary<string, int>? tierInto = null)
     {
         var root = JObject.Parse(json);
         if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
@@ -309,6 +310,13 @@ internal static class WgApiParser
             if (!string.IsNullOrEmpty(type))
             {
                 into[prop.Name] = type;
+            }
+
+            // 等级目录可选填充，供常用等级计算。
+            int? tier = entry["tier"]?.Value<int?>();
+            if (tier.HasValue && tierInto is not null)
+            {
+                tierInto[prop.Name] = tier.Value;
             }
         }
 
