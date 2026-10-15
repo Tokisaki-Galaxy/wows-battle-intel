@@ -135,6 +135,7 @@
   <views:LogLevelBrushKeyConverter x:Key="LogLevelBrushKeyConverter" />
   <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
   <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+  <views:EmptyStringToCollapsedConverter x:Key="EmptyStringToCollapsedConverter" />
   <views:ProbabilityToGridLengthConverter x:Key="ProbabilityToGridLengthConverter" />
 
 </ResourceDictionary>
