@@ -126,13 +126,21 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// 解析游戏目录。空值时探测常见安装位置，找不到保持为空。
+    /// 解析游戏目录。空值时先跑自动探测（运行中进程与卸载注册表），
+    /// 探测不到再退回常见安装位置，全部失败保持为空。
     /// </summary>
     private static string ResolveGamePath(string value)
     {
         if (!string.IsNullOrWhiteSpace(value))
         {
             return ToAbsolutePath(value);
+        }
+
+        // 正式探测：进程优先，其次卸载注册表。命中即带 replays 校验。
+        var detected = Services.GamePathDetector.Detect();
+        if (detected is not null)
+        {
+            return detected.GamePath;
         }
 
         foreach (string candidate in GetGamePathCandidates())
@@ -266,7 +274,7 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// 常见游戏安装目录候选。
+    /// 常见游戏安装目录候选，作为自动探测失败后的兜底。
     /// </summary>
     private static IEnumerable<string> GetGamePathCandidates()
     {
@@ -274,6 +282,8 @@ public sealed class AppConfig
         yield return @"C:\SteamLibrary\steamapps\common\World of Warships";
         yield return @"C:\Games\World_of_Warships";
         yield return @"D:\Games\World_of_Warships";
+        yield return @"C:\Games\World of Warships";
+        yield return @"D:\Games\World of Warships";
     }
 
     /// <summary>
