@@ -18,11 +18,20 @@ namespace WowsBattleIntel.Client.Services;
 ///
 /// 读取采用 ApeRadar ArenaInfoReader 的口径：FileShare.ReadWrite 允许
 /// 读游戏正在写的文件，读失败不视为异常，下一轮再试。
+///
+/// 常驻实例，配置变更走 <see cref="Rebind"/> 换配置，不换实例。事件订阅
+/// 绑定在实例上，换实例会让界面收不到赛前名单通知，与
+/// LiveBattleMonitor.Rebind 的设计理由相同。
 /// </remarks>
 public sealed class ArenaInfoWatcher : IDisposable
 {
-    private readonly AppConfig config;
+    /// <summary>残留名单时效窗口。文件修改时间距今超过该值视为游戏崩溃
+    /// 残留或跨局遗留，不触发。ApeRadar requireFileToBeNewer 同语义。</summary>
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(5);
+
     private readonly HashSet<string> knownKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object stateLock = new();
+    private AppConfig config;
     private CancellationTokenSource? cts;
     private Task? loop;
 
@@ -41,31 +50,73 @@ public sealed class ArenaInfoWatcher : IDisposable
     /// <summary>启动观测。重复调用无副作用。</summary>
     public void Start()
     {
-        if (loop is not null)
+        lock (stateLock)
         {
-            return;
-        }
+            if (loop is not null)
+            {
+                return;
+            }
 
-        cts = new CancellationTokenSource();
-        loop = Task.Run(() => ObserveLoopAsync(cts.Token));
+            cts = new CancellationTokenSource();
+            loop = Task.Run(() => ObserveLoopAsync(cts.Token));
+        }
     }
 
     /// <summary>停止观测。</summary>
     public void Stop()
     {
-        cts?.Cancel();
+        CancellationTokenSource? toCancel;
+        Task? toWait;
+        lock (stateLock)
+        {
+            toCancel = cts;
+            toWait = loop;
+            loop = null;
+            cts = null;
+        }
+
+        toCancel?.Cancel();
         try
         {
-            loop?.Wait(TimeSpan.FromSeconds(5));
+            toWait?.Wait(TimeSpan.FromSeconds(5));
         }
         catch
         {
             // 停止超时不阻断退出。
         }
 
-        loop = null;
-        cts?.Dispose();
-        cts = null;
+        toCancel?.Dispose();
+    }
+
+    /// <summary>
+    /// 换绑配置。观测目录由配置派生，配置变更后必须换绑才生效。
+    /// </summary>
+    /// <remarks>
+    /// 不换实例：保住事件订阅。运行中换绑自动恢复运行状态，与
+    /// LiveBattleMonitor.Rebind 行为对齐。
+    /// </remarks>
+    public void Rebind(AppConfig newConfig)
+    {
+        ArgumentNullException.ThrowIfNull(newConfig);
+
+        bool wasRunning;
+        lock (stateLock)
+        {
+            wasRunning = loop is not null;
+        }
+
+        if (wasRunning)
+        {
+            Stop();
+        }
+
+        config = newConfig;
+        knownKeys.Clear();
+
+        if (wasRunning)
+        {
+            Start();
+        }
     }
 
     /// <summary>
@@ -95,8 +146,8 @@ public sealed class ArenaInfoWatcher : IDisposable
     }
 
     /// <summary>
-    /// 扫描一次。命中判定：replays 目录存在 tempArenaInfo.json，解析
-    /// 成功且参战者指纹未见过时触发。
+    /// 扫描一次。命中判定：tempArenaInfo.json 存在、修改时间在时效窗口
+    /// 内、解析成功。
     /// </summary>
     private void ScanOnce()
     {
@@ -107,18 +158,25 @@ public sealed class ArenaInfoWatcher : IDisposable
             return;
         }
 
-        // 同一文件只在修改时间变化时重新解析，避免每轮重复触发。
-        string? stamp;
+        DateTime lastWriteUtc;
         try
         {
-            stamp = File.GetLastWriteTimeUtc(arenaPath).Ticks.ToString();
+            lastWriteUtc = File.GetLastWriteTimeUtc(arenaPath);
         }
         catch (IOException)
         {
             return;
         }
 
-        string key = $"{arenaPath}|{stamp}";
+        // 崩溃残留或跨局遗留：修改时间太久远的文件不触发。游戏正常运行
+        // 时该文件随对局生成，时效必然在窗口内。
+        if (DateTime.UtcNow - lastWriteUtc > StaleThreshold)
+        {
+            return;
+        }
+
+        // 同一文件只在修改时间变化时重新解析，避免每轮重复触发。
+        string key = $"{arenaPath}|{lastWriteUtc.Ticks}";
         if (!knownKeys.Add(key))
         {
             return;
