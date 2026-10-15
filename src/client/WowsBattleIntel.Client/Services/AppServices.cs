@@ -24,6 +24,7 @@ public sealed class AppServices : IDisposable
         AppConfig config,
         SqliteBattleRepository repository,
         IPlayerStatsProvider statsProvider,
+        ClanCatalogService clanCatalog,
         IPredictor predictor,
         PredictionFallbackInfo predictionInfo,
         ReplayObserver observer)
@@ -31,6 +32,7 @@ public sealed class AppServices : IDisposable
         Config = config;
         Repository = repository;
         StatsProvider = statsProvider;
+        ClanCatalog = clanCatalog;
         Predictor = predictor;
         PredictionInfo = predictionInfo;
         Logs = new LogService();
@@ -52,6 +54,9 @@ public sealed class AppServices : IDisposable
 
     /// <summary>玩家统计来源。</summary>
     public IPlayerStatsProvider StatsProvider { get; private set; }
+
+    /// <summary>军团强度目录，按标签提供分档查询。</summary>
+    public ClanCatalogService ClanCatalog { get; private set; }
 
     /// <summary>预测器。ONNX 可用时为模型，否则为基线。</summary>
     public IPredictor Predictor { get; private set; }
@@ -94,6 +99,7 @@ public sealed class AppServices : IDisposable
 
         // 统计来源。
         var statsProvider = CreateStatsProvider(config);
+        var clanCatalog = new ClanCatalogService(CreateWgOptions(config));
 
         // 预测器。模型不可用时自动降级到基线。
         var createResult = PredictorFactory.Create(config.ModelPath, config.ModelVersion);
@@ -102,7 +108,7 @@ public sealed class AppServices : IDisposable
             createResult.FallbackReason);
 
         var observer = new ReplayObserver(config);
-        return new AppServices(config, repository, statsProvider, createResult.Predictor, info, observer);
+        return new AppServices(config, repository, statsProvider, clanCatalog, createResult.Predictor, info, observer);
     }
 
     /// <summary>
@@ -159,6 +165,7 @@ public sealed class AppServices : IDisposable
             Config = updated;
             Repository = repository;
             StatsProvider = CreateStatsProvider(updated);
+            ClanCatalog = new ClanCatalogService(CreateWgOptions(updated));
             Predictor = createResult.Predictor;
             PredictionInfo = new PredictionFallbackInfo(
                 createResult.UsedFallback,
@@ -174,17 +181,24 @@ public sealed class AppServices : IDisposable
 
     private static IPlayerStatsProvider CreateStatsProvider(AppConfig config)
     {
-        var options = new WgPublicOptions();
-        if (!string.IsNullOrWhiteSpace(config.WgApplicationId))
-        {
-            options.ApplicationId = config.WgApplicationId;
-        }
+        var options = CreateWgOptions(config);
 
         // 全量船只查询一次覆盖单船统计、分舰种聚合与常用等级，与 CLI 补采同口径。
         // 关闭时逐玩家单船查询拿不到熟练数据，界面舰种列永远空。
         options.FetchClassStats = true;
 
         return new WgPublicStatsProvider(options);
+    }
+
+    private static WgPublicOptions CreateWgOptions(AppConfig config)
+    {
+        var options = new WgPublicOptions();
+        if (!string.IsNullOrWhiteSpace(config.WgApplicationId))
+        {
+            options.ApplicationId = config.WgApplicationId;
+        }
+
+        return options;
     }
 
     /// <inheritdoc />

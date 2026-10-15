@@ -308,4 +308,125 @@ public class WgApiParserTests
     {
         Assert.Equal(expected, WowsBattleIntel.Stats.WgPublicStatsProvider.ToClassKey(wgType));
     }
+
+    // 以下 JSON 片段来自 api.worldofwarships.asia 实测响应（2026-10）。
+    [Fact]
+    public void ParseClanList_ExtractsClanEntries()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "meta": { "count": 1, "page": 1, "total": 1 },
+              "data": [
+                {
+                  "clan_id": 2000035484,
+                  "name": "くろねこ海賊団 ～BLACK CAT～",
+                  "tag": "BCAT",
+                  "created_at": 1686446094,
+                  "members_count": 33
+                }
+              ]
+            }
+            """;
+
+        var clans = WgApiParser.ParseClanList(json);
+
+        var clan = Assert.Single(clans);
+        Assert.Equal("2000035484", clan.ClanId);
+        Assert.Equal("BCAT", clan.Tag);
+        Assert.Equal("くろねこ海賊団 ～BLACK CAT～", clan.Name);
+        Assert.Equal(33, clan.MembersCount);
+    }
+
+    [Fact]
+    public void ParseClanList_ErrorStatus_ReturnsEmpty()
+    {
+        const string json = """{ "status": "error", "error": { "message": "INVALID_SEARCH" } }""";
+
+        Assert.Empty(WgApiParser.ParseClanList(json));
+    }
+
+    [Fact]
+    public void ParseClanInfo_ExtractsMembers()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "meta": { "count": 1 },
+              "data": {
+                "2000035484": {
+                  "name": "くろねこ海賊団 ～BLACK CAT～",
+                  "tag": "BCAT",
+                  "members_count": 33,
+                  "members_ids": [2002288289, 2002300930, 3009054842]
+                },
+                "2000002405": null
+              }
+            }
+            """;
+
+        var clans = WgApiParser.ParseClanInfo(json);
+
+        Assert.True(clans.ContainsKey("2000035484"));
+        Assert.False(clans.ContainsKey("2000002405"));
+        var clan = clans["2000035484"];
+        Assert.Equal("BCAT", clan.Tag);
+        Assert.Equal(3, clan.MemberIds.Count);
+        Assert.Equal("2002288289", clan.MemberIds[0]);
+        Assert.Equal("3009054842", clan.MemberIds[2]);
+    }
+
+    [Fact]
+    public void ParseClanInfo_MissingMembersIds_ReturnsEmptyMemberList()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "meta": { "count": 1 },
+              "data": {
+                "2000031944": { "name": "Kemomimi", "members_count": 6, "tag": "KEMO" }
+              }
+            }
+            """;
+
+        var clans = WgApiParser.ParseClanInfo(json);
+
+        var clan = clans["2000031944"];
+        Assert.Empty(clan.MemberIds);
+        Assert.Equal(6, clan.MembersCount);
+    }
+
+    [Theory]
+    [InlineData(0.552, 46, 225112, ClanGradeTier.Unicum)]
+    [InlineData(0.55, 5, 5000, ClanGradeTier.Unicum)]
+    [InlineData(0.5499, 46, 225112, ClanGradeTier.Good)]
+    [InlineData(0.52, 5, 5000, ClanGradeTier.Good)]
+    [InlineData(0.5199, 46, 225112, ClanGradeTier.Normal)]
+    [InlineData(0.496, 42, 124316, ClanGradeTier.Normal)]
+    [InlineData(0.60, 4, 5000, ClanGradeTier.Normal)]
+    [InlineData(0.60, 5, 4999, ClanGradeTier.Normal)]
+    [InlineData(-1, 46, 225112, ClanGradeTier.Normal)]
+    public void Grade_ThresholdsMatchAggregatedWinrate(
+        double winrate, int visibleMembers, double totalBattles, ClanGradeTier expected)
+    {
+        Assert.Equal(expected, ClanGrading.Grade(winrate, visibleMembers, totalBattles));
+    }
+
+    [Fact]
+    public void NormalizeTag_StripsBrackets()
+    {
+        Assert.Equal("BCAT", ClanCatalogService.NormalizeTag("[BCAT]"));
+        Assert.Equal("BCAT", ClanCatalogService.NormalizeTag(" BCAT "));
+        Assert.Equal("BCAT", ClanCatalogService.NormalizeTag("[BCAT]"));
+        Assert.Equal(string.Empty, ClanCatalogService.NormalizeTag("[]"));
+        Assert.Equal(string.Empty, ClanCatalogService.NormalizeTag(""));
+    }
+
+    [Fact]
+    public void ClanGradeInfo_ColorKey_MapsTier()
+    {
+        Assert.Equal("UnicumBrush", new ClanGradeInfo { Grade = ClanGradeTier.Unicum }.ColorKey);
+        Assert.Equal("PrimaryFgBrush", new ClanGradeInfo { Grade = ClanGradeTier.Good }.ColorKey);
+        Assert.Equal(string.Empty, new ClanGradeInfo { Grade = ClanGradeTier.Normal }.ColorKey);
+    }
 }

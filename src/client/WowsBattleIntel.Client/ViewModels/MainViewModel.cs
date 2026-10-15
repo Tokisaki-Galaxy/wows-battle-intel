@@ -3,6 +3,7 @@ using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
+using WowsBattleIntel.Stats;
 
 namespace WowsBattleIntel.Client.ViewModels;
 
@@ -528,8 +529,12 @@ public sealed class MainViewModel : ViewModelBase
             .Where(p => p.AccountBattles < 0 || p.ShipBattles < 0)
             .ToList();
 
+        // 军团分档与统计补拉并行推进，缺统计名单为空时军团查询照常执行。
+        var clanTask = FetchClanGradesAsync(battle, version, token);
+
         if (missing.Count == 0)
         {
+            await clanTask.ConfigureAwait(false);
             return;
         }
 
@@ -555,12 +560,14 @@ public sealed class MainViewModel : ViewModelBase
         catch (OperationCanceledException)
         {
             // 已被新选择作废，静默退出。
+            await clanTask.ConfigureAwait(false);
             return;
         }
         catch (Exception ex)
         {
             // 网络失败或限流，保留占位符，用户重试即可。
             LogSink.Warn($"快照在线补拉失败: {ex.Message}");
+            await clanTask.ConfigureAwait(false);
             Post(() =>
             {
                 if (IsDetailsCurrent(version) && statusMessage == progressText)
@@ -599,6 +606,9 @@ public sealed class MainViewModel : ViewModelBase
                 .GetAwaiter()
                 .GetResult());
 
+        // 军团分档查询与本局玩家统计补拉并行推进，失败静默不影响名单展示。
+        await FetchClanGradesAsync(battle, version, token).ConfigureAwait(false);
+
         Post(() =>
         {
             if (!IsDetailsCurrent(version))
@@ -614,6 +624,99 @@ public sealed class MainViewModel : ViewModelBase
                 StatusMessage = "就绪";
             }
         });
+    }
+
+    /// <summary>
+    /// 查询本局出现的军团标签并填充分档，完成后刷新行着色与 ToolTip。
+    /// </summary>
+    /// <remarks>
+    /// 军团查询独立于玩家统计：缺统计名单为空时也要查军团，因此单独走一遍。
+    /// 失败静默，无分档时标签保持默认色。
+    /// </remarks>
+    private async Task FetchClanGradesAsync(BattleRecord battle, int version, CancellationToken token)
+    {
+        var clanCatalog = services.ClanCatalog;
+        var playersByTag = new Dictionary<string, List<PlayerRecord>>(StringComparer.Ordinal);
+        foreach (var player in battle.Players)
+        {
+            string tag = ClanCatalogService.NormalizeTag(player.ClanTag);
+            if (tag.Length == 0 || player.IsBot)
+            {
+                continue;
+            }
+
+            if (!playersByTag.TryGetValue(tag, out var list))
+            {
+                list = [];
+                playersByTag[tag] = list;
+            }
+
+            list.Add(player);
+        }
+
+        if (playersByTag.Count == 0)
+        {
+            return;
+        }
+
+        var server = battle.Players[0].Server;
+        try
+        {
+            var grades = await clanCatalog.GetGradesAsync(playersByTag.Keys, server, token).ConfigureAwait(false);
+            if (!IsDetailsCurrent(version))
+            {
+                return;
+            }
+
+            Post(() =>
+            {
+                foreach (var (tag, players) in playersByTag)
+                {
+                    if (!grades.TryGetValue(tag, out var info))
+                    {
+                        continue;
+                    }
+
+                    foreach (var player in players)
+                    {
+                        player.ClanColorKey = info.ColorKey;
+                    }
+
+                    string detail = BuildClanToolTip(info);
+                    foreach (var player in players)
+                    {
+                        var row = player.IsAlly
+                            ? allyRowsByAccount.GetValueOrDefault(player.AccountId)
+                            : enemyRowsByAccount.GetValueOrDefault(player.AccountId);
+                        row?.SetClanDetail(detail);
+                    }
+                }
+
+                RefreshRowsFor(version, battle.Players);
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // 已被新选择作废，静默退出。
+        }
+        catch (Exception ex)
+        {
+            LogSink.Warn($"军团分档查询失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 汇总军团 ToolTip 详情行：军团名、成员数与成员聚合胜率。
+    /// </summary>
+    internal static string BuildClanToolTip(ClanGradeInfo info)
+    {
+        string winratePart = info.AggregateWinrate >= 0
+            ? info.AggregateWinrate.ToString("P1")
+            : "未知";
+        string memberPart = info.MembersCount > 0
+            ? $"{info.MembersCount} 名成员"
+            : "成员数未知";
+        return $"{info.Name} | {memberPart} | 聚合胜率 {winratePart}";
     }
 
     /// <summary>

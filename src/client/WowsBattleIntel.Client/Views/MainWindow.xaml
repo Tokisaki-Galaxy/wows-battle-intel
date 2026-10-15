@@ -322,9 +322,41 @@
                             <DataTemplate>
                               <StackPanel>
                                 <StackPanel Orientation="Horizontal">
-                                  <TextBlock Text="{Binding PlayerLineText}"
-                                             Style="{StaticResource BodyTextStyle}"
-                                             TextTrimming="CharacterEllipsis" />
+                                  <!-- 军团标签按分档着色：紫会用 UnicumBrush，强会用 PrimaryFgBrush，
+                                       默认主文本色。无标签时整块收起，由昵称块独占。 -->
+                                  <TextBlock Text="{Binding ClanTagText}"
+                                             ToolTip="{Binding ClanToolTip}"
+                                             TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding HasClanTag}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ClanTagBrushKey}" Value="UnicumBrush">
+                                            <Setter Property="Foreground" Value="{StaticResource UnicumBrush}" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ClanTagBrushKey}" Value="PrimaryFgBrush">
+                                            <Setter Property="Foreground" Value="{StaticResource PrimaryFgBrush}" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
+                                  <TextBlock Text="{Binding PlayerNameText}"
+                                             TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                        <Setter Property="Margin" Value="0" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding HasClanTag}" Value="True">
+                                            <Setter Property="Margin" Value="4,0,0,0" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
                                   <Border VerticalAlignment="Top" Margin="3,1,0,0"
                                           Width="8" Height="8" CornerRadius="2"
                                           ToolTip="小队"
@@ -460,9 +492,41 @@
                             <DataTemplate>
                               <StackPanel>
                                 <StackPanel Orientation="Horizontal">
-                                  <TextBlock Text="{Binding PlayerLineText}"
-                                             Style="{StaticResource BodyTextStyle}"
-                                             TextTrimming="CharacterEllipsis" />
+                                  <!-- 军团标签按分档着色：紫会用 UnicumBrush，强会用 PrimaryFgBrush，
+                                       默认主文本色。无标签时整块收起，由昵称块独占。 -->
+                                  <TextBlock Text="{Binding ClanTagText}"
+                                             ToolTip="{Binding ClanToolTip}"
+                                             TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding HasClanTag}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ClanTagBrushKey}" Value="UnicumBrush">
+                                            <Setter Property="Foreground" Value="{StaticResource UnicumBrush}" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding ClanTagBrushKey}" Value="PrimaryFgBrush">
+                                            <Setter Property="Foreground" Value="{StaticResource PrimaryFgBrush}" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
+                                  <TextBlock Text="{Binding PlayerNameText}"
+                                             TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                        <Setter Property="Margin" Value="0" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding HasClanTag}" Value="True">
+                                            <Setter Property="Margin" Value="4,0,0,0" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
                                   <Border VerticalAlignment="Top" Margin="3,1,0,0"
                                           Width="8" Height="8" CornerRadius="2"
                                           ToolTip="小队"

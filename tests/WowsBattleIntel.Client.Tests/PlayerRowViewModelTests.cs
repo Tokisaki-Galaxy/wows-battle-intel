@@ -271,6 +271,70 @@ public class PlayerRowViewModelTests
         Assert.Equal("SoloPlayer", vm.PlayerLineText);
     }
 
+    [Fact]
+    public void ClanTagText_WrapsTagInBrackets()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClanTag = "ABC";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("[ABC]", vm.ClanTagText);
+        Assert.True(vm.HasClanTag);
+        Assert.Equal("A", vm.PlayerNameText);
+    }
+
+    [Fact]
+    public void ClanTagText_KeepsExistingBrackets()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClanTag = "[ABC]";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("[ABC]", vm.ClanTagText);
+    }
+
+    [Fact]
+    public void ClanTagText_EmptyTag_HasNoMark()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("SoloPlayer", 0.5, 100));
+        Assert.Equal(string.Empty, vm.ClanTagText);
+        Assert.False(vm.HasClanTag);
+        Assert.Equal(string.Empty, vm.ClanTagBrushKey);
+        Assert.Equal(string.Empty, vm.ClanToolTip);
+    }
+
+    [Fact]
+    public void ClanTagBrushKey_MapsClanColorKey()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClanTag = "OMNI";
+        player.ClanColorKey = "UnicumBrush";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal("UnicumBrush", vm.ClanTagBrushKey);
+        Assert.Contains("紫会", vm.ClanToolTip);
+    }
+
+    [Fact]
+    public void SetClanDetail_AppendsToolTipDetail()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClanTag = "OMNI";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        vm.SetClanDetail("Omniscient | 30 名成员 | 聚合胜率 56.0%");
+        Assert.Contains("Omniscient", vm.ClanToolTip);
+        Assert.Contains("30 名成员", vm.ClanToolTip);
+        Assert.Contains("56.0%", vm.ClanToolTip);
+    }
+
+    [Fact]
+    public void SetClanDetail_SameDetail_NoChange()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.ClanTag = "OMNI";
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        vm.SetClanDetail("detail");
+        vm.SetClanDetail("detail");
+        Assert.Equal("[OMNI]\ndetail", vm.ClanToolTip);
+    }
+
     [Theory]
     [InlineData(6, "BB VI TestShip")]
     [InlineData(7, "BB VII TestShip")]

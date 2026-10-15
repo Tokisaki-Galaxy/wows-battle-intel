@@ -22,6 +22,12 @@ public sealed class PlayerRecord
     /// <summary>公会标签快照，含方括号，如 [ABC]。</summary>
     public string ClanTag { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 军团分档的颜色资源键，空表示无标记。经 BrushKeyConverter 换成画刷，
+    /// 由军团目录查询填充，不参与持久化。
+    /// </summary>
+    public string ClanColorKey { get; set; } = string.Empty;
+
     /// <summary>阵营。true 为友方，false 为敌方。</summary>
     public bool IsAlly { get; set; }
 

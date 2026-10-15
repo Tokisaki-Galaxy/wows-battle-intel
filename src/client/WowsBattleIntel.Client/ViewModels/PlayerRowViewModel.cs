@@ -51,6 +51,11 @@ public sealed class PlayerRowViewModel : ViewModelBase
         // 依赖 source 的字段，这里统一通知一遍。
         OnPropertyChanged(nameof(PlayerName));
         OnPropertyChanged(nameof(ClanTag));
+        OnPropertyChanged(nameof(ClanTagText));
+        OnPropertyChanged(nameof(PlayerNameText));
+        OnPropertyChanged(nameof(ClanTagBrushKey));
+        OnPropertyChanged(nameof(HasClanTag));
+        OnPropertyChanged(nameof(ClanToolTip));
         OnPropertyChanged(nameof(ShipText));
         OnPropertyChanged(nameof(ShipTypeText));
         OnPropertyChanged(nameof(WeightedWinrateText));
@@ -144,15 +149,94 @@ public sealed class PlayerRowViewModel : ViewModelBase
     /// <summary>组队人数，1 为单排。</summary>
     public int DivisionSize => source?.DivisionSize ?? 1;
 
-    /// <summary>昵称完整形态：公会标签与昵称拼一段，ApeRadar 式单行展示。</summary>
+    /// <summary>
+    /// 昵称完整形态：公会标签与昵称拼一段，ApeRadar 式单行展示。
+    /// </summary>
+    /// <remarks>
+    /// 保留拼接属性供测试与日志使用，界面拆成 ClanTagText 与 PlayerNameText
+    /// 两个绑定分别着色。
+    /// </remarks>
     public string PlayerLineText
     {
         get
         {
-            string name = source?.PlayerName ?? string.Empty;
-            string tag = source?.ClanTag ?? string.Empty;
-            return string.IsNullOrEmpty(tag) ? name : $"[{tag}] {name}";
+            string name = PlayerNameText;
+            string tag = ClanTagText;
+            return tag.Length == 0 ? name : $"{tag} {name}";
         }
+    }
+
+    /// <summary>公会标签带方括号的展示形态，无标签为空串。</summary>
+    public string ClanTagText
+    {
+        get
+        {
+            string tag = source?.ClanTag ?? string.Empty;
+            if (tag.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            return tag.Length >= 2 && tag.StartsWith("[") ? tag : $"[{tag}]";
+        }
+    }
+
+    /// <summary>昵称展示形态。</summary>
+    public string PlayerNameText => source?.PlayerName ?? string.Empty;
+
+    /// <summary>
+    /// 军团标签的颜色资源键，按军团分档着色。空串经 BrushKeyConverter
+    /// 回落透明，配合 HasClanTag 可见性触发器隐藏占位。
+    /// </summary>
+    public string ClanTagBrushKey => source?.ClanColorKey ?? string.Empty;
+
+    /// <summary>是否有军团标签可展示。</summary>
+    public bool HasClanTag => ClanTagText.Length > 0;
+
+    /// <summary>军团 ToolTip 的详情行，由补拉链路填充，空为未查询。</summary>
+    private string? clanToolTipDetail;
+
+    /// <summary>
+    /// 军团 ToolTip：军团名、成员数与成员聚合胜率。
+    /// </summary>
+    /// <remarks>
+    /// 分档数据来自军团目录在线查询，未知时只给标签与分档名。
+    /// </remarks>
+    public string ClanToolTip
+    {
+        get
+        {
+            string tag = ClanTagText;
+            if (tag.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            string tagLine = source?.ClanColorKey switch
+            {
+                "UnicumBrush" => $"{tag} 紫会",
+                "PrimaryFgBrush" => $"{tag} 强会",
+                _ => tag,
+            };
+
+            return clanToolTipDetail is null
+                ? tagLine
+                : $"{tagLine}\n{clanToolTipDetail}";
+        }
+    }
+
+    /// <summary>
+    /// 填充军团 ToolTip 详情。军团目录查询完成后调用。
+    /// </summary>
+    public void SetClanDetail(string detail)
+    {
+        if (string.IsNullOrEmpty(detail) || string.Equals(clanToolTipDetail, detail, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        clanToolTipDetail = detail;
+        OnPropertyChanged(nameof(ClanToolTip));
     }
 
     /// <summary>舰船完整形态：舰种缩写、罗马数字等级与船名拼一段，如 "DD X 君权"。</summary>

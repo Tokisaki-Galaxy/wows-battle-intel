@@ -324,6 +324,106 @@ internal static class WgApiParser
     }
 
     /// <summary>
+    /// 单条军团信息。
+    /// </summary>
+    public sealed class ClanInfoEntry
+    {
+        public string ClanId { get; set; } = string.Empty;
+        public string Tag { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public int MembersCount { get; set; }
+
+        /// <summary>成员账号 ID 列表，clans/info 无该字段时为空。</summary>
+        public IReadOnlyList<string> MemberIds { get; set; } = [];
+    }
+
+    /// <summary>
+    /// 解析 clans/list 响应，返回各军团条目。
+    /// </summary>
+    public static IReadOnlyList<ClanInfoEntry> ParseClanList(string json)
+    {
+        var result = new List<ClanInfoEntry>();
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JArray data)
+        {
+            return result;
+        }
+
+        foreach (var item in data)
+        {
+            string? clanId = item["clan_id"]?.ToString();
+            string? tag = item["tag"]?.Value<string>();
+            if (string.IsNullOrEmpty(clanId) || string.IsNullOrEmpty(tag))
+            {
+                continue;
+            }
+
+            result.Add(new ClanInfoEntry
+            {
+                ClanId = clanId,
+                Tag = tag,
+                Name = item["name"]?.Value<string>() ?? string.Empty,
+                MembersCount = item["members_count"]?.Value<int?>() ?? 0,
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 解析 clans/info 响应，得到 clan_id 到军团条目的映射。
+    /// </summary>
+    /// <remarks>
+    /// 该端点可用字段为 name、tag、members_count、members_ids、description、
+    /// is_clan_disbanded 等。请求 loading_battles 等领土战字段会被 API 以
+    /// 407 INVALID_FIELDS 拒绝，不要往 fields 里加。
+    /// </remarks>
+    public static Dictionary<string, ClanInfoEntry> ParseClanInfo(string json)
+    {
+        var result = new Dictionary<string, ClanInfoEntry>(StringComparer.Ordinal);
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
+        {
+            return result;
+        }
+
+        foreach (var prop in data.Properties())
+        {
+            if (prop.Value is not JObject entry || entry["tag"] is null)
+            {
+                // 查不到的军团返回 null，跳过。
+                continue;
+            }
+
+            var memberIds = new List<string>();
+            if (entry["members_ids"] is JArray ids)
+            {
+                foreach (var id in ids)
+                {
+                    string? value = id.ToString();
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        memberIds.Add(value);
+                    }
+                }
+            }
+
+            result[prop.Name] = new ClanInfoEntry
+            {
+                ClanId = prop.Name,
+                Tag = entry["tag"]?.Value<string>() ?? string.Empty,
+                Name = entry["name"]?.Value<string>() ?? string.Empty,
+                MembersCount = entry["members_count"]?.Value<int?>() ?? 0,
+                MemberIds = memberIds,
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 从服务器枚举取 API 域名。
     /// </summary>
     public static string GetApiHost(Core.Models.GameServer server) => server switch
