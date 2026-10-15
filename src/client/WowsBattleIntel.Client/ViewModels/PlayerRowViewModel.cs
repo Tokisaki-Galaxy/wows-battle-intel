@@ -96,7 +96,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>舰船完整形态：罗马数字等级与船名拼一段。</summary>
+    /// <summary>舰船完整形态：舰种缩写、罗马数字等级与船名拼一段，如 "DD X 君权"。</summary>
     public string ShipLineText
     {
         get
@@ -104,7 +104,8 @@ public sealed class PlayerRowViewModel : ViewModelBase
             string ship = source is null
                 ? string.Empty
                 : string.IsNullOrEmpty(source.ShipName) ? source.ShipId : source.ShipName;
-            return string.IsNullOrEmpty(TierRoman) ? ship : $"{TierRoman} {ship}";
+            string prefix = $"{ShipClassLabel(ShipClass)} {TierRoman}".Trim();
+            return string.IsNullOrEmpty(prefix) ? ship : $"{prefix} {ship}".TrimEnd();
         }
     }
 

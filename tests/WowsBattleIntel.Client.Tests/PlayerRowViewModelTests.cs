@@ -229,16 +229,29 @@ public class PlayerRowViewModelTests
     }
 
     [Theory]
-    [InlineData(6, "VI TestShip")]
-    [InlineData(7, "VII TestShip")]
-    [InlineData(10, "X TestShip")]
-    [InlineData(11, "XI TestShip")]
+    [InlineData(6, "BB VI TestShip")]
+    [InlineData(7, "BB VII TestShip")]
+    [InlineData(10, "BB X TestShip")]
+    [InlineData(11, "BB XI TestShip")]
     public void ShipLineText_UsesRomanTier(int tier, string expected)
     {
         var player = MakePlayer("A", 0.5, 100, tier: tier);
         var vm = PlayerRowViewModel.FromPlayer(player);
         Assert.Equal(expected, vm.ShipLineText);
-        Assert.Equal(tier == 11 ? "XI" : expected.Split(' ')[0], vm.TierRoman);
+        Assert.Equal(tier == 11 ? "XI" : expected.Split(' ')[1], vm.TierRoman);
+    }
+
+    [Theory]
+    [InlineData(ShipClass.Carrier, "CV X TestShip")]
+    [InlineData(ShipClass.Battleship, "BB X TestShip")]
+    [InlineData(ShipClass.Cruiser, "CA X TestShip")]
+    [InlineData(ShipClass.Destroyer, "DD X TestShip")]
+    [InlineData(ShipClass.Submarine, "SS X TestShip")]
+    public void ShipLineText_PrefixesShipClass(ShipClass shipClass, string expected)
+    {
+        var player = MakePlayer("A", 0.5, 100, shipClass: shipClass);
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        Assert.Equal(expected, vm.ShipLineText);
     }
 
     [Fact]

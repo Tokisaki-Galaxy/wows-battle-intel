@@ -425,10 +425,6 @@ public sealed class MainViewModel : ViewModelBase
             currentPrediction = await services.Repository
                 .GetPredictionAsync(full.BattleId)
                 .ConfigureAwait(true);
-
-            StatusMessage = currentPrediction is null
-                ? "该局没有预测记录"
-                : $"预测对照 · {PredictionVerdict}";
         }
         catch (Exception ex)
         {

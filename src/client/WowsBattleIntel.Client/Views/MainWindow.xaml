@@ -306,10 +306,10 @@
                     </Grid>
                     <DataGrid ItemsSource="{Binding Allies}">
                       <DataGrid.Resources>
-                        <!-- 行背景按舰种着色，viewmodel 只给枚举，键名与色值留在主题层 -->
+                        <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
-                                  Value="{Binding DataContext.ShipClass, RelativeSource={RelativeSource Self}, Converter={StaticResource ShipClassBrushKeyConverter}, ConverterParameter=soft}" />
+                                  Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
                         </Style>
                       </DataGrid.Resources>
                       <DataGrid.Columns>
@@ -419,10 +419,10 @@
                     </Grid>
                     <DataGrid ItemsSource="{Binding Enemies}">
                       <DataGrid.Resources>
-                        <!-- 行背景按舰种着色，与友方同一套样式 -->
+                        <!-- 行背景按水平分档：与友方同一套样式 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
-                                  Value="{Binding DataContext.ShipClass, RelativeSource={RelativeSource Self}, Converter={StaticResource ShipClassBrushKeyConverter}, ConverterParameter=soft}" />
+                                  Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
                         </Style>
                       </DataGrid.Resources>
                       <DataGrid.Columns>

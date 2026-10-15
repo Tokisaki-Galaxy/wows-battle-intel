@@ -61,12 +61,16 @@
   <Color x:Key="ApeColor">#FFB05CF0</Color>
   <Color x:Key="HiddenColor">#FF7A8088</Color>
 
-  <!-- 舰种行底色：低透明着色，整行一眼分舰种，与 ApeRadar 的底色分块一致 -->
-  <Color x:Key="RowCvColor">#26FF6467</Color>
-  <Color x:Key="RowBbColor">#2600BC7D</Color>
-  <Color x:Key="RowCaColor">#264C8BF5</Color>
-  <Color x:Key="RowDdColor">#26FE9A00</Color>
-  <Color x:Key="RowSsColor">#2601B5CF</Color>
+  <!-- 舰种行底色：已弃用，保留占位注释说明语义迁移。行背景现按水平分档：海王紫、猴子红 -->
+  <Color x:Key="RowCvColor">#00000000</Color>
+  <Color x:Key="RowBbColor">#00000000</Color>
+  <Color x:Key="RowCaColor">#00000000</Color>
+  <Color x:Key="RowDdColor">#00000000</Color>
+  <Color x:Key="RowSsColor">#00000000</Color>
+
+  <!-- 水平行底色：海王紫、猴子红，低透明整行渲染 -->
+  <Color x:Key="RowUnicumColor">#2BB05CF0</Color>
+  <Color x:Key="RowApeColor">#2BFF6467</Color>
 
   <!-- 徽章三件套画刷：实色、柔底、同族描边，柔底 10% 同色 alpha，描边 28% -->
   <Color x:Key="OkSoftColor">#1A00BC7D</Color>
