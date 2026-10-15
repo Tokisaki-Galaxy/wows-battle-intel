@@ -48,6 +48,7 @@ public sealed class SettingsViewModel : ViewModelBase
 
         BrowseGamePathCommand = SyncCommand(_ => BrowseFolder(
             "选择游戏安装目录", GamePath, p => GamePath = p));
+        DetectGamePathCommand = SyncCommand(_ => DetectGamePath());
         BrowseDatabasePathCommand = SyncCommand(_ => BrowseFile(
             "选择数据库文件", "SQLite 数据库 (*.db)|*.db|所有文件 (*.*)|*.*", DatabasePath,
             p => DatabasePath = p));
@@ -200,6 +201,9 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>选择游戏目录命令。</summary>
     public System.Windows.Input.ICommand BrowseGamePathCommand { get; }
+
+    /// <summary>自动探测游戏目录命令。</summary>
+    public System.Windows.Input.ICommand DetectGamePathCommand { get; }
 
     /// <summary>选择数据库文件命令。</summary>
     public System.Windows.Input.ICommand BrowseDatabasePathCommand { get; }
@@ -403,6 +407,22 @@ public sealed class SettingsViewModel : ViewModelBase
         {
             apply(picked);
         }
+    }
+
+    /// <summary>
+    /// 自动探测游戏目录：先看运行中的游戏进程，再翻最近使用记录。
+    /// </summary>
+    private void DetectGamePath()
+    {
+        var found = GamePathDetector.Detect();
+        if (found is null)
+        {
+            StatusMessage = "未探测到游戏目录。请先开一局游戏再点探测，或手动浏览选择。";
+            return;
+        }
+
+        GamePath = found.GamePath;
+        StatusMessage = $"已探测到游戏目录（{found.Source}），记得保存。";
     }
 
     private void BrowseFile(string title, string filter, string current, Action<string> apply)
