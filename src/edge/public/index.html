@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>战舰世界战斗情报 - 下载</title>
   <meta name="description" content="战舰世界战斗情报与胜负预测工具，本地解析回放，赛前给出胜率预测。" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/icon.png" />
+  <link rel="apple-touch-icon" href="/icon.png" />
+  <meta property="og:image" content="/icon.png" />
   <style>
     /*
       设计令牌：与客户端 Tokens.Dark.xaml / Tokens.Light.xaml 同源翻译。
@@ -94,18 +98,18 @@
       padding: var(--space-xl) var(--space-md) 80px;
     }
 
-    /* 顶栏：产品名与状态点 */
+    /* 顶栏：产品图标与状态点 */
     .masthead {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       margin-bottom: var(--space-xl);
     }
-    .brand-bar {
-      width: 4px;
-      height: 20px;
-      border-radius: 2px;
-      background: var(--primary);
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: block;
     }
     .brand {
       font-size: 17px;
@@ -252,7 +256,7 @@
 <body>
   <div class="page">
     <header class="masthead">
-      <div class="brand-bar"></div>
+      <img class="brand-icon" src="/icon.png" alt="战舰世界战斗情报图标" width="32" height="32" />
       <div class="brand">战舰世界战斗情报</div>
     </header>
 
