@@ -52,53 +52,13 @@
     </DataTemplate>
   </Window.Resources>
 
-  <Grid Margin="{StaticResource SpacingLg}">
+  <Grid Margin="{StaticResource SpacingMd}">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <!-- 标题栏 -->
-    <Grid Grid.Row="0" Margin="0,0,0,12">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="Auto" />
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
-
-      <StackPanel Grid.Column="0" Orientation="Horizontal">
-        <TextBlock Text="战斗情报" Style="{StaticResource BrandTextStyle}" />
-        <Border Style="{StaticResource BadgeBorderStyle}"
-                Background="{StaticResource PrimarySoftBrush}"
-                BorderBrush="{StaticResource PrimaryBdBrush}"
-                Margin="12,0,0,0">
-          <TextBlock Text="{Binding ModelVersionText}"
-                     Style="{StaticResource BadgeTextStyle}"
-                     Foreground="{StaticResource PrimaryFgBrush}" />
-        </Border>
-      </StackPanel>
-
-      <TextBlock Grid.Column="1"
-                 Text="{Binding PredictorStatusText}"
-                 Style="{StaticResource SecondaryTextStyle}"
-                 HorizontalAlignment="Center"
-                 VerticalAlignment="Center"
-                 Margin="16,0"
-                 TextTrimming="CharacterEllipsis" />
-
-      <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-        <TextBlock Text="{Binding ObservationStatusText}"
-                   Style="{StaticResource SecondaryTextStyle}"
-                   VerticalAlignment="Center"
-                   Margin="0,0,12,0" />
-        <Button Content="{Binding ObservationButtonText}"
-                Command="{Binding ToggleObservationCommand}" />
-        <Button Content="刷新列表" Command="{Binding RefreshCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" />
-      </StackPanel>
-    </Grid>
-
     <!-- 主标签页 -->
-    <TabControl Grid.Row="1">
+    <TabControl Grid.Row="0">
       <!-- 对局情报 -->
       <TabItem Header="对局情报">
         <Grid Margin="0,12,0,0">
@@ -108,12 +68,35 @@
             <ColumnDefinition Width="*" />
           </Grid.ColumnDefinitions>
 
-          <!-- 左栏：对局列表，按实时与历史分区 -->
+          <!-- 左栏：对局列表，按实时与历史分区，头部带观测与刷新按钮 -->
           <Border Grid.Column="0" Style="{StaticResource CardStyle}">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="对局记录"
-                         Style="{StaticResource HeadingTextStyle}"
-                         Margin="{StaticResource SpacingSm}" />
+              <Grid DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="对局记录"
+                           Style="{StaticResource HeadingTextStyle}"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding ObservationStatusText}"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                  <Button Content="{Binding ObservationButtonText}"
+                          Command="{Binding ToggleObservationCommand}"
+                          Padding="8,3" />
+                  <Button Content="刷新"
+                          Command="{Binding RefreshCommand}"
+                          Style="{StaticResource PrimaryButtonStyle}"
+                          Padding="8,3"
+                          Margin="6,0,0,0" />
+                </StackPanel>
+              </Grid>
 
               <!-- 实时对局区：观测会话内入库，主色左边条标记 -->
               <StackPanel DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
@@ -175,37 +158,56 @@
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- 预测对照仪表：单行紧凑布局，胜率读数、对照结果、副标题与重算按钮 -->
+            <!-- 预测对照仪表：单行紧凑布局，胜率读数带置信度与三态对照结论、副标题与重算按钮 -->
             <Border Grid.Row="0" Style="{StaticResource CardStyle}" Margin="0,0,0,12">
-              <Grid Margin="{StaticResource SpacingLg}">
+              <Grid Margin="{StaticResource SpacingMd}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 胜率读数与对照结果同一行 -->
+                <!-- 胜率读数带模型置信度与对照结论，结论直接以颜色表达语义，省去标签层 -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                   <TextBlock Text="{Binding PredictedWinrateText}"
                              Style="{StaticResource DisplayTextStyle}"
                              Foreground="{StaticResource AllyBrush}"
                              VerticalAlignment="Center" />
-                  <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="对照结果"
-                               Style="{StaticResource SecondaryTextStyle}" />
-                    <TextBlock Text="{Binding PredictionVerdict}"
-                               Style="{StaticResource HeadingTextStyle}"
-                               Margin="0,1,0,0" />
-                  </StackPanel>
+                  <TextBlock Text="{Binding ModelConfidenceText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             ToolTip="模型置信度：预测概率偏离五五开的程度"
+                             VerticalAlignment="Bottom"
+                             Margin="8,0,0,4" />
+                  <!-- 对照结论三态着色：正确绿、错误红、待对照与平局灰 -->
+                  <TextBlock Text="{Binding PredictionVerdict}"
+                             VerticalAlignment="Center"
+                             Margin="14,0,0,0">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock" BasedOn="{StaticResource HeadingTextStyle}">
+                        <Setter Property="Foreground" Value="{StaticResource HiddenBrush}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding PredictionVerdict}" Value="预测正确">
+                            <Setter Property="Foreground" Value="{StaticResource WinBrush}" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding PredictionVerdict}" Value="预测错误">
+                            <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
                 </StackPanel>
 
-                <!-- 副标题独占中栏，底部对齐 -->
+                <!-- 副标题独占中栏，前置推理状态与模型标识，底部对齐 -->
                 <TextBlock Grid.Column="1"
-                           Text="{Binding BattleSubtitle}"
                            Style="{StaticResource SecondaryTextStyle}"
                            TextWrapping="Wrap"
                            VerticalAlignment="Bottom"
-                           Margin="24,0,0,2" />
+                           Margin="24,0,0,2">
+                  <Run Text="{Binding PredictorStatusText, Mode=OneWay}" />
+                  <Run Text="  ·  " />
+                  <Run Text="{Binding BattleSubtitle, Mode=OneWay}" />
+                </TextBlock>
 
                 <!-- 重算胜率按钮 -->
                 <Button Grid.Column="2"

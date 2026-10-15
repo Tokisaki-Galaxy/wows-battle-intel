@@ -185,13 +185,6 @@ public sealed class MainViewModel : ViewModelBase
         ? "-"
         : DisplayCalibration.ClampForDisplay(currentPrediction.EnemyWinProbability).ToString("P1");
 
-    /// <summary>
-    /// 友方概率条占比，0 到 1。概率条用两列网格分割，此值决定友方列的宽度。
-    /// </summary>
-    public double AllyProbabilityRatio => currentPrediction is null
-        ? 0.5
-        : Math.Clamp(currentPrediction.AllyWinProbability, 0.0, 1.0);
-
     /// <summary>友方视角的态势分层文案，由展示层概率分档得出。</summary>
     public string TierText => currentPrediction is null
         ? "-"
@@ -223,14 +216,6 @@ public sealed class MainViewModel : ViewModelBase
             return predictedWin == actualWin ? "预测正确" : "预测错误";
         }
     }
-
-    /// <summary>置信度显示文本。Confidence 语义为战绩覆盖率，保留旧绑定兼容。</summary>
-    public string ConfidenceText => DataCoverageText;
-
-    /// <summary>数据完整度显示文本，即预测所依赖的战绩覆盖率。</summary>
-    public string DataCoverageText => currentPrediction is null
-        ? "-"
-        : $"{currentPrediction.Confidence:P0}";
 
     /// <summary>
     /// 模型置信度显示文本。由预测概率推导，离五五开越远置信越高。
@@ -948,13 +933,10 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(BattleSubtitle));
         OnPropertyChanged(nameof(PredictedWinrateText));
         OnPropertyChanged(nameof(EnemyWinrateText));
-        OnPropertyChanged(nameof(AllyProbabilityRatio));
         OnPropertyChanged(nameof(TierText));
         OnPropertyChanged(nameof(TierBrushKey));
         OnPropertyChanged(nameof(PredictionVerdict));
-        OnPropertyChanged(nameof(DataCoverageText));
         OnPropertyChanged(nameof(ModelConfidenceText));
-        OnPropertyChanged(nameof(ConfidenceText));
         OnPropertyChanged(nameof(ModelVersionText));
     }
 

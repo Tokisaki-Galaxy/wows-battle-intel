@@ -150,10 +150,7 @@ public class MainViewModelTests
         vm.SelectedBattleSummary = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
-        // 覆盖率来自 Confidence，模型置信度由概率推导，两个数字必须分开。
-        Assert.Equal("75%", vm.DataCoverageText);
         Assert.Equal("36%", vm.ModelConfidenceText);
-        Assert.Equal(0.68, vm.AllyProbabilityRatio);
     }
 
     [Fact]
@@ -168,10 +165,8 @@ public class MainViewModelTests
         vm.SelectedBattleSummary = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
-        // 无预测时模型置信度显示占位符，概率条保持中线。
+        // 无预测时模型置信度显示占位符。
         Assert.Equal("-", vm.ModelConfidenceText);
-        Assert.Equal("-", vm.DataCoverageText);
-        Assert.Equal(0.5, vm.AllyProbabilityRatio);
     }
 
     [Fact]
@@ -314,8 +309,6 @@ public class MainViewModelTests
         Assert.Equal("5.0%", vm.EnemyWinrateText);
         Assert.Equal("明显优势", vm.TierText);
         Assert.Equal("WinBrush", vm.TierBrushKey);
-        // 概率条保持原始值，截断只发生在展示读数。
-        Assert.Equal(0.997, vm.AllyProbabilityRatio, precision: 10);
     }
 
     [Fact]

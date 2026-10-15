@@ -179,7 +179,7 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// 解析模型路径。空值时探测仓库 data/models 下的默认模型。
+    /// 解析模型路径。空值时探测仓库 data/models 或发布包 models 下的默认模型。
     /// </summary>
     private static string ResolveModelPath(string value)
     {
@@ -199,6 +199,15 @@ public sealed class AppConfig
             }
         }
 
+        // 发布包场景：模型随包分发在主程序同级 models 目录。
+        // 单文件发布的 Assembly.Location 为空，必须用 AppContext.BaseDirectory。
+        string packageCandidate = Path.Combine(
+            AppContext.BaseDirectory, "models", "baseline.onnx");
+        if (File.Exists(packageCandidate))
+        {
+            return packageCandidate;
+        }
+
         return string.Empty;
     }
 
@@ -209,15 +218,16 @@ public sealed class AppConfig
         Path.IsPathRooted(value) ? value : Path.GetFullPath(value);
 
     /// <summary>
-    /// 从程序集位置向上查找仓库的 data 目录。
+    /// 从应用基目录向上查找仓库的 data 目录。
     /// </summary>
     /// <remarks>
-    /// 开发场景下程序集位于 仓库\src\client\*\bin\Debug\net10.0-windows，
+    /// 开发场景下应用基目录位于 仓库\src\client\*\bin\Debug\net10.0-windows，
     /// 逐级上溯最多十层即可覆盖仓库根。找不到返回 null。
+    /// 单文件发布下 Assembly.Location 为空，必须用 AppContext.BaseDirectory。
     /// </remarks>
     private static string? FindRepoDataDirectory()
     {
-        string? dir = Path.GetDirectoryName(typeof(AppConfig).Assembly.Location);
+        string? dir = AppContext.BaseDirectory;
         for (int i = 0; dir is not null && i < 10; i++)
         {
             string candidate = Path.Combine(dir, "data");
