@@ -314,15 +314,14 @@
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
   </Style>
 
-  <!-- 数据表格：发丝线行分隔，hover 走 control-hover -->
+  <!-- 数据表格：发丝线行分隔。行背景交给使用方，这里不设 RowBackground，
+       避免 DataGrid 把 Transparent 作为本地值写到每行，压过视图层的行色绑定 -->
   <Style TargetType="DataGrid">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="GridLinesVisibility" Value="Horizontal" />
     <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource HairlineBrush}" />
-    <Setter Property="RowBackground" Value="Transparent" />
-    <Setter Property="AlternatingRowBackground" Value="Transparent" />
     <Setter Property="HeadersVisibility" Value="Column" />
     <Setter Property="IsReadOnly" Value="True" />
     <Setter Property="AutoGenerateColumns" Value="False" />

@@ -303,10 +303,9 @@
                       </StackPanel>
                     </Grid>
                     <DataGrid ItemsSource="{Binding Allies}">
-                      <DataGrid.Resources>
+                      <DataGrid.RowStyle>
                         <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明。
-                             BasedOn 隐式 DataGridRow 样式，hover 反馈在主题 DataGrid 隐式样式的 RowStyle 中已移除，
-                             这里补充 hover 触发避免与背景绑定打架 -->
+                             直接挂 RowStyle 而非资源字典隐式样式，挂载点明确，避免优先级歧义 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
@@ -316,7 +315,7 @@
                             </Trigger>
                           </Style.Triggers>
                         </Style>
-                      </DataGrid.Resources>
+                      </DataGrid.RowStyle>
                       <DataGrid.Columns>
                         <DataGridTemplateColumn Header="玩家" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
@@ -423,7 +422,7 @@
                       </StackPanel>
                     </Grid>
                     <DataGrid ItemsSource="{Binding Enemies}">
-                      <DataGrid.Resources>
+                      <DataGrid.RowStyle>
                         <!-- 行背景按水平分档：与友方同一套样式 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
@@ -434,7 +433,8 @@
                             </Trigger>
                           </Style.Triggers>
                         </Style>
-                      </DataGrid.Resources>                      <DataGrid.Columns>
+                      </DataGrid.RowStyle>
+                      <DataGrid.Columns>
                         <DataGridTemplateColumn Header="玩家" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
