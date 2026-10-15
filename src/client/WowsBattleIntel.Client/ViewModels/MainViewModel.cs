@@ -45,6 +45,10 @@ public sealed class MainViewModel : ViewModelBase
     private bool isBusy;
     private bool isObserving;
 
+    // 赛前链路在途状态：临时名单触发过展示后为 true，正式回放入库后复位。
+    // 防止同一局的 tempArenaInfo 在轮询窗口内反复触发整条链路。
+    private string? preBattleKey;
+
     /// <summary>
     /// 补拉进度轮询的间隔。补拉按玩家逐个推进，每次到点把已落地的
     /// 数据刷上界面，200 毫秒约对应一到两名玩家的节奏。
@@ -88,6 +92,7 @@ public sealed class MainViewModel : ViewModelBase
 
         services.Monitor.BattleIngested += OnBattleIngested;
         services.Monitor.IngestionFailed += OnIngestionFailed;
+        services.ArenaWatcher.PreBattleDiscovered += OnPreBattleDiscovered;
 
         UpdatePredictionStatus();
     }
@@ -239,15 +244,20 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>对局标题。</summary>
     public string BattleTitle => selectedBattle is null
         ? "未选择对局"
-        : $"{selectedBattle.MapId} · {DisplayLabels.BattleType(selectedBattle.BattleType)}";
+        : selectedBattle.MapId.Length == 0
+            ? $"赛前名单 · {DisplayLabels.BattleType(selectedBattle.BattleType)}"
+            : $"{selectedBattle.MapId} · {DisplayLabels.BattleType(selectedBattle.BattleType)}";
 
-    /// <summary>对局副标题，含时间、服务器、时长与结果。</summary>
+    /// <summary>对局副标题，含时间、服务器、时长与结果。赛前态不显示时长与结果。</summary>
     public string BattleSubtitle => selectedBattle is null
         ? string.Empty
-        : $"{selectedBattle.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm} · "
-          + $"{DisplayLabels.Server(selectedBattle.Server)} · "
-          + $"时长 {DisplayLabels.Duration(selectedBattle.DurationSeconds)} · "
-          + $"结果 {DisplayLabels.Outcome(actualOutcome)}";
+        : selectedBattle.MapId.Length == 0
+            ? $"{selectedBattle.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm} · "
+              + $"{DisplayLabels.Server(selectedBattle.Server)} · 赛前预测"
+            : $"{selectedBattle.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm} · "
+              + $"{DisplayLabels.Server(selectedBattle.Server)} · "
+              + $"时长 {DisplayLabels.Duration(selectedBattle.DurationSeconds)} · "
+              + $"结果 {DisplayLabels.Outcome(actualOutcome)}";
 
     /// <summary>预测概率显示文本。展示层夹到 [0.05, 0.95]，入库值保持原始。</summary>
     public string PredictedWinrateText => currentPrediction is null
@@ -952,6 +962,10 @@ public sealed class MainViewModel : ViewModelBase
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
         });
+
+        // 正式回放入库后清掉赛前判重键：下一局的 tempArenaInfo 是新对局，
+        // 要能再次触发。同局重复回放靠 BattleId 天然幂等，无需担忧。
+        Post(() => preBattleKey = null);
     }
 
     private void OnIngestionFailed(string replayPath, string message)
@@ -961,6 +975,74 @@ public sealed class MainViewModel : ViewModelBase
             StatusMessage = $"回放处理失败: {message}";
             OnPropertyChanged(nameof(ObservationStatusText));
         });
+    }
+
+    /// <summary>
+    /// 赛前链路入口：tempArenaInfo.json 出现时立即展示名单并出预测。
+    /// </summary>
+    /// <remarks>
+    /// 观测线程回调，全部界面操作经 Post 投回界面线程。同一局按
+    /// BattleId 判重：游戏写文件期间 watcher 可能多次读到，只有新对局
+    /// 才走完整链路。正式回放入库后走既有 OnBattleIngested，赛前态被覆盖。
+    /// </remarks>
+    private void OnPreBattleDiscovered(BattleRecord battle)
+    {
+        Post(() => _ = HandlePreBattleAsync(battle));
+    }
+
+    private async Task HandlePreBattleAsync(BattleRecord battle)
+    {
+        // 同局判重：BattleId 由时间与参战者集合生成，稳定可复现。
+        if (preBattleKey == battle.BattleId)
+        {
+            return;
+        }
+        preBattleKey = battle.BattleId;
+
+        LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType}");
+        StatusMessage = $"已捕获对局名单（{DisplayLabels.BattleType(battle.BattleType)}），预测生成中...";
+
+        // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
+        // 渐进补拉链路。Outcome 保持 Unknown，对照徽章自然显示"待对照"。
+        SelectedBattleSummary = null;
+        SelectedBattle = battle;
+
+        // 预测不落库：赛前记录不进 battles 表，预测只留在内存供展示。
+        // 正式回放入库时会算一份落库版本，以它为准做赛后对照。
+        try
+        {
+            var enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
+            {
+                var account = services.Repository
+                    .GetLatestSnapshotAsync(accountId, server)
+                    .GetAwaiter()
+                    .GetResult();
+                if (string.IsNullOrEmpty(shipId))
+                {
+                    return account;
+                }
+
+                return services.Repository
+                    .GetLatestShipSnapshotAsync(accountId, server, shipId)
+                    .GetAwaiter()
+                    .GetResult() ?? account;
+            });
+
+            var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
+            currentPrediction = prediction;
+
+            StatusMessage = $"赛前预测就绪 · {prediction.ModelVersion}";
+            LogSink.Info($"赛前预测完成: 概率 {prediction.AllyWinProbability:F3}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"赛前预测失败: {ex.Message}";
+            LogSink.Warn($"赛前预测失败: {ex.Message}");
+        }
+        finally
+        {
+            NotifyDetailsChanged();
+        }
     }
 
     private async Task RefreshAfterIngestionAsync()
