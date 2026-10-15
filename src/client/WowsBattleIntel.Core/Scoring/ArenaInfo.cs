@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+
 namespace WowsBattleIntel.Core.Scoring;
 
 /// <summary>
@@ -12,7 +14,13 @@ public sealed class ArenaInfo
     /// <summary>对局分组原始字符串，如 RANDOM、RANKED、COOP。</summary>
     public string MatchGroup { get; set; } = string.Empty;
 
-    /// <summary>对局开始时间，由 dateTime 字段按本地时区解析而来。</summary>
+    /// <summary>游戏写出的原始时间字符串，格式 dd.MM.yyyy HH:mm:ss，本地时区。</summary>
+    /// <remarks>仅供 <see cref="ArenaInfoParser"/> 解析用，外部请读 <see cref="StartedAt"/>。</remarks>
+    [JsonProperty("dateTime")]
+    internal string? RawStartedAt { get; set; }
+
+    /// <summary>对局开始时间，由 dateTime 按本地时区解析而来。</summary>
+    [JsonIgnore]
     public DateTimeOffset StartedAt { get; set; }
 
     /// <summary>服务器缩写，如 ASIA、CN、EU。</summary>
