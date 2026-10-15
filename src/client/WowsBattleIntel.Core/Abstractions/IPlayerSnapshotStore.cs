@@ -39,6 +39,16 @@ public interface IPlayerSnapshotStore
     /// </summary>
     Task<(int PlayerCount, int SnapshotCount)> GetSnapshotStatsAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 取指定时间点之后采过快照的账号键集合。
+    /// </summary>
+    /// <remarks>
+    /// 账号键为 accountId:server。供采集命令做断点续传：当天已采过的玩家跳过。
+    /// </remarks>
+    Task<IReadOnlySet<string>> GetSnapshotAccountKeysSinceAsync(
+        DateTimeOffset since,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -36,7 +36,7 @@ internal static class Program
                 "backtest" => RunBacktest(args),
                 "survey" => RunSurvey(args),
                 "import" => RunImport(args),
-                "snapshot" => RunSnapshot(args),
+                "snapshot" => RunSnapshot(args).GetAwaiter().GetResult(),
                 "predict" => RunPredict(args),
                 "onnx" => RunOnnx(args),
                 "history-backtest" => RunHistoryBacktest(args),
@@ -465,7 +465,7 @@ internal static class Program
     /// 训练时应只取对局开始时间之前的快照。若历史数据为事后补采，
     /// 评估结果会偏乐观，需在报告中标注。
     /// </remarks>
-    private static int RunSnapshot(string[] args)
+    private static async Task<int> RunSnapshot(string[] args)
     {
         if (args.Length < 2)
         {
@@ -503,7 +503,22 @@ internal static class Program
             players = players.Take(limit).ToList();
         }
 
-        Console.WriteLine($"库中出现 {players.Count} 个玩家，开始拉取当前统计");
+        // 断点续传：剔除今天已采过快照的玩家，中断后重跑不浪费请求。
+        // 按自然日判断，隔天重跑会全部重采，那是期望行为。
+        var todayStart = DateTimeOffset.Now.Date;
+        var doneKeys = await repository.GetSnapshotAccountKeysSinceAsync(todayStart)
+            .ConfigureAwait(true);
+        int skipped = players.Count(p => doneKeys.Contains($"{p.AccountId}:{p.Server}"));
+        players.RemoveAll(p => doneKeys.Contains($"{p.AccountId}:{p.Server}"));
+
+        Console.WriteLine($"库中出现 {players.Count + skipped} 个玩家，今天已采 {skipped} 个，本次待采 {players.Count} 个");
+        if (players.Count == 0)
+        {
+            Console.WriteLine("全部玩家今天均已采集，无需重跑。");
+            return 0;
+        }
+
+        Console.WriteLine("开始拉取当前统计");
         if (fast)
         {
             Console.WriteLine("快速模式: 跳过单船查询，只拉账号统计");
@@ -522,6 +537,7 @@ internal static class Program
         var snapshots = new List<PlayerSnapshot>();
         int processed = 0;
         int withData = 0;
+        int failedPlayers = 0;
 
         // 快速模式批量 100（API 上限），普通模式 20 以免单船查询过多。
         int batchSize = fast ? 100 : 20;
@@ -537,6 +553,8 @@ internal static class Program
             }
             catch (Exception ex)
             {
+                // 批次失败记数但不中断，重跑会自动补这些玩家。
+                failedPlayers += batch.Count;
                 Console.Error.WriteLine($"\n  批次失败: {ex.Message}");
                 continue;
             }
@@ -568,6 +586,11 @@ internal static class Program
             .GetAwaiter().GetResult();
 
         Console.WriteLine($"采集完成: {withData} 个有效统计已落盘");
+        if (failedPlayers > 0)
+        {
+            Console.WriteLine($"批次失败 {failedPlayers} 个玩家未采集，重跑本命令将自动补采");
+        }
+
         Console.WriteLine($"库中快照: {snapshotCount} 条，覆盖 {playerCount} 个玩家");
         Console.WriteLine();
         Console.WriteLine("注意: 本次为事后补采，时间戳为当前时刻。");

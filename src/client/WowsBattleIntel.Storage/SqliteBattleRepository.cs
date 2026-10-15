@@ -936,6 +936,31 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlySet<string>> GetSnapshotAccountKeysSinceAsync(
+        DateTimeOffset since,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT DISTINCT account_id || ':' || server
+            FROM player_snapshots
+            WHERE captured_at >= $since;
+            """;
+        command.Parameters.AddWithValue("$since", since.ToUnixTimeMilliseconds());
+
+        var keys = new HashSet<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            keys.Add(reader.GetString(0));
+        }
+
+        return keys;
+    }
+
+    /// <inheritdoc />
     public async Task<int> DeleteSnapshotsOlderThanAsync(
         DateTimeOffset cutoff,
         CancellationToken cancellationToken = default)
