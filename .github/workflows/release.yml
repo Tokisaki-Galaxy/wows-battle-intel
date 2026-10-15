@@ -24,13 +24,13 @@ jobs:
     name: 构建与发布
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # git describe 需要完整历史拿 tag 距离。
           fetch-depth: 0
 
       - name: 安装 .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -97,7 +97,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: 上传构建产物（调试用，随时可下）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portable
           path: |
