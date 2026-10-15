@@ -5,7 +5,7 @@
 
 ## 背景
 
-客户端目前以绿色免安装 zip 分发：`tools/publish.ps1` 产出框架依赖单文件主 exe，onnxruntime.dll 等原生 dll 散置根目录，外加 models 目录、config 模板与 README。仓库即将转 public，正式分发渠道定为 GitHub Releases。
+客户端目前以绿色免安装 zip 分发：`tools/publish.ps1` 产出框架依赖单文件主 exe，onnxruntime.dll 等原生库由 .NET SDK 内嵌进单文件包，外加 models 目录、config 模板与 README。仓库即将转 public，正式分发渠道定为 GitHub Releases。
 
 服务端 Cloudflare Worker 已有 `/api/v1/models` 端点覆盖 ONNX 模型版本查询，客户端本体的更新通道尚未建立。用户手工下载新 zip 替换目录的方式不可持续，需要一套自动更新机制，且必须兼容绿色免安装形态，不引入安装器，不改目录结构。
 
@@ -34,7 +34,7 @@
 
 这是本次选型的核心关注点，结论：兼容，无需改目录结构。
 
-- `vpk pack` 的输入 `--packDir` 接受任意 `dotnet publish` 产物目录。框架依赖单文件 exe、散置的原生 dll、models 子目录全部按原样进入更新包，Velopack 只做目录打包与差分，不重排文件。
+- `vpk pack` 的输入 `--packDir` 接受任意 `dotnet publish` 产物目录。框架依赖单文件 exe（原生库内嵌）、models 子目录全部按原样进入更新包，Velopack 只做目录打包与差分，不重排文件。
 - Velopack 不强制安装器形态。`vpk pack` 默认同时产出 `Setup.exe` 与 `Portable.zip`，两者来自同一套 nupkg 资产。我们只分发 `Portable.zip`，Setup 丢弃即可。
 - 安装器形态下 Velopack 会把程序放 `{root}\current\` 并管理快捷方式；portable 形态解包即用，程序就在解压目录根，更新时由 Velopack 在应用目录旁维护 packages 目录并原子换文件，不迁移目录。
 - 需要接受的两处小变化：解包产物里会多出 Velopack 自身的少量文件，如 `Velopack.dll` 与更新辅助文件；`Main` 入口最前面必须调用 `VelopackApp.Build().Run()`，用于处理更新钩子。这两点不影响原有目录布局逻辑，models 目录、config 探测路径均不变。
@@ -122,7 +122,7 @@ releases.win.json                         # 必需，更新 feed，GithubSource 
 ### 限流
 
 - 元数据查询走 GitHub REST API，未认证限额 60 次/时/IP，认证后 5000 次/时。启动节流至 6 小时一次后，单用户每小时最多 4 次查询，安全。
-- 资产下载走 `objects.githubusercontent.com` CDN，不受 API 限流约束，全量包 15 MB 级下载无压力。
+- 资产下载走 `objects.githubusercontent.com` CDN，不受 API 限流约束，全量包 4 MB 级下载无压力。
 
 ## 发布脚本衔接
 
@@ -162,7 +162,7 @@ vpk upload github --repoUrl <owner>/wows-battle-intel `
 
 **版本号纪律。** 三段 semver 强制约束发布流程，`publish.ps1` 的版本来源逻辑必须改造，CI 与本地发布的版本规整规则要保持一致。
 
-**portable 自更新的形态验证。** Velopack 对 portable zip 的自更新是官方支持的路径，但本项目「单文件 exe + 原生 dll 散置」的具体组合仍需在采纳初期用真实包跑一轮端到端验证：检查、下载、应用、重启后文件完整性。若有意外，退路是 NetSparkle 或自研，目录形态完全不动。
+**portable 自更新的形态验证。** Velopack 对 portable zip 的自更新是官方支持的路径。本项目「单文件 exe（原生库内嵌）」组合已于 2026-10-15 用真实包验证：vpk pack 产出 Portable.zip 解包后主程序于 current 目录正常启动，冒烟存活无崩溃。端到端更新链路（检查、下载、应用、重启）待首个 Release 上线后实测。若有意外，退路是 NetSparkle 或自研，目录形态完全不动。
 
 **锁定单一上游。** 更新通道由 Velopack 托管，feed 格式与换文件机制绑定其实现。缓解是 feed 本质是静态 json 与 nupkg，极端情况下可手工构造。
 

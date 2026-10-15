@@ -6,7 +6,12 @@
 发布 WPF 客户端与 CLI 工具，按 ApeRadar 风格布局打包成 zip：
 根目录主 exe，原生 DLL，models 目录放 ONNX 模型，README 与 config 模板。
 产物为框架依赖单文件（需要用户已安装 .NET 10 桌面运行时），
-体积约 15 MB，自包含方案约 148 MB 不采用。
+原生库由 SDK 内嵌进单文件包，总体积约 4 MB，自包含方案约 148 MB 不采用。
+
+产出两类分发物：
+- 普通绿色 zip：解压即用，不支持自更新。
+- Velopack 包（-SkipVelopack 关闭时）：Portable.zip + nupkg + releases.win.json，
+  客户端可自动更新，上传 GitHub Releases 后生效。见 docs/decisions/0007-auto-update.md。
 
 .EXAMPLE
 pwsh tools/publish.ps1
@@ -16,6 +21,7 @@ pwsh tools/publish.ps1 -Version 0.2.0 -SkipCli
 [CmdletBinding()]
 param(
     # 版本号，默认取 git describe，无标签时回退到构建日期。
+    # Velopack 要求三段 semver，非三段版本会被自动规整。
     [string]$Version,
 
     # 产物输出目录。
@@ -24,12 +30,34 @@ param(
     # 跳过 CLI 工具发布。
     [switch]$SkipCli,
 
+    # 跳过 Velopack 打包，只出普通 zip。
+    [switch]$SkipVelopack,
+
     # 打包后启动客户端做冒烟验证，5 秒后结束进程。
     [switch]$SmokeTest
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+function ConvertTo-Semver {
+    <#
+    .SYNOPSIS
+    把任意版本串规整为 Velopack 接受的三段 semver。
+    #>
+    param([string]$Raw)
+
+    # 0.2.0 这类已是三段的直接放行。
+    if ($Raw -match '^\d+\.\d+\.\d+$') { return $Raw }
+
+    # git describe 带提交数的：v0.2.0-3-gabcdef -> 0.2.0（放弃提交数，保证递增靠 tag）。
+    if ($Raw -match '^(\d+)\.(\d+)\.(\d+)') { return "$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+
+    # 八位日期：20261015 -> 2026.10.15。
+    if ($Raw -match '^(\d{4})(\d{2})(\d{2})$') { return "$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+
+    throw "无法规整版本号为三段 semver: $Raw（请用 -Version 传入 1.2.3 形式）"
+}
 
 # 立即退出并返回非零码，供 CI 与外层脚本判断。
 trap {
@@ -49,6 +77,17 @@ try {
             $Version = Get-Date -Format "yyyyMMdd"
         }
     }
+
+    # 无标签仓库 git describe --always 退化为短哈希（如 af27fff），规整不出
+    # semver。能规整才用，否则回退日期，保证任何仓库状态下脚本都能跑。
+    $semver = try { ConvertTo-Semver $Version } catch { $null }
+    if (-not $semver) {
+        $Version = Get-Date -Format "yyyyMMdd"
+        $semver = ConvertTo-Semver $Version
+    }
+
+    # Velopack 只认三段 semver。git describe 的 v0.2.0-3-gabcdef 截为主版本，
+    # 八位日期映射为 日期形式。普通 zip 名保留原始版本串不动。
 
     $zipName = "wows-battle-intel-$Version-win-x64.zip"
     $stage = Join-Path $OutputDir "wows-battle-intel-$Version-win-x64"
@@ -124,6 +163,35 @@ try {
 
     $zipMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
     Write-Host "[publish] 完成: $zipPath ($zipMb MB)"
+
+    if (-not $SkipVelopack) {
+        Write-Host "[publish] Velopack 打包（semver $semver）..."
+        if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
+            throw "未找到 vpk 命令。请先执行: dotnet tool install -g vpk"
+        }
+
+        $vpkOut = Join-Path $OutputDir "velopack"
+        if (Test-Path $vpkOut) { Remove-Item $vpkOut -Recurse -Force }
+
+        # 输入就是现有 stage 目录，Velopack 只读不改。主 exe 名与 packId
+        # 不同，--mainExe 不可省。
+        vpk pack `
+            --packId WowsBattleIntel `
+            --packVersion $semver `
+            --packDir $stage `
+            --mainExe WowsBattleIntel.Client.exe `
+            --exclude '.*\.pdb' `
+            --outputDir $vpkOut
+        if ($LASTEXITCODE -ne 0) { throw "vpk pack 失败，退出码 $LASTEXITCODE" }
+
+        $portable = Get-ChildItem $vpkOut -Filter "*-Portable.zip" | Select-Object -First 1
+        if (-not $portable) { throw "vpk 产物缺少 Portable.zip: $vpkOut" }
+
+        $vpkMb = [math]::Round($portable.Length / 1MB, 1)
+        Write-Host "[publish] Velopack 完成: $vpkOut ($vpkMb MB)"
+        Write-Host "[publish] 发布到 GitHub Releases 时上传 $vpkOut 下全部 nupkg 与 releases.win.json，"
+        Write-Host "[publish] Portable.zip 一并上传作为新用户下载物。命令: vpk upload github --publish ..."
+    }
 }
 finally {
     Pop-Location

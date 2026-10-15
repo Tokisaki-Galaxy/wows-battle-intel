@@ -49,6 +49,14 @@ public sealed class AppConfig
     /// <summary>主题：system 跟随系统、light 浅色、dark 深色。默认跟随系统。</summary>
     public string Theme { get; set; } = "system";
 
+    /// <summary>自动更新开关。默认开启，关闭后启动不再检查新版本。</summary>
+    public bool AutoUpdate { get; set; } = true;
+
+    /// <summary>
+    /// GitHub 访问令牌，供私有仓库期间拉取更新 feed。可空，仓库转 public 后留空即可。
+    /// </summary>
+    public string GithubToken { get; set; } = string.Empty;
+
     /// <summary>配置文件路径。</summary>
     /// <remarks>
     /// 测试可通过 <see cref="ConfigPathOverride"/> 重定向，避免测试写盘污染真实配置。

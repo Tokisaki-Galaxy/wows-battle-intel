@@ -24,6 +24,12 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Velopack 更新钩子必须最先执行，处理安装/更新/卸载回调。
+        // 短钩子运行完即返回，不影响正常启动路径。
+        Velopack.VelopackApp.Build()
+            .SetLogger(new VelopackLogAdapter())
+            .Run();
+
         // 界面用简体中文习惯的格式。
         var culture = new CultureInfo("zh-CN");
         CultureInfo.DefaultThreadCurrentCulture = culture;
@@ -45,6 +51,9 @@ public partial class App : Application
             {
                 Services.StartObservation();
             }
+
+            // 延迟后台检查新版本，节流与确认见 UpdateService。
+            UpdateService.CheckOnStartup(config);
         }
         catch (Exception ex)
         {

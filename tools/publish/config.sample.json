@@ -10,5 +10,7 @@
   "PollIntervalSeconds": 10,
   "SnapshotRetentionDays": 14,
   "WgApplicationId": "",
-  "Theme": "system"
+  "Theme": "system",
+  "AutoUpdate": true,
+  "GithubToken": ""
 }
