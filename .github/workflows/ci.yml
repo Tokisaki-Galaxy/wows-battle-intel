@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 # 同一分支的重复推送取消旧任务，节省额度。

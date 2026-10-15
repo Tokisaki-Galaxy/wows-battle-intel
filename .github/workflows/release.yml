@@ -1,0 +1,106 @@
+name: Release
+
+# 推送 v* 标签自动发布：构建、测试、vpk 打包、上传 GitHub Release。
+# 客户端自动更新读同一 Release 的 releases.win.json 作为 feed。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 1.1.1，不带 v 前缀）"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建与发布
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # git describe 需要完整历史拿 tag 距离。
+          fetch-depth: 0
+
+      - name: 安装 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: 安装 vpk
+        run: dotnet tool install -g vpk
+
+      - name: 确定版本号
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $v = "${{ inputs.version }}"
+          }
+          else {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "版本号 $v 不是三段 semver"
+            exit 1
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: 还原依赖
+        run: dotnet restore WowsBattleIntel.slnx
+
+      - name: 构建
+        run: dotnet build WowsBattleIntel.slnx -c Release --no-restore
+
+      - name: 测试
+        run: dotnet test WowsBattleIntel.slnx -c Release --no-build --verbosity minimal
+
+      - name: 发布与打包
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pwsh tools/publish.ps1 -Version $env:RELEASE_VERSION -SmokeTest
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 上传 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          # vpk 上传该目录下全部 nupkg 与 releases.win.json 并发布 Release。
+          $vpkOut = "dist/publish/velopack"
+          vpk upload github `
+            --repoUrl "https://github.com/$env:GITHUB_REPOSITORY" `
+            --token $env:GH_TOKEN `
+            --outputDir $vpkOut `
+            --publish `
+            --releaseName "WowsBattleIntel $env:RELEASE_VERSION" `
+            --tag $tag
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          # 附加资产：Portable.zip 供新用户免安装下载，普通 zip 为过渡期分发物。
+          # vpk 命令本身没有附加资产参数，走 gh release upload。
+          gh release upload $tag `
+            "$vpkOut/WowsBattleIntel-win-Portable.zip" `
+            "dist/publish/wows-battle-intel-$env:RELEASE_VERSION-win-x64.zip" `
+            --clobber
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 上传构建产物（调试用，随时可下）
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable
+          path: |
+            dist/publish/velopack/*.zip
+            dist/publish/*.zip
+          retention-days: 7
