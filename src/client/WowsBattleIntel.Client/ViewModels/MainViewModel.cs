@@ -41,9 +41,9 @@ public sealed class MainViewModel : ViewModelBase
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
     private string statusMessage = "就绪";
     private string allySummaryText = "-";
-    private string enemySummaryText = "-";
-    private bool isBusy;
+    private string enemySummaryText = "-";    private bool isBusy;
     private bool isObserving;
+    private string countdownText = string.Empty;
 
     // 赛前链路在途状态：临时名单触发过展示后为 true，正式回放入库后复位。
     // 防止同一局的 tempArenaInfo 在轮询窗口内反复触发整条链路。
@@ -307,6 +307,13 @@ public sealed class MainViewModel : ViewModelBase
     public string ModelConfidenceText => currentPrediction is null
         ? "-"
         : $"{Math.Abs(currentPrediction.AllyWinProbability - 0.5) * 2:P0}";
+
+    /// <summary>赛前数据刷新倒计时，空串表示当前没有更新循环在跑。</summary>
+    public string CountdownText
+    {
+        get => countdownText;
+        private set => SetField(ref countdownText, value);
+    }
 
     /// <summary>模型版本显示。</summary>
     public string ModelVersionText => currentPrediction?.ModelVersion ?? services.Predictor.ModelVersion;
@@ -1018,39 +1025,71 @@ public sealed class MainViewModel : ViewModelBase
         SelectedBattleSummary = null;
         SelectedBattle = battle;
 
+        // 赛前预测循环：首版用库里现成快照立即出数（多为粗值），随后每
+        // 3 秒重算一次，直到补拉全部完成。加载界面时间窗内预测持续收敛，
+        // 用户看到的是不断变准的读数而不是一堆占位符。
         // 预测不落库：赛前记录不进 battles 表，预测只留在内存供展示。
-        // 正式回放入库时会算一份落库版本，以它为准做赛后对照。
         try
         {
-            var enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
+            int round = 0;
+            while (true)
             {
-                var account = services.Repository
-                    .GetLatestSnapshotAsync(accountId, server)
-                    .GetAwaiter()
-                    .GetResult();
-                if (string.IsNullOrEmpty(shipId))
+                round++;
+                var enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
                 {
-                    return account;
+                    var account = services.Repository
+                        .GetLatestSnapshotAsync(accountId, server)
+                        .GetAwaiter()
+                        .GetResult();
+                    if (string.IsNullOrEmpty(shipId))
+                    {
+                        return account;
+                    }
+
+                    return services.Repository
+                        .GetLatestShipSnapshotAsync(accountId, server, shipId)
+                        .GetAwaiter()
+                        .GetResult() ?? account;
+                });
+
+                var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
+
+                // 推理期间用户点选了别的对局，本轮预测作废，循环终止。
+                if (!IsDetailsCurrent(version))
+                {
+                    return;
                 }
 
-                return services.Repository
-                    .GetLatestShipSnapshotAsync(accountId, server, shipId)
-                    .GetAwaiter()
-                    .GetResult() ?? account;
-            });
+                currentPrediction = prediction;
+                OnPropertyChanged(nameof(ModelConfidenceText));
 
-            var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
+                // 数据覆盖完整度：全部真人有统计即收敛，停止重算。
+                int humans = battle.HumanPlayers.Count();
+                int covered = battle.HumanPlayers.Count(p => p.HasStats);
+                StatusMessage = humans == covered
+                    ? $"赛前预测就绪 · {prediction.ModelVersion}"
+                    : $"赛前预测已更新（第 {round} 轮，{covered}/{humans} 名玩家数据）";
 
-            // 推理期间用户点选了别的对局，本轮预测作废。
-            if (!IsDetailsCurrent(version))
-            {
-                return;
+                LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，覆盖 {covered}/{humans}");
+
+                if (humans == covered)
+                {
+                    break;
+                }
+
+                // 3 秒倒计时给用户"正在更新"的感知，期间后台补拉持续推进。
+                for (int remain = 3; remain > 0 && IsDetailsCurrent(version); remain--)
+                {
+                    CountdownText = $"{remain}s 后更新";
+                    OnPropertyChanged(nameof(CountdownText));
+                    await Task.Delay(1000, CancellationToken.None).ConfigureAwait(true);
+                }
+
+                if (!IsDetailsCurrent(version))
+                {
+                    return;
+                }
             }
-
-            currentPrediction = prediction;
-
-            StatusMessage = $"赛前预测就绪 · {prediction.ModelVersion}";
-            LogSink.Info($"赛前预测完成: 概率 {prediction.AllyWinProbability:F3}");
         }
         catch (Exception ex)
         {
@@ -1059,6 +1098,8 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
+            CountdownText = string.Empty;
+            OnPropertyChanged(nameof(CountdownText));
             NotifyDetailsChanged();
         }
     }
