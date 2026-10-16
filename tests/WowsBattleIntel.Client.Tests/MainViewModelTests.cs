@@ -170,10 +170,10 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task LoadRecentBattles_PartitionsLiveAndHistory()
+    public async Task LoadRecentBattles_AllStoredBattlesAreHistory()
     {
         using var holder = await TestServices.CreateAsync();
-        // 一局在近三小时内，一局在三天前，分别落入实时与历史分区。
+        // 入库记录都属于历史；实时区只显示当前 tempArenaInfo 捕获的对局。
         await SeedBattleAsync(holder.Services, "battle-live", BattleOutcome.Win, 0.6);
         var stale = MakeBattle("battle-old", BattleOutcome.Loss, DateTimeOffset.UtcNow.AddDays(-3));
         await holder.Services.Repository.SaveBattleAsync(stale);
@@ -187,17 +187,32 @@ public class MainViewModelTests
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
-        var live = Assert.Single(vm.LiveBattles);
-        Assert.Equal("battle-live", live.Battle.BattleId);
-        Assert.True(live.IsLive);
+        // 没有当前对局时实时区为空。
+        Assert.Empty(vm.LiveBattles);
+        Assert.False(vm.HasLiveBattles);
 
+        // 两局入库记录都进历史区。
+        Assert.Equal(2, vm.HistoryBattles.Count);
+        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-live");
+        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-old");
+    }
+
+    [Fact]
+    public async Task LoadRecentBattles_HistoryFiltersApply()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await SeedBattleAsync(holder.Services, "battle-fresh", BattleOutcome.Win, 0.6);
+        var stale = MakeBattle("battle-old", BattleOutcome.Loss, DateTimeOffset.UtcNow.AddDays(-30));
+        await holder.Services.Repository.SaveBattleAsync(stale);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        // 近 7 天筛选把 30 天前的记录排除。
+        vm.HistoryDaysFilterIndex = 2;
         var history = Assert.Single(vm.HistoryBattles);
-        Assert.Equal("battle-old", history.Battle.BattleId);
-        Assert.False(history.IsLive);
-
-        Assert.True(vm.HasLiveBattles);
-        Assert.Equal("WinBrush", live.ResultBrushKey);
-        Assert.Equal("LossBrush", history.ResultBrushKey);
+        Assert.Equal("battle-fresh", history.Battle.BattleId);
+        Assert.Equal("WinBrush", history.ResultBrushKey);
     }
 
     [Fact]

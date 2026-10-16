@@ -92,12 +92,11 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     };
 
     /// <summary>
-    /// 赛前名单的占位摘要，插进实时区供用户点击。不落库，正式回放入库后由
-    /// RefreshAfterIngestionAsync 重建列表自然替换。
+    /// 赛前名单的占位摘要，放进实时区供用户点击。不落库，对局结束后
+    /// 由正式入库的回放记录在历史区接管。
     /// </summary>
     /// <remarks>
-    /// 赛前记录的 MapId 为空，标题显示"赛前名单 · 模式"。共享 BattleItemTemplate
-    /// 的字段：DisplayText 会显示空地图名，因此给 Battle 塞入模式名兜底。
+    /// 赛前记录的 MapId 为空，标题显示"赛前名单 · 模式"。
     /// </remarks>
     public static BattleSummaryViewModel FromPreBattle(BattleRecord battle)
     {
@@ -109,9 +108,6 @@ public sealed class BattleSummaryViewModel : ViewModelBase
             SourcePath = "pre-battle",
         };
     }
-
-    /// <summary>是否实时对局。开始时间在近三小时内的对局视为观测会话内的记录。赛前名单同样属于实时。</summary>
-    public bool IsLive => StartedAt >= DateTimeOffset.UtcNow.AddHours(-3);
 
     /// <summary>
     /// 从领域模型构造。

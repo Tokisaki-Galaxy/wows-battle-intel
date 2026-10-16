@@ -9,15 +9,17 @@ namespace WowsBattleIntel.Client.Services;
 /// tempArenaInfo.json 观测器：对局加载界面出现时立即捕获赛前名单。
 /// </summary>
 /// <remarks>
-/// 游戏在加载界面把 tempArenaInfo.json 写进 replays 目录，对局结束后
-/// 删除。本观测器轮询该文件，读到内容即触发事件，供界面展示赛前预测。
+/// 逐行对齐 ApeRadar 的实时链路（ArenaInfoReader + 主窗口 1 秒定时器）：
+/// 每秒在游戏 replays 目录下递归找 tempArenaInfo.json，取修改时间最新者，
+/// 只要比上次见到的时间更新就触发一次。没有任何时效窗口，客户端在对局
+/// 中途启动也能立刻看到正在进行的这一局。
 ///
-/// 用轮询而非 FileSystemWatcher，与 ReplayObserver 同一理由：游戏写文件
-/// 期间可能多次变更，FileSystemWatcher 会提前触发且触发多次。轮询配
-/// LastWriteTime 判重更可靠。
+/// 游戏在加载界面写入该文件，玩家陆续加入时多次重写，对局结束后删除。
+/// 文件从"存在且已触发"变为"不存在"时触发 <see cref="PreBattleEnded"/>，
+/// 让界面收起当前对局。
 ///
-/// 读取采用 ApeRadar ArenaInfoReader 的口径：FileShare.ReadWrite 允许
-/// 读游戏正在写的文件，读失败不视为异常，下一轮再试。
+/// 读取采用 ApeRadar ArenaInfoReader 的口径：FileShare.ReadWrite 允许读
+/// 游戏正在写的文件，读失败不视为异常，下一轮再试。
 ///
 /// 常驻实例，配置变更走 <see cref="Rebind"/> 换配置，不换实例。事件订阅
 /// 绑定在实例上，换实例会让界面收不到赛前名单通知，与
@@ -25,18 +27,22 @@ namespace WowsBattleIntel.Client.Services;
 /// </remarks>
 public sealed class ArenaInfoWatcher : IDisposable
 {
-    /// <summary>残留名单时效窗口。文件修改时间距今超过该值视为游戏崩溃
-    /// 残留或跨局遗留，不触发。ApeRadar requireFileToBeNewer 同语义。</summary>
-    private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(5);
-
-    private readonly HashSet<string> knownKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly object stateLock = new();
     private AppConfig config;
     private CancellationTokenSource? cts;
     private Task? loop;
 
+    /// <summary>上次成功触发时该文件的修改时间，用于"比上次新才触发"判重。</summary>
+    private DateTime lastSeenWriteTimeUtc = DateTime.MinValue;
+
+    /// <summary>当前是否已有一局在展示中，用于识别对局结束。</summary>
+    private bool battleActive;
+
     /// <summary>发现新的赛前名单时触发。参数为解析出的对局记录。</summary>
     public event Action<BattleRecord>? PreBattleDiscovered;
+
+    /// <summary>当前对局结束（tempArenaInfo 被游戏删除）时触发。</summary>
+    public event Action? PreBattleEnded;
 
     /// <summary>
     /// 构造观测器。
@@ -91,10 +97,6 @@ public sealed class ArenaInfoWatcher : IDisposable
     /// <summary>
     /// 换绑配置。观测目录由配置派生，配置变更后必须换绑才生效。
     /// </summary>
-    /// <remarks>
-    /// 不换实例：保住事件订阅。运行中换绑自动恢复运行状态，与
-    /// LiveBattleMonitor.Rebind 行为对齐。
-    /// </remarks>
     public void Rebind(AppConfig newConfig)
     {
         ArgumentNullException.ThrowIfNull(newConfig);
@@ -111,7 +113,8 @@ public sealed class ArenaInfoWatcher : IDisposable
         }
 
         config = newConfig;
-        knownKeys.Clear();
+        lastSeenWriteTimeUtc = DateTime.MinValue;
+        battleActive = false;
 
         if (wasRunning)
         {
@@ -120,69 +123,79 @@ public sealed class ArenaInfoWatcher : IDisposable
     }
 
     /// <summary>
-    /// 轮询循环。间隔取观测轮询配置的一半，赛前名单的时效要求更高。
+    /// 轮询循环。1 秒一轮，与 ApeRadar 主窗口定时器同频。
     /// </summary>
     private async Task ObserveLoopAsync(CancellationToken cancellationToken)
     {
-        var interval = TimeSpan.FromSeconds(
-            Math.Max(2, config.PollIntervalSeconds / 2.0));
-
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
                 ScanOnce();
-            }
-            catch (OperationCanceledException)
-            {
-                break;
             }
             catch
             {
                 // 扫描异常不中断循环，下轮重试。
             }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 
     /// <summary>
-    /// 扫描一次。命中判定：tempArenaInfo.json 存在、修改时间在时效窗口
-    /// 内、解析成功。
+    /// 扫描一次：递归找最新的 tempArenaInfo.json，比上次新则触发；
+    /// 上一轮有对局而本轮文件消失则判定对局结束。
     /// </summary>
-    private void ScanOnce()
+    /// <remarks>internal 供单元测试直接驱动，避免依赖后台定时循环。</remarks>
+    internal void ScanOnce()
     {
-        string replayRoot = config.ReplayDirectory;
-        string arenaPath = Path.Combine(replayRoot, "tempArenaInfo.json");
-        if (!File.Exists(arenaPath))
+        string? latestPath;
+        try
         {
+            latestPath = FindLatestArenaInfoFile();
+        }
+        catch (Exception)
+        {
+            // 目录枚举失败（权限或瞬时 IO）不等于对局结束，本轮不改变状态。
             return;
         }
 
-        DateTime lastWriteUtc;
+        if (latestPath is null)
+        {
+            if (battleActive)
+            {
+                battleActive = false;
+                lastSeenWriteTimeUtc = DateTime.MinValue;
+                PreBattleEnded?.Invoke();
+            }
+
+            return;
+        }
+
+        DateTime writeTimeUtc;
         try
         {
-            lastWriteUtc = File.GetLastWriteTimeUtc(arenaPath);
+            writeTimeUtc = File.GetLastWriteTimeUtc(latestPath);
         }
         catch (IOException)
         {
             return;
         }
 
-        // 崩溃残留或跨局遗留：修改时间太久远的文件不触发。游戏正常运行
-        // 时该文件随对局生成，时效必然在窗口内。
-        if (DateTime.UtcNow - lastWriteUtc > StaleThreshold)
+        // 与上次触发的时间相同或更旧：文件未变，不重复触发。
+        if (writeTimeUtc <= lastSeenWriteTimeUtc)
         {
             return;
         }
 
-        // 同一文件只在修改时间变化时重新解析，避免每轮重复触发。
-        string key = $"{arenaPath}|{lastWriteUtc.Ticks}";
-        if (!knownKeys.Add(key))
-        {
-            return;
-        }
-
-        if (!ArenaInfoParser.TryRead(arenaPath, out var arenaInfo) || arenaInfo is null)
+        if (!ArenaInfoParser.TryRead(latestPath, out var arenaInfo) || arenaInfo is null)
         {
             // 读到写了一半的文件属正常，下轮 stamp 变了会重读。
             return;
@@ -194,7 +207,62 @@ public sealed class ArenaInfoWatcher : IDisposable
             return;
         }
 
+        // 服务器兜底：tempArenaInfo 无 realm，从游戏日志探测。探测不到时
+        // 保持 Auto，由调用方决定是否跳过。
+        if (battle.Server == GameServer.Auto)
+        {
+            var server = ServerResolver.Resolve(config.GamePath);
+            if (server != GameServer.Auto)
+            {
+                battle.Server = server;
+                foreach (var player in battle.Players)
+                {
+                    player.Server = server;
+                }
+            }
+        }
+
+        lastSeenWriteTimeUtc = writeTimeUtc;
+        battleActive = true;
         PreBattleDiscovered?.Invoke(battle);
+    }
+
+    /// <summary>
+    /// 在游戏 replays 目录下递归找修改时间最新的 tempArenaInfo.json。
+    /// 目录不存在返回 null；枚举过程中的异常向上抛，由调用方区分
+    /// "确实没有文件"与"读取失败"。
+    /// </summary>
+    private string? FindLatestArenaInfoFile()
+    {
+        string replayRoot = config.ReplayDirectory;
+        if (!Directory.Exists(replayRoot))
+        {
+            return null;
+        }
+
+        string? best = null;
+        DateTime bestTime = DateTime.MinValue;
+        foreach (string path in Directory.EnumerateFiles(
+            replayRoot, "tempArenaInfo.json", SearchOption.AllDirectories))
+        {
+            DateTime wrote;
+            try
+            {
+                wrote = File.GetLastWriteTimeUtc(path);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (wrote > bestTime)
+            {
+                bestTime = wrote;
+                best = path;
+            }
+        }
+
+        return best;
     }
 
     /// <inheritdoc />
