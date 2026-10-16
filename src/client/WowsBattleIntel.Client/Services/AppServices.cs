@@ -237,7 +237,8 @@ public sealed class AppServices : IDisposable
         var raw = new WgPublicStatsProvider(options);
 
         // 统一加一层缓存装饰器：查缓存、TTL 判定、回写都在装饰器里，
-        // 任何具体提供商套上它都自动获得加速能力。关闭时装饰器纯透传。
+        // 任何具体提供商套上它都自动获得加速能力。开关只控制是否读缓存，
+        // 快照始终落库。
         return new CachingPlayerStatsProvider(raw, cache, new PlayerStatsCacheOptions
         {
             Enabled = config.EnableBattleCache,

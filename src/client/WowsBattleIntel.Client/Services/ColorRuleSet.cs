@@ -27,7 +27,7 @@ public static class ColorRuleSet
     public static void Set(IReadOnlyList<ColorRule>? value)
     {
         rules = value is null || value.Count == 0
-            ? DefaultColorRules.Value
+            ? DefaultColorRules.Value.Select(CloneRule).ToList()
             : value.Select(CloneRule).ToList();
     }
 
