@@ -59,8 +59,9 @@ public partial class App : Application
             // 按配置应用主题，默认跟随系统。
             ThemeService.ApplyTheme(ThemeService.ParseMode(config.Theme));
 
-            // 配置齐全时自动开始观测。路径没准备好就先不观测，由用户在界面里开。
-            if (config.AutoObserve && config.IsUsable)
+            // 观测常驻：路径可用即开始。界面不再提供开始/停止开关，
+            // 观测是应用的基本运行方式，由配置换绑负责重定向。
+            if (config.IsUsable)
             {
                 Services.StartObservation();
             }

@@ -34,9 +34,6 @@ public sealed class AppConfig
     /// <summary>模型版本标识。</summary>
     public string ModelVersion { get; set; } = "baseline-logistic-v1";
 
-    /// <summary>是否自动观测回放目录。</summary>
-    public bool AutoObserve { get; set; } = true;
-
     /// <summary>观测轮询间隔秒。</summary>
     public int PollIntervalSeconds { get; set; } = 10;
 

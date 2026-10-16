@@ -43,7 +43,6 @@ public sealed class MainViewModel : ViewModelBase
     private string statusMessage = "就绪";
     private string allySummaryText = "-";
     private string enemySummaryText = "-";    private bool isBusy;
-    private bool isObserving;
     private string countdownText = string.Empty;
 
     // 赛前链路在途状态：临时名单触发过展示后为 true，正式回放入库后复位。
@@ -78,21 +77,9 @@ public sealed class MainViewModel : ViewModelBase
         Settings = new SettingsViewModel(services, pathPicker ?? new NullPathPicker());
         Settings.SettingsApplied += OnSettingsApplied;
 
-        RefreshCommand = new RelayCommand(
-            async _ => await LoadRecentBattlesAsync().ConfigureAwait(true),
-            _ => !IsBusy);
-
         RecomputePredictionCommand = new RelayCommand(
             async _ => await RecomputePredictionAsync().ConfigureAwait(true),
             _ => !IsBusy && selectedBattle is not null);
-
-        ToggleObservationCommand = new RelayCommand(
-            _ =>
-            {
-                ToggleObservation();
-                return Task.CompletedTask;
-            },
-            _ => !IsBusy);
 
         services.Monitor.BattleIngested += OnBattleIngested;
         services.Monitor.IngestionFailed += OnIngestionFailed;
@@ -242,14 +229,8 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>刷新列表命令。</summary>
-    public System.Windows.Input.ICommand RefreshCommand { get; }
-
     /// <summary>重算胜率命令：用当前名单与模型重新生成预测。</summary>
     public System.Windows.Input.ICommand RecomputePredictionCommand { get; }
-
-    /// <summary>开始或停止实时观测命令。</summary>
-    public System.Windows.Input.ICommand ToggleObservationCommand { get; }
 
     /// <summary>对局标题。</summary>
     public string BattleTitle => selectedBattle is null
@@ -368,68 +349,14 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>是否正在实时观测。</summary>
-    public bool IsObserving
-    {
-        get => isObserving;
-        private set
-        {
-            if (SetField(ref isObserving, value))
-            {
-                OnPropertyChanged(nameof(ObservationButtonText));
-                OnPropertyChanged(nameof(ObservationStatusText));
-            }
-        }
-    }
-
-    /// <summary>观测按钮文本。</summary>
-    public string ObservationButtonText => isObserving ? "停止观测" : "开始观测";
-
-    /// <summary>观测状态说明。忙碌时显示加载中，空闲时显示观测状态。</summary>
+    /// <summary>观测状态说明。观测常驻，展示是否忙碌与待处理数量。</summary>
     public string ObservationStatusText => isBusy
         ? "加载中..."
-        : isObserving
-            ? $"观测中 · 待处理 {services.Monitor.PendingCount}"
-            : "未观测";
+        : $"观测中 · 待处理 {services.Monitor.PendingCount}";
 
     /// <summary>
-    /// 启动实时观测。
-    /// </summary>
-    public void StartObservation()
-    {
-        if (isObserving)
-        {
-            return;
-        }
-
-        services.StartObservation();
-        IsObserving = true;
-        StatusMessage = "已开始观测回放目录";
-        LogSink.Info("用户开始观测回放目录");
-    }
-
-    /// <summary>
-    /// 停止实时观测。
-    /// </summary>
-    public void StopObservation()
-    {
-        if (!isObserving)
-        {
-            return;
-        }
-
-        services.StopObservation();
-        IsObserving = false;
-        StatusMessage = "已停止观测";
-        LogSink.Info("用户停止观测");
-
-        // 观测停掉后不会再收到对局结束事件，当前对局直接收起，避免残留。
-        ClearCurrentBattle();
-    }
-
-    /// <summary>
-    /// 收起当前对局。来源是 tempArenaInfo 的实时态，观测停止或配置换绑后
-    /// 不再有后续事件驱动它，主动清空以免界面停在过期的一局上。
+    /// 收起当前对局。来源是 tempArenaInfo 的实时态，配置换绑后不再有后续
+    /// 事件驱动它，主动清空以免界面停在过期的一局上。
     /// </summary>
     private void ClearCurrentBattle()
     {
@@ -973,18 +900,6 @@ public sealed class MainViewModel : ViewModelBase
             : withBattles.Average(p => p.AccountBattles).ToString("F1");
 
         return $"账号: {winratePart}  加权: {weightedPart}  场次: {battlesPart}";
-    }
-
-    private void ToggleObservation()
-    {
-        if (isObserving)
-        {
-            StopObservation();
-        }
-        else
-        {
-            StartObservation();
-        }
     }
 
     private void OnBattleIngested(IngestionResult result)

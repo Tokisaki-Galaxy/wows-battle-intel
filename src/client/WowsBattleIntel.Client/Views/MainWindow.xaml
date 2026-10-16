@@ -81,7 +81,6 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
                   <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="对局记录"
                            Style="{StaticResource HeadingTextStyle}"
@@ -92,16 +91,6 @@
                            VerticalAlignment="Center"
                            Margin="8,0,0,0"
                            TextTrimming="CharacterEllipsis" />
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                  <Button Content="{Binding ObservationButtonText}"
-                          Command="{Binding ToggleObservationCommand}"
-                          Padding="8,3" />
-                  <Button Content="刷新"
-                          Command="{Binding RefreshCommand}"
-                          Style="{StaticResource PrimaryButtonStyle}"
-                          Padding="8,3"
-                          Margin="6,0,0,0" />
-                </StackPanel>
               </Grid>
 
               <!-- 当前对局区：tempArenaInfo 捕获的实时对局，对局结束即收起 -->
@@ -944,10 +933,6 @@
                   <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="120" HorizontalAlignment="Left"
                            Text="{Binding PollIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
                 </Grid>
-
-                <CheckBox Content="启动时自动观测回放目录"
-                          IsChecked="{Binding AutoObserve}"
-                          Margin="0,12,0,0" />
               </StackPanel>
             </Border>
 

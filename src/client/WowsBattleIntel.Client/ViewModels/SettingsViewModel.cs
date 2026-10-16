@@ -22,7 +22,6 @@ public sealed class SettingsViewModel : ViewModelBase
     private string modelPath = string.Empty;
     private string modelVersion = string.Empty;
     private string wgApplicationId = string.Empty;
-    private bool autoObserve = true;
     private int pollIntervalSeconds = 10;
     private int snapshotRetentionDays = 14;
     private int themeIndex;
@@ -104,13 +103,6 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => wgApplicationId;
         set => SetFieldAndMarkDirty(ref wgApplicationId, value);
-    }
-
-    /// <summary>是否自动观测回放目录。</summary>
-    public bool AutoObserve
-    {
-        get => autoObserve;
-        set => SetFieldAndMarkDirty(ref autoObserve, value);
     }
 
     /// <summary>观测轮询间隔秒。</summary>
@@ -256,7 +248,6 @@ public sealed class SettingsViewModel : ViewModelBase
             ModelPath = ModelPath.Trim(),
             ModelVersion = string.IsNullOrWhiteSpace(ModelVersion) ? "baseline-logistic-v1" : ModelVersion.Trim(),
             WgApplicationId = WgApplicationId.Trim(),
-            AutoObserve = AutoObserve,
             PollIntervalSeconds = PollIntervalSeconds,
             SnapshotRetentionDays = SnapshotRetentionDays,
             Theme = ThemeConfigValue(ThemeIndex),
@@ -318,7 +309,6 @@ public sealed class SettingsViewModel : ViewModelBase
         modelPath = config.ModelPath;
         modelVersion = config.ModelVersion;
         wgApplicationId = config.WgApplicationId;
-        autoObserve = config.AutoObserve;
         pollIntervalSeconds = config.PollIntervalSeconds;
         snapshotRetentionDays = config.SnapshotRetentionDays;
         themeIndex = ThemeIndexFromConfig(config.Theme);
@@ -329,7 +319,6 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ModelPath));
         OnPropertyChanged(nameof(ModelVersion));
         OnPropertyChanged(nameof(WgApplicationId));
-        OnPropertyChanged(nameof(AutoObserve));
         OnPropertyChanged(nameof(PollIntervalSeconds));
         OnPropertyChanged(nameof(SnapshotRetentionDays));
         OnPropertyChanged(nameof(ThemeIndex));
