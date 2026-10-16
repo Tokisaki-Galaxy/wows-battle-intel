@@ -43,6 +43,7 @@ internal static class Program
                 "snapshot-backtest" => RunSnapshotBacktest(args),
                 "dedupe-battles" => RunDedupeBattles(args),
                 "rebuild-players" => RunRebuildPlayers(args),
+                "live" => RunLive(args).GetAwaiter().GetResult(),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
             };
@@ -1533,6 +1534,314 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// live 子命令：观测当前对局的 tempArenaInfo，拉真实战绩并打印。
+    /// </summary>
+    /// <remarks>
+    /// 无界面地跑一遍客户端的赛前链路，用于排查"实时名单看不到战绩"。
+    /// 递归找最新的 tempArenaInfo.json，解析名单，从 clientrunner.log
+    /// 探测服务器，按昵称解析账号并拉账号与单船统计，逐行打印结果。
+    /// 与客户端同口径：-1 哨兵玩家也进补拉，拉到即落库缓存。
+    ///
+    /// 默认只跑一轮；加 --watch 每秒重扫，文件更新就重新打印，直到 Ctrl+C。
+    /// </remarks>
+    private static async Task<int> RunLive(string[] args)
+    {
+        string gamePath = string.Empty;
+        string dbPath = string.Empty;
+        int delayMs = 120;
+        bool watch = false;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--game" when i + 1 < args.Length:
+                    gamePath = args[++i];
+                    break;
+                case "--db" when i + 1 < args.Length:
+                    dbPath = args[++i];
+                    break;
+                case "--delay" when i + 1 < args.Length && int.TryParse(args[i + 1], out int d):
+                    delayMs = d;
+                    i++;
+                    break;
+                case "--watch":
+                    watch = true;
+                    break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(gamePath))
+        {
+            gamePath = DetectGamePath();
+        }
+
+        if (string.IsNullOrWhiteSpace(gamePath))
+        {
+            Console.Error.WriteLine("无法定位游戏目录，请用 --game 指定。");
+            return 1;
+        }
+
+        string replayRoot = Path.Combine(gamePath, "replays");
+        Console.WriteLine($"游戏目录: {gamePath}");
+        Console.WriteLine($"回放目录: {replayRoot}");
+
+        var server = ResolveServer(gamePath);
+        Console.WriteLine($"服务器: {server}（来自 clientrunner.log）");
+
+        // 船目录元数据回填：与客户端 App 启动时同一注入。
+        ArenaInfoParser.ShipMetaLookup = shipId =>
+            Stats.ShipCatalog.TryGetMeta(shipId, out var meta) && meta is not null
+                ? (meta.Type, meta.Tier)
+                : null;
+
+        Storage.SqliteBattleRepository? repository = null;
+        if (!string.IsNullOrWhiteSpace(dbPath))
+        {
+            repository = new Storage.SqliteBattleRepository(dbPath);
+            await repository.InitializeAsync().ConfigureAwait(false);
+            Console.WriteLine($"缓存库: {dbPath}");
+        }
+
+        var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
+        {
+            DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+            FetchClassStats = true,
+        });
+
+        DateTime lastSeen = DateTime.MinValue;
+        while (true)
+        {
+            string? latest = FindLatestArenaInfo(replayRoot);
+            if (latest is null)
+            {
+                Console.WriteLine("未找到 tempArenaInfo.json，等待对局加载界面...");
+            }
+            else
+            {
+                DateTime wrote = File.GetLastWriteTimeUtc(latest);
+                if (wrote > lastSeen)
+                {
+                    lastSeen = wrote;
+                    await PrintLiveAsync(latest, server, provider, repository).ConfigureAwait(false);
+                }
+            }
+
+            if (!watch)
+            {
+                return 0;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>解析一份 tempArenaInfo 并打印补拉后的名单。</summary>
+    private static async Task PrintLiveAsync(
+        string path,
+        GameServer server,
+        Stats.WgPublicStatsProvider provider,
+        Storage.SqliteBattleRepository? repository)
+    {
+        if (!ArenaInfoParser.TryRead(path, out var arena) || arena is null)
+        {
+            Console.WriteLine($"解析失败（可能正在写入）: {path}");
+            return;
+        }
+
+        var battle = ArenaInfoParser.ToBattleRecord(arena);
+        if (battle.Server == GameServer.Auto)
+        {
+            battle.Server = server;
+            foreach (var p in battle.Players)
+            {
+                p.Server = server;
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"=== 捕获 {battle.Players.Count} 人 · {battle.BattleType} · {battle.Server} · {DateTime.Now:HH:mm:ss} ===");
+
+        var targets = battle.Players
+            .Where(p => !p.IsBot && !string.IsNullOrEmpty(p.PlayerName))
+            .ToList();
+
+        try
+        {
+            await provider.FetchStatsAsync(targets).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"补拉失败: {ex.Message}");
+        }
+
+        if (repository is not null)
+        {
+            var capturedAt = DateTimeOffset.UtcNow;
+            var snapshots = targets
+                .Where(p => p.HasStats && p.AccountId != "-1")
+                .Select(p => PlayerSnapshot.FromPlayer(p, capturedAt))
+                .ToList();
+            if (snapshots.Count > 0)
+            {
+                await repository.SaveSnapshotsAsync(snapshots).ConfigureAwait(false);
+                Console.WriteLine($"已落库 {snapshots.Count} 条快照");
+            }
+        }
+
+        Console.WriteLine($"{"昵称",-28} {"舰种",-5} {"船",-16} {"账号ID",-12} {"场次",7} {"胜率",7} {"隐藏",4}");
+        foreach (var p in battle.Players.OrderBy(p => p.IsAlly ? 0 : 1).ThenBy(p => p.PlayerName, StringComparer.Ordinal))
+        {
+            string ship = Stats.ShipCatalog.TryGetChineseName(p.ShipId, out string? cn) && cn is not null
+                ? cn : p.ShipId;
+            string battles = p.AccountBattles >= 0 ? ((int)p.AccountBattles).ToString() : "-";
+            string winrate = p.AccountWinrate >= 0 ? p.AccountWinrate.ToString("P1") : "-";
+            string side = p.IsAlly ? "友" : "敌";
+            Console.WriteLine($"{p.PlayerName,-28} {ShipClassLabel(p.ShipClass),-5} {Truncate(ship, 16),-16} {p.AccountId,-12} {battles,7} {winrate,7} {(p.IsHidden ? "是" : "否"),4} {side}");
+        }
+
+        int humans = battle.HumanPlayers.Count();
+        int covered = battle.HumanPlayers.Count(p => p.HasStats);
+        Console.WriteLine($"覆盖 {covered}/{humans}，隐藏 {battle.HumanPlayers.Count(p => p.IsHidden)}");
+    }
+
+    private static string ShipClassLabel(ShipClass shipClass) => shipClass switch
+    {
+        ShipClass.Destroyer => "DD",
+        ShipClass.Cruiser => "CA",
+        ShipClass.Battleship => "BB",
+        ShipClass.Carrier => "CV",
+        ShipClass.Submarine => "SS",
+        _ => "??",
+    };
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max];
+
+    /// <summary>递归找修改时间最新的 tempArenaInfo.json。</summary>
+    private static string? FindLatestArenaInfo(string replayRoot)
+    {
+        if (!Directory.Exists(replayRoot))
+        {
+            return null;
+        }
+
+        string? best = null;
+        DateTime bestTime = DateTime.MinValue;
+        foreach (string file in Directory.EnumerateFiles(replayRoot, "tempArenaInfo.json", SearchOption.AllDirectories))
+        {
+            DateTime wrote;
+            try
+            {
+                wrote = File.GetLastWriteTimeUtc(file);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (wrote > bestTime)
+            {
+                bestTime = wrote;
+                best = file;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// 探测游戏目录。CLI 不引用 WPF 客户端项目，这里做一份最小实现：
+    /// 常见安装位置加 Steam 库文件，命中判定为 replays 目录存在。
+    /// </summary>
+    private static string DetectGamePath()
+    {
+        var candidates = new List<string>
+        {
+            @"D:\SteamLibrary\steamapps\common\World of Warships",
+            @"C:\SteamLibrary\steamapps\common\World of Warships",
+            @"C:\Games\World_of_Warships",
+            @"D:\Games\World_of_Warships",
+        };
+
+        foreach (string root in new[] { @"D:\Steam", @"C:\Program Files (x86)\Steam" })
+        {
+            string vdf = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(vdf))
+            {
+                continue;
+            }
+
+            foreach (string line in File.ReadLines(vdf))
+            {
+                int pathIndex = line.IndexOf("\"path\"", StringComparison.OrdinalIgnoreCase);
+                if (pathIndex < 0)
+                {
+                    continue;
+                }
+
+                int start = line.IndexOf('"', pathIndex + 6);
+                int end = start < 0 ? -1 : line.IndexOf('"', start + 1);
+                if (start < 0 || end < 0)
+                {
+                    continue;
+                }
+
+                string lib = line[(start + 1)..end].Replace("\\\\", "\\");
+                candidates.Add(Path.Combine(lib, "steamapps", "common", "World of Warships"));
+            }
+        }
+
+        return candidates.FirstOrDefault(c => Directory.Exists(Path.Combine(c, "replays")))
+            ?? string.Empty;
+    }
+
+    /// <summary>读 clientrunner.log 的 Selected realm 行推断服务器。</summary>
+    private static GameServer ResolveServer(string gamePath)
+    {
+        string logPath = Path.Combine(gamePath, "profile", "clientrunner.log");
+        if (!File.Exists(logPath))
+        {
+            return GameServer.Auto;
+        }
+
+        try
+        {
+            string text;
+            using (var stream = new FileStream(
+                logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+            {
+                text = reader.ReadToEnd();
+            }
+
+            const string prefix = "Selected realm: ";
+            int index = text.LastIndexOf(prefix, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return GameServer.Auto;
+            }
+
+            index += prefix.Length;
+            int end = text.IndexOf('\n', index);
+            string realm = (end < 0 ? text[index..] : text[index..end]).Trim();
+            return realm.ToLowerInvariant() switch
+            {
+                "ru" => GameServer.Ru,
+                "eu" => GameServer.Eu,
+                "na" => GameServer.Na,
+                "asia" => GameServer.Asia,
+                "cn" => GameServer.Cn,
+                _ => GameServer.Auto,
+            };
+        }
+        catch
+        {
+            return GameServer.Auto;
+        }
+    }
+
     private static int PrintUsageAndSucceed()
     {
         PrintUsage();
@@ -1562,6 +1871,8 @@ internal static class Program
         Console.WriteLine("  wows-intel dedupe-battles <数据库> [--apply] 清理同局重复与非PvP预测, 默认dry-run");
         Console.WriteLine("  wows-intel rebuild-players <数据库> [--limit N] [--parsed-dir 目录]");
         Console.WriteLine("                                               用存量回放JSON重建参战者船信息");
+        Console.WriteLine("  wows-intel live [--game 目录] [--db 库] [--watch]");
+        Console.WriteLine("                                               观测当前对局名单并拉真实战绩");
         Console.WriteLine("  wows-intel onnx <模型.onnx> <目录>            用 ONNX 模型推理并回测");
     }
 
