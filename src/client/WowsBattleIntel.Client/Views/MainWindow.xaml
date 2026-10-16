@@ -104,7 +104,7 @@
                 </StackPanel>
               </Grid>
 
-              <!-- 实时对局区：观测会话内入库，主色左边条标记 -->
+              <!-- 当前对局区：tempArenaInfo 捕获的实时对局，对局结束即收起 -->
               <StackPanel DockPanel.Dock="Top" Margin="{StaticResource SpacingSm}">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                   <Border Width="3"
@@ -112,7 +112,7 @@
                           CornerRadius="1"
                           Background="{StaticResource PrimaryBrush}"
                           VerticalAlignment="Center" />
-                  <TextBlock Text="实时对局"
+                  <TextBlock Text="当前对局"
                              Style="{StaticResource SecondaryTextStyle}"
                              Foreground="{StaticResource PrimaryFgBrush}"
                              FontWeight="SemiBold"
@@ -125,7 +125,7 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          MaxHeight="220"
                          Visibility="{Binding HasLiveBattles, Converter={StaticResource BoolToVisibilityConverter}}" />
-                <TextBlock Text="暂无实时对局，开启观测后入库的对局会出现在这里"
+                <TextBlock Text="当前没有正在进行的对局"
                            Style="{StaticResource EmptyHintTextStyle}"
                            Margin="0,2,0,0"
                            Visibility="{Binding HasLiveBattles, Converter={StaticResource InverseBoolToVisibilityConverter}}" />

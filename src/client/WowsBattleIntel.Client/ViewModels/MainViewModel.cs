@@ -37,6 +37,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private BattleRecord? selectedBattle;
     private BattleSummaryViewModel? selectedSummary;
+    private BattleSummaryViewModel? currentBattle;
     private PredictionResult? currentPrediction;
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
     private string statusMessage = "就绪";
@@ -96,6 +97,7 @@ public sealed class MainViewModel : ViewModelBase
         services.Monitor.BattleIngested += OnBattleIngested;
         services.Monitor.IngestionFailed += OnIngestionFailed;
         services.ArenaWatcher.PreBattleDiscovered += OnPreBattleDiscovered;
+        services.ArenaWatcher.PreBattleEnded += OnPreBattleEnded;
 
         UpdatePredictionStatus();
     }
@@ -121,21 +123,26 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>最近对局，按开始时间倒序。完整列表，分区视图由此派生。</summary>
     public ObservableCollection<BattleSummaryViewModel> RecentBattles { get; } = [];
 
-    /// <summary>实时对局，观测会话内入库的记录，取自 RecentBattles 的前三个小时。</summary>
+    /// <summary>
+    /// 当前正在进行的对局。来源是 tempArenaInfo.json，对局结束后清空。
+    /// </summary>
+    /// <remarks>
+    /// 单独持有而非从 RecentBattles 派生：正式回放入库触发的列表重建会
+    /// 清空并重填 RecentBattles，派生方案会把正在进行的对局一并抹掉。
+    /// </remarks>
     public IReadOnlyList<BattleSummaryViewModel> LiveBattles =>
-        RecentBattles.Where(s => s.IsLive).ToList();
+        currentBattle is null ? [] : [currentBattle];
 
-    /// <summary>历史对局，实时区之外、符合筛选条件的记录。</summary>
+    /// <summary>历史对局，符合筛选条件的入库记录。</summary>
     public IReadOnlyList<BattleSummaryViewModel> HistoryBattles =>
         RecentBattles
-            .Where(s => !s.IsLive)
             .Where(s => HistoryBattleTypeFilter is null || s.Battle.BattleType == HistoryBattleTypeFilter)
             .Where(s => HistoryDaysFilter is null
                 || s.StartedAt >= DateTimeOffset.UtcNow.AddDays(-HistoryDaysFilter.Value))
             .ToList();
 
-    /// <summary>是否存在实时对局，用于控制空态提示。</summary>
-    public bool HasLiveBattles => RecentBattles.Any(s => s.IsLive);
+    /// <summary>是否存在正在进行的对局，用于控制空态提示。</summary>
+    public bool HasLiveBattles => currentBattle is not null;
 
     /// <summary>历史对局的模式筛选。null 表示全部模式。</summary>
     public BattleType? HistoryBattleTypeFilter
@@ -415,6 +422,26 @@ public sealed class MainViewModel : ViewModelBase
         IsObserving = false;
         StatusMessage = "已停止观测";
         LogSink.Info("用户停止观测");
+
+        // 观测停掉后不会再收到对局结束事件，当前对局直接收起，避免残留。
+        ClearCurrentBattle();
+    }
+
+    /// <summary>
+    /// 收起当前对局。来源是 tempArenaInfo 的实时态，观测停止或配置换绑后
+    /// 不再有后续事件驱动它，主动清空以免界面停在过期的一局上。
+    /// </summary>
+    private void ClearCurrentBattle()
+    {
+        if (currentBattle is null)
+        {
+            return;
+        }
+
+        currentBattle = null;
+        preBattleKey = null;
+        OnPropertyChanged(nameof(LiveBattles));
+        OnPropertyChanged(nameof(HasLiveBattles));
     }
 
     /// <summary>
@@ -971,16 +998,6 @@ public sealed class MainViewModel : ViewModelBase
                 : $"已入库 {name}{suffix}";
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
-
-            // 正式回放入库后清掉赛前判重键，下一局的 tempArenaInfo 是新
-            // 对局，要能再次触发。只在与当前键对应同局时清：无关回放入库
-            // （如补扫历史文件）不得放行同局重触发。
-            if (result.Battle is not null
-                && preBattleKey is not null
-                && preBattleKey.StartsWith(result.Battle.BattleId, StringComparison.Ordinal))
-            {
-                preBattleKey = null;
-            }
         });
     }
 
@@ -1006,6 +1023,25 @@ public sealed class MainViewModel : ViewModelBase
         Post(() => _ = HandlePreBattleAsync(battle));
     }
 
+    /// <summary>
+    /// 当前对局结束：tempArenaInfo 被游戏删除。收起实时区并把刚打完的一局
+    /// 从库里补进历史（回放入库是异步的，这里重载一次列表）。
+    /// </summary>
+    private void OnPreBattleEnded()
+    {
+        Post(() =>
+        {
+            if (currentBattle is null)
+            {
+                return;
+            }
+
+            ClearCurrentBattle();
+            LogSink.Info("当前对局结束，实时区收起");
+            _ = RefreshAfterIngestionAsync();
+        });
+    }
+
     private async Task HandlePreBattleAsync(BattleRecord battle)
     {
         // 同局判重：键 = BattleId + 人数。加载过程中 tempArenaInfo 会随
@@ -1018,15 +1054,15 @@ public sealed class MainViewModel : ViewModelBase
         }
         preBattleKey = key;
 
-        // tempArenaInfo 15.9 实测不带 realm 字段，赛前记录的 Server 会是
-        // Auto，而 WG API 补拉对 Auto 组直接跳过，整名单会全显示"隐藏"。
-        // 用户服务器固定，从库里最近一局推断兜底。
-        if (battle.Server == Core.Models.GameServer.Auto)
+        // 服务器兜底链：观测器已优先从 clientrunner.log 探测（ApeRadar 口径）。
+        // 探测失败（游戏未定位到、日志缺失）时记录仍是 Auto，而 WG API 补拉
+        // 对 Auto 组直接跳过，整名单会全显示"隐藏"。再从库里最近一局推断补上。
+        if (battle.Server == GameServer.Auto)
         {
             var inferred = await services.Repository
                 .GetRecentBattlesAsync(limit: 1)
                 .ConfigureAwait(true);
-            if (inferred.Count > 0)
+            if (inferred.Count > 0 && inferred[0].Server != GameServer.Auto)
             {
                 battle.Server = inferred[0].Server;
                 // PlayerRecord 各自带 Server 字段，补拉按它分组。BattleRecord
@@ -1040,11 +1076,9 @@ public sealed class MainViewModel : ViewModelBase
 
         LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType} · {battle.Server}");
 
-        // 插进实时区：把赛前摘要放到列表最前，让用户在列表里也看得见正在
-        // 进行中的对局。刷新列表（LoadRecentBattlesAsync）会整体重建并自然
-        // 顶掉它，正式回放入库后由那条记录接管。
+        // 放进实时区。单独字段持有，正式回放入库触发的列表重建抹不掉它。
         var summary = BattleSummaryViewModel.FromPreBattle(battle);
-        RecentBattles.Insert(0, summary);
+        currentBattle = summary;
         OnPropertyChanged(nameof(LiveBattles));
         OnPropertyChanged(nameof(HasLiveBattles));
 
@@ -1164,6 +1198,10 @@ public sealed class MainViewModel : ViewModelBase
         {
             OnPropertyChanged(nameof(ModelVersionText));
             OnPropertyChanged(nameof(PredictorStatusText));
+
+            // 配置换绑会重建观测器，旧的当前对局不再有事件驱动，收起。
+            ClearCurrentBattle();
+
             _ = RefreshAfterIngestionAsync();
         });
     }
