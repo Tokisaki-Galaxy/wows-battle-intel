@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using WowsBattleIntel.Client.Services;
-using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
 using WowsBattleIntel.Stats;
@@ -31,12 +30,15 @@ public sealed class MainViewModel : ViewModelBase
     private BattleType? historyBattleTypeFilter;
     private int? historyDaysFilter;
 
-    // 名单行按账号标识的索引，阶段二增量刷新行内容时定位用。
-    private readonly Dictionary<string, PlayerRowViewModel> allyRowsByAccount = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, PlayerRowViewModel> enemyRowsByAccount = new(StringComparer.Ordinal);
+    // 名单行按玩家身份键的索引，阶段二增量刷新行内容时定位用。
+    // 键取昵称：赛前名单的账号 ID 先是 -1 哨兵，补拉阶段才解析成真账号，
+    // 用账号 ID 建索引会全体撞键；昵称在补拉与快照合并前后都保持不变。
+    private readonly Dictionary<string, PlayerRowViewModel> allyRows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlayerRowViewModel> enemyRows = new(StringComparer.Ordinal);
 
     private BattleRecord? selectedBattle;
-    private BattleSummaryViewModel? selectedSummary;
+    private BattleSummaryViewModel? selectedLiveBattle;
+    private BattleSummaryViewModel? selectedHistoryBattle;
     private BattleSummaryViewModel? currentBattle;
     private PredictionResult? currentPrediction;
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
@@ -51,6 +53,17 @@ public sealed class MainViewModel : ViewModelBase
 
     // 赛前数据拉取进度文案，嵌进倒计时行显示。
     private string preBattleProgressText = string.Empty;
+
+    // 赛前收敛循环的取消源与最近一版预测。循环独立于详情区选中：切到历史
+    // 回放再切回来时，详情区重建不得把已算出的预测与在跑的拉取抹掉。
+    private CancellationTokenSource? preBattleCts;
+    private PredictionResult? preBattlePrediction;
+
+    // 赛前收敛是否以失败告终（连续多轮无进展），用于倒计时红色提醒。
+    private bool preBattleFailed;
+
+    /// <summary>赛前收敛连续无进展的轮数上限，达到即停止并红色提醒。</summary>
+    private const int PreBattleMaxConsecutiveMisses = 3;
 
     /// <summary>
     /// 补拉进度轮询的间隔。补拉按玩家逐个推进，每次到点把已落地的
@@ -215,16 +228,44 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 列表选中的摘要项，设置时同步到底层对局记录。
+    /// 当前对局列表选中的摘要项，设置时同步到底层对局记录。
     /// </summary>
-    public BattleSummaryViewModel? SelectedBattleSummary
+    /// <remarks>
+    /// 实时区与历史区各持一个选中项，不能共用。两个 ListBox 若绑定同一个
+    /// SelectedItem，在其中一个列表里选中时，另一个会把该项置空并回写 null，
+    /// 表现为"点了历史回放就再也点不回当前对局"。
+    /// </remarks>
+    public BattleSummaryViewModel? SelectedLiveBattle
     {
-        get => selectedSummary;
+        get => selectedLiveBattle;
         set
         {
-            if (SetField(ref selectedSummary, value))
+            if (SetField(ref selectedLiveBattle, value))
             {
-                SelectedBattle = value?.Battle;
+                if (value is not null)
+                {
+                    // 两个列表互斥选中：选实时区时清掉历史区的选中。
+                    SetField(ref selectedHistoryBattle, null, nameof(SelectedHistoryBattle));
+                    SelectedBattle = value.Battle;
+                }
+            }
+        }
+    }
+
+    /// <summary>历史对局列表选中的摘要项，设置时同步到底层对局记录。</summary>
+    public BattleSummaryViewModel? SelectedHistoryBattle
+    {
+        get => selectedHistoryBattle;
+        set
+        {
+            if (SetField(ref selectedHistoryBattle, value))
+            {
+                if (value is not null)
+                {
+                    // 两个列表互斥选中：选历史区时清掉实时区的选中。
+                    SetField(ref selectedLiveBattle, null, nameof(SelectedLiveBattle));
+                    SelectedBattle = value.Battle;
+                }
             }
         }
     }
@@ -306,6 +347,11 @@ public sealed class MainViewModel : ViewModelBase
         private set => SetField(ref countdownText, value);
     }
 
+    /// <summary>
+    /// 倒计时文本的颜色资源键。收敛失败时用危险色提醒，否则主色。
+    /// </summary>
+    public string CountdownBrushKey => preBattleFailed ? "DangerBrush" : "PrimaryFgBrush";
+
     /// <summary>模型版本显示。</summary>
     public string ModelVersionText => currentPrediction?.ModelVersion ?? services.Predictor.ModelVersion;
 
@@ -365,8 +411,17 @@ public sealed class MainViewModel : ViewModelBase
             return;
         }
 
+        // 停掉收敛循环并清空它持有的预测，避免残留任务继续拉取或回写。
+        preBattleCts?.Cancel();
+        preBattleCts?.Dispose();
+        preBattleCts = null;
+        preBattlePrediction = null;
+        preBattleFailed = false;
+
         currentBattle = null;
         preBattleKey = null;
+        CountdownText = string.Empty;
+        OnPropertyChanged(nameof(CountdownBrushKey));
         OnPropertyChanged(nameof(LiveBattles));
         OnPropertyChanged(nameof(HasLiveBattles));
     }
@@ -418,13 +473,13 @@ public sealed class MainViewModel : ViewModelBase
                 RecentBattles.Add(summary);
             }
 
-            // 尽量保持原选中项，刷新后不跳走。
+            // 尽量保持原选中项，刷新后不跳走。实时区与历史区各恢复各自的选中。
             if (keepId is not null)
             {
                 var reselect = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == keepId);
                 if (reselect is not null)
                 {
-                    SelectedBattleSummary = reselect;
+                    SelectedHistoryBattle = reselect;
                 }
             }
         }
@@ -472,12 +527,18 @@ public sealed class MainViewModel : ViewModelBase
 
         Allies.Clear();
         Enemies.Clear();
-        allyRowsByAccount.Clear();
-        enemyRowsByAccount.Clear();
-        currentPrediction = null;
+        allyRows.Clear();
+        enemyRows.Clear();
         actualOutcome = BattleOutcome.Unknown;
         AllySummaryText = "-";
         EnemySummaryText = "-";
+
+        // 预测取值分两种：赛前对局没有入库记录，用收敛循环持有的那一版；
+        // 历史对局读入库记录。切换选中时若直接清成 null，切回赛前对局会
+        // 显示 --，这正是"切到 replay 再切回来右侧空白"的根因。
+        bool isPreBattle = battle is not null
+            && ReferenceEquals(currentBattle?.Battle, battle);
+        currentPrediction = isPreBattle ? preBattlePrediction : null;
 
         if (battle is null)
         {
@@ -526,7 +587,7 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
-                allyRowsByAccount[p.AccountId] = row;
+                allyRows[RowKey(p)] = row;
                 Allies.Add(row);
             }
 
@@ -537,7 +598,7 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
-                enemyRowsByAccount[p.AccountId] = row;
+                enemyRows[RowKey(p)] = row;
                 Enemies.Add(row);
             }
 
@@ -545,10 +606,14 @@ public sealed class MainViewModel : ViewModelBase
             AllySummaryText = BuildTeamSummary(full.Allies);
             EnemySummaryText = BuildTeamSummary(full.Enemies);
 
-            // 预测取自已入库记录。入库时算过，这里不重算，保证展示的是当时那一版。
-            currentPrediction = await services.Repository
-                .GetPredictionAsync(full.BattleId)
-                .ConfigureAwait(true);
+            // 预测取值分两种：赛前对局没有入库记录，用收敛循环持有的那一版；
+            // 历史对局读入库记录。
+            if (!isPreBattle)
+            {
+                currentPrediction = await services.Repository
+                    .GetPredictionAsync(full.BattleId)
+                    .ConfigureAwait(true);
+            }
         }
         catch (Exception ex)
         {
@@ -563,9 +628,51 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         // 阶段二三在后台推进。快照缺失的玩家行此刻显示占位符，
-        // 补拉结果落地后增量刷新。
-        await FetchMissingStatsInBackgroundAsync(full, version, token).ConfigureAwait(true);
+        // 补拉结果落地后增量刷新。赛前对局由收敛循环统一负责拉取与刷新，
+        // 这里不重复拉，避免两处并发请求同一批玩家。
+        if (!isPreBattle)
+        {
+            await FetchMissingStatsInBackgroundAsync(full, version, token).ConfigureAwait(true);
+        }
+        else
+        {
+            await FetchClanGradesAsync(full, version, token).ConfigureAwait(true);
+        }
     }
+
+    /// <summary>
+    /// 从名单中挑出需要在线补拉统计的玩家。
+    /// </summary>
+    /// <remarks>
+    /// 账号 ID 为 -1 哨兵的也要收进来：赛前名单的 vehicles.id 是会话临时
+    /// ID，解析期一律置哨兵，真账号由提供商按昵称解析。若按 -1 过滤，赛前
+    /// 名单会被整批滤掉，从不去查 API，界面恒显示"隐藏"。提供商内部对
+    /// Auto 服跳过、对哨兵走昵称解析，交给它处理即可。
+    ///
+    /// 判据与收敛口径一致：账号胜率、分舰种、单船三项任一缺失都算缺，
+    /// 只拉账号胜率会让舰种与单船列永远留空。隐藏战绩者排除在外，WG API
+    /// 不返回他们的数据，反复拉只会空转。
+    /// internal 以便测试直接验证筛选口径。
+    /// </remarks>
+    internal static IEnumerable<PlayerRecord> SelectPlayersNeedingStats(
+        IEnumerable<PlayerRecord> players) =>
+        players
+            .Where(p => !p.IsBot && !p.IsHidden && !string.IsNullOrEmpty(p.PlayerName))
+            .Where(p => !IsFullyCovered(p));
+
+    /// <summary>
+    /// 账号、分舰种与单船数据是否都到齐。
+    /// </summary>
+    /// <remarks>
+    /// 判据用原始记录字段：提供商把分舰种数据写进 ClassStatsJson，单船层
+    /// 落 ShipBattles，账号层落 AccountWinrate。ClassStatsJson 为空串或
+    /// "{}" 都表示没有分舰种数据。
+    /// </remarks>
+    private static bool IsFullyCovered(PlayerRecord player) =>
+        player.AccountWinrate >= 0
+        && player.ShipBattles >= 0
+        && !string.IsNullOrEmpty(player.ClassStatsJson)
+        && player.ClassStatsJson.Length > 2;
 
     /// <summary>
     /// 用当前名单与模型重新生成预测并入库。
@@ -584,7 +691,18 @@ public sealed class MainViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            var battle = await services.Repository.GetBattleAsync(selectedBattle.BattleId).ConfigureAwait(true);
+            // 赛前对局不在库里，直接用内存里的名单重算，不查库。
+            bool isPreBattle = ReferenceEquals(currentBattle?.Battle, selectedBattle);
+            BattleRecord? battle;
+            if (isPreBattle)
+            {
+                battle = selectedBattle;
+            }
+            else
+            {
+                battle = await services.Repository.GetBattleAsync(selectedBattle.BattleId).ConfigureAwait(true);
+            }
+
             if (battle is null)
             {
                 return;
@@ -593,22 +711,43 @@ public sealed class MainViewModel : ViewModelBase
             // 重算前先把快照合并进来：补拉过的数据不落 battle_players 表，
             // 直接预测会丢掉账号层特征。
             battle = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
-                services.Repository
+            {
+                var account = services.Repository
                     .GetLatestSnapshotAsync(accountId, server)
                     .GetAwaiter()
-                    .GetResult());
+                    .GetResult();
+                if (string.IsNullOrEmpty(shipId))
+                {
+                    return account;
+                }
+
+                return services.Repository
+                    .GetLatestShipSnapshotAsync(accountId, server, shipId)
+                    .GetAwaiter()
+                    .GetResult() ?? account;
+            });
 
             var prediction = await services.Predictor.PredictAsync(battle).ConfigureAwait(true);
-            await services.Repository.SavePredictionAsync(prediction).ConfigureAwait(true);
+
+            // 赛前对局不落库，只更新内存；历史对局落库以便校准。
+            if (!isPreBattle)
+            {
+                await services.Repository.SavePredictionAsync(prediction).ConfigureAwait(true);
+            }
 
             currentPrediction = prediction;
+            if (isPreBattle)
+            {
+                preBattlePrediction = prediction;
+            }
 
             // 同步刷新左侧列表项的预测概率，否则列表要重启才更新。
             var summary = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == battle.BattleId);
             summary?.UpdatePrediction(prediction.AllyWinProbability);
+            currentBattle?.UpdatePrediction(prediction.AllyWinProbability);
 
             StatusMessage = $"已重算 · {prediction.ModelVersion}";
-            LogSink.Info($"预测重算完成: {battle.BattleId[..12]} 概率 {prediction.AllyWinProbability:F3}");
+            LogSink.Info($"预测重算完成: {battle.BattleId[..Math.Min(12, battle.BattleId.Length)]} 概率 {prediction.AllyWinProbability:F3}");
         }
         catch (Exception ex)
         {
@@ -631,13 +770,15 @@ public sealed class MainViewModel : ViewModelBase
     /// 显示占位符。这里按需在线拉取：账号统计一次批量请求，单船统计逐
     /// 玩家。补拉把统计就地写进玩家记录，轮询把已到的数据增量刷上界面。
     /// 拉取失败不影响展示，保留占位符，用户重试即可。
+    ///
+    /// 拉取与落库都走 <see cref="PlayerStatsService"/>：它按小块推进，每块
+    /// 拉完立即落库。本方法常被取消（tempArenaInfo 重写会触发新一局详情，
+    /// 取消上一局），整批一次性落库会把已拿到的数据全丢掉，分块落库保证
+    /// 被取消时已完成的块都已持久化。
     /// </remarks>
     private async Task FetchMissingStatsInBackgroundAsync(BattleRecord battle, int version, CancellationToken token)
     {
-        var missing = battle.Players
-            .Where(p => !p.IsBot && p.AccountId != "-1" && p.AccountId != string.Empty)
-            .Where(p => p.AccountBattles < 0 || p.ShipBattles < 0)
-            .ToList();
+        var missing = SelectPlayersNeedingStats(battle.Players).ToList();
 
         // 军团分档与统计补拉并行推进，缺统计名单为空时军团查询照常执行。
         var clanTask = FetchClanGradesAsync(battle, version, token);
@@ -654,9 +795,9 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            var fetchTask = services.StatsProvider.FetchStatsAsync(missing, token);
+            var fetchTask = services.Stats.FetchAndCacheAsync(missing, token);
 
-            // 补拉按玩家逐个推进，轮询到点把已落地的数据刷上界面。
+            // 补拉按块推进，轮询到点把已落地的数据刷上界面。
             // 行对象按引用持有，RefreshFrom 只更新内容，不改集合结构。
             while (!fetchTask.IsCompleted)
             {
@@ -664,12 +805,24 @@ public sealed class MainViewModel : ViewModelBase
                 Post(() => RefreshRowsFor(version, battle.Players));
             }
 
-            await fetchTask.ConfigureAwait(false);
-            LogSink.Info("快照在线补拉完成");
+            var outcome = await fetchTask.ConfigureAwait(false);
+            LogSink.Info($"快照在线补拉完成，落库 {outcome.Cached} 条，失败批次 {outcome.FailedBatches}/{outcome.TotalBatches}");
+
+            if (outcome.Cached > 0)
+            {
+                // 落库顺带按保留天数清一次旧快照，失败静默。
+                int deleted = await services.Repository
+                    .CleanupSnapshotsAsync(services.Config.SnapshotRetentionDays)
+                    .ConfigureAwait(false);
+                if (deleted > 0)
+                {
+                    LogSink.Info($"快照清理完成，删除 {deleted} 条过期记录");
+                }
+            }
         }
         catch (OperationCanceledException)
         {
-            // 已被新选择作废，静默退出。
+            // 已被新选择作废，静默退出。已落库的块不受影响。
             await clanTask.ConfigureAwait(false);
             return;
         }
@@ -686,35 +839,6 @@ public sealed class MainViewModel : ViewModelBase
                 }
             });
             return;
-        }
-
-        // 拉到统计的玩家落快照，单船数据与本局船绑定，下次点开直接命中缓存。
-        var capturedAt = DateTimeOffset.UtcNow;
-        var snapshots = missing
-            .Where(p => p.HasStats)
-            .Select(p => PlayerSnapshot.FromPlayer(p, capturedAt))
-            .ToList();
-
-        if (snapshots.Count > 0)
-        {
-            try
-            {
-                await services.Repository.SaveSnapshotsAsync(snapshots).ConfigureAwait(false);
-                LogSink.Info($"快照已落库 {snapshots.Count} 条");
-
-                // 落库顺带按保留天数清一次旧快照，失败静默。
-                int deleted = await services.Repository
-                    .CleanupSnapshotsAsync(services.Config.SnapshotRetentionDays)
-                    .ConfigureAwait(false);
-                if (deleted > 0)
-                {
-                    LogSink.Info($"快照清理完成，删除 {deleted} 条过期记录");
-                }
-            }
-            catch (Exception)
-            {
-                // 落库失败只影响下次缓存命中，本次展示继续。
-            }
         }
 
         // 阶段三：快照合并后重算。分舰种聚合与单船口径都以合并结果为准，
@@ -817,8 +941,8 @@ public sealed class MainViewModel : ViewModelBase
                     foreach (var player in players)
                     {
                         var row = player.IsAlly
-                            ? allyRowsByAccount.GetValueOrDefault(player.AccountId)
-                            : enemyRowsByAccount.GetValueOrDefault(player.AccountId);
+                            ? allyRows.GetValueOrDefault(RowKey(player))
+                            : enemyRows.GetValueOrDefault(RowKey(player));
                         row?.SetClanDetail(detail);
                     }
                 }
@@ -864,11 +988,17 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var player in players)
         {
             var row = player.IsAlly
-                ? allyRowsByAccount.GetValueOrDefault(player.AccountId)
-                : enemyRowsByAccount.GetValueOrDefault(player.AccountId);
+                ? allyRows.GetValueOrDefault(RowKey(player))
+                : enemyRows.GetValueOrDefault(RowKey(player));
             row?.RefreshFrom(player);
         }
     }
+
+    /// <summary>
+    /// 名单行的索引键。昵称在赛前解析、补拉与快照合并前后都稳定，
+    /// 账号 ID 则在补拉前是 -1 哨兵，不能作键。
+    /// </summary>
+    private static string RowKey(PlayerRecord player) => player.PlayerName;
 
     private bool IsDetailsCurrent(int version) => version == detailsVersion;
 
@@ -997,26 +1127,69 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(LiveBattles));
         OnPropertyChanged(nameof(HasLiveBattles));
 
-        // 记代次：SelectedBattle 触发的 LoadBattleDetailsAsync 是异步的，
-        // 它末尾会查一次（必然为空的）入库预测。预测推理完成晚于那次查询
-        // 时，这里必须校验用户没有切走，否则会把别人的界面值覆盖。
-        int version = detailsVersion;
+        // 上一局的收敛循环停掉，新一局重新起。循环独立于详情区选中，
+        // 这样用户切到历史回放再切回来，预测与拉取都不受影响。
+        // 上一局的预测与失败标志一并清掉，避免新一局短暂显示旧值。
+        preBattleCts?.Cancel();
+        preBattleCts?.Dispose();
+        preBattleCts = new CancellationTokenSource();
+        preBattlePrediction = null;
+        preBattleFailed = false;
+        CountdownText = string.Empty;
 
         // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
         // 渐进补拉链路。Outcome 保持 Unknown，对照徽章自然显示"待对照"。
-        SelectedBattleSummary = null;
-        SelectedBattle = battle;
+        // 走实时区选中属性：两个列表互斥，当前对局属于实时区。
+        SelectedHistoryBattle = null;
+        SelectedLiveBattle = summary;
 
-        // 赛前预测循环：首版用库里现成快照立即出数（多为粗值），随后每
-        // 3 秒重算一次，直到补拉全部完成。加载界面时间窗内预测持续收敛，
-        // 用户看到的是不断变准的读数而不是一堆占位符。
-        // 预测不落库：赛前记录不进 battles 表，预测只留在内存供展示。
+        // 赛前收敛循环在后台独立跑，不阻塞本方法。它每 3 秒重算一次预测，
+        // 期间后台补拉持续推进，直到数据齐全或连续无进展。
+        _ = RunPreBattleConvergenceAsync(battle, summary, preBattleCts.Token);
+    }
+
+    /// <summary>
+    /// 赛前收敛循环：每 3 秒重算预测，直到数据齐全或连续无进展。
+    /// </summary>
+    /// <remarks>
+    /// 循环独立于详情区选中与代次。切换选中会重建详情区，但赛前对局没有
+    /// 入库记录，重建后 currentPrediction 会被清成 null，表现为"切回来
+    /// 右侧显示 --"。因此循环自己持有预测，并在每轮把结果写回界面。
+    ///
+    /// 收敛判据是全部真人（隐藏战绩除外）的账号、分舰种与单船数据都到齐，
+    /// 只到账号胜率就停会让舰种与单船列留空。连续若干轮无任何新增覆盖即
+    /// 判定失败，停止并红色提醒，避免死循环。
+    /// </remarks>
+    private async Task RunPreBattleConvergenceAsync(
+        BattleRecord battle,
+        BattleSummaryViewModel summary,
+        CancellationToken token)
+    {
+        int consecutiveMisses = 0;
         try
         {
             int round = 0;
-            while (true)
+            while (!token.IsCancellationRequested)
             {
                 round++;
+
+                // 本轮补拉：只拉还没到齐的玩家，拉到即落库缓存。
+                var missing = SelectPlayersNeedingStats(battle.Players).ToList();
+                int before = CountCoveredPlayers(battle);
+
+                if (missing.Count > 0)
+                {
+                    try
+                    {
+                        await services.Stats.FetchAndCacheAsync(missing, token).ConfigureAwait(true);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+
+                // 重新合并快照后推理：补拉的数据只落快照表，不合并拿不到。
                 var enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
                 {
                     var account = services.Repository
@@ -1036,70 +1209,108 @@ public sealed class MainViewModel : ViewModelBase
 
                 var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
 
-                // 推理期间用户点选了别的对局，本轮预测作废，循环终止。
-                if (!IsDetailsCurrent(version))
+                if (token.IsCancellationRequested)
                 {
                     return;
                 }
 
-                // 首轮预测落定前倒计时区先给出捕获提示，避免右上角空白。
-                if (round == 1)
-                {
-                    CountdownText = "预测生成中...";
-                    OnPropertyChanged(nameof(CountdownText));
-                }
-
+                // 循环自己持有预测，切选中重建详情区不会把它抹掉。
+                preBattlePrediction = prediction;
                 currentPrediction = prediction;
-                OnPropertyChanged(nameof(ModelConfidenceText));
 
-                // 数据覆盖完整度：除隐藏战绩者外全部真人有统计即收敛。
-                // 隐藏玩家 WG API 永远不返回数据，不能计入分母，否则循环
-                // 永不收敛。进度并入倒计时文本，不占状态栏。
-                int humans = battle.HumanPlayers.Count(p => !p.IsHidden);
-                int covered = battle.HumanPlayers.Count(p => p.HasStats);
-                int hidden = battle.HumanPlayers.Count(p => p.IsHidden);
-                preBattleProgressText = humans == covered
+                int after = CountCoveredPlayers(battle);
+                (int humans, int covered, int hidden, int incomplete) = DescribeCoverage(battle);
+
+                preBattleProgressText = incomplete == 0
                     ? $"数据齐全（{covered}/{humans}，另有 {hidden} 名隐藏战绩）"
                     : $"已拉取玩家 {covered}/{humans}"
                       + (hidden > 0 ? $"，隐藏战绩 {hidden} 名" : string.Empty);
 
-                LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，覆盖 {covered}/{humans}，隐藏 {hidden}");
+                LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，"
+                    + $"覆盖 {covered}/{humans}，隐藏 {hidden}，不完整 {incomplete}");
 
-                if (humans == covered)
+                Post(() =>
                 {
+                    summary.UpdatePrediction(prediction.AllyWinProbability);
+
+                    // 只有当详情区正显示这一局赛前对局时才回写，用户切到
+                    // 历史回放时不得用赛前数据污染那份名单。
+                    if (ReferenceEquals(selectedBattle, battle))
+                    {
+                        currentPrediction = prediction;
+                        RefreshRowsFor(detailsVersion, battle.Players);
+                        AllySummaryText = BuildTeamSummary(enriched.Allies);
+                        EnemySummaryText = BuildTeamSummary(enriched.Enemies);
+                        NotifyDetailsChanged();
+                    }
+                });
+
+                if (incomplete == 0)
+                {
+                    preBattleFailed = false;
                     CountdownText = $"预测就绪 · {preBattleProgressText}";
+                    OnPropertyChanged(nameof(CountdownBrushKey));
                     OnPropertyChanged(nameof(CountdownText));
-                    break;
+                    return;
+                }
+
+                // 连续无进展：本轮覆盖数没有增长。达到上限即停，红色提醒。
+                consecutiveMisses = after > before ? 0 : consecutiveMisses + 1;
+                if (consecutiveMisses >= PreBattleMaxConsecutiveMisses)
+                {
+                    preBattleFailed = true;
+                    CountdownText = $"补拉受阻 · 已停止 · {preBattleProgressText}";
+                    OnPropertyChanged(nameof(CountdownBrushKey));
+                    OnPropertyChanged(nameof(CountdownText));
+                    LogSink.Warn($"赛前补拉连续 {consecutiveMisses} 轮无进展，停止收敛");
+                    return;
                 }
 
                 // 3 秒倒计时给用户"正在更新"的感知，期间后台补拉持续推进。
-                // 倒计时文案携带进度与轮次，右上角一眼可见。
-                for (int remain = 3; remain > 0 && IsDetailsCurrent(version); remain--)
+                for (int remain = 3; remain > 0 && !token.IsCancellationRequested; remain--)
                 {
                     CountdownText = $"{remain}s 后更新预测 · 第 {round} 轮 · {preBattleProgressText}";
                     OnPropertyChanged(nameof(CountdownText));
-                    await Task.Delay(1000, CancellationToken.None).ConfigureAwait(true);
-                }
-
-                if (!IsDetailsCurrent(version))
-                {
-                    return;
+                    await Task.Delay(1000, token).ConfigureAwait(true);
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            // 换局或对局结束，静默退出。
+        }
         catch (Exception ex)
         {
+            preBattleFailed = true;
             CountdownText = $"预测失败: {ex.Message}";
+            OnPropertyChanged(nameof(CountdownBrushKey));
             OnPropertyChanged(nameof(CountdownText));
             LogSink.Warn($"赛前预测失败: {ex.Message}");
         }
-        finally
-        {
-            CountdownText = string.Empty;
-            OnPropertyChanged(nameof(CountdownText));
-            NotifyDetailsChanged();
-        }
     }
+
+    /// <summary>
+    /// 统计覆盖情况：真人数、已有统计数、隐藏数、数据仍不完整的真人数。
+    /// </summary>
+    /// <remarks>
+    /// 不完整指账号胜率、分舰种或单船数据任一缺失。隐藏战绩玩家 WG API
+    /// 永远不返回数据，不计入不完整，否则循环永不收敛。
+    /// </remarks>
+    internal static (int Humans, int Covered, int Hidden, int Incomplete) DescribeCoverage(
+        BattleRecord battle)
+    {
+        var humans = battle.HumanPlayers.ToList();
+        int hidden = humans.Count(p => p.IsHidden);
+        // covered 用与 incomplete 同一套齐全口径：账号、分舰种、单船都到齐。
+        // 若只数账号胜率，"已拉取 x/y"会在舰种与单船仍空时显示成满。
+        int covered = humans.Count(p => !p.IsHidden && IsFullyCovered(p));
+        int incomplete = humans.Count(p => !p.IsHidden && !IsFullyCovered(p));
+        return (humans.Count, covered, hidden, incomplete);
+    }
+
+    /// <summary>已覆盖的真人数量，用于判定本轮是否有进展。</summary>
+    private static int CountCoveredPlayers(BattleRecord battle) =>
+        battle.HumanPlayers.Count(p => !p.IsHidden && IsFullyCovered(p));
 
     private async Task RefreshAfterIngestionAsync()
     {

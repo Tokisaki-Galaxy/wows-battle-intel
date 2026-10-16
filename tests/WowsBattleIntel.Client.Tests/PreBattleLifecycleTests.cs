@@ -41,9 +41,12 @@ public class PreBattleLifecycleTests : IDisposable
         }
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition, string description)
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        string description,
+        int timeoutSeconds = 5)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
             if (condition())
@@ -112,7 +115,7 @@ public class PreBattleLifecycleTests : IDisposable
     }
 
     [Fact]
-    public async Task CurrentBattle_ClearedOnStopObservation()
+    public async Task CurrentBattle_ClearedOnConfigRebind()
     {
         WriteArena();
         using var holder = await TestServices.CreateAsync(CreateConfig());
@@ -121,10 +124,103 @@ public class PreBattleLifecycleTests : IDisposable
         holder.Services.ArenaWatcher.ScanOnce();
         await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
 
-        vm.StartObservation();
-        vm.StopObservation();
-
-        await WaitUntilAsync(() => !vm.HasLiveBattles, "停止观测后收起");
+        // 配置换绑会重建观测器，旧的当前对局不再有事件驱动，应主动收起。
+        await vm.Settings.SaveAsync();
+        await WaitUntilAsync(() => !vm.HasLiveBattles, "换绑后收起");
         Assert.Empty(vm.LiveBattles);
+    }
+
+    [Fact]
+    public async Task CurrentBattle_PreBattleLoopConvergesAndShowsRoster()
+    {
+        // 代次必须在 SelectedBattle 赋值之后再取。旧实现取在赋值之前，
+        // 赋值同步触发 LoadBattleDetailsAsync 会递增 detailsVersion，
+        // 导致收敛循环首轮 IsDetailsCurrent 即不成立、立刻退出，名单与
+        // 预测都留不下。这里锁住"名单确实灌进详情区"。
+        WriteArena();
+        using var holder = await TestServices.CreateAsync(CreateConfig());
+        var vm = new MainViewModel(holder.Services);
+
+        holder.Services.ArenaWatcher.ScanOnce();
+
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "赛前名单灌入详情区");
+        Assert.Single(vm.Allies);
+        Assert.Single(vm.Enemies);
+        Assert.Equal("AllyPlayer", vm.Allies[0].PlayerName);
+    }
+
+    [Fact]
+    public async Task CurrentBattle_PredictionSurvivesSwitchToHistoryAndBack()
+    {
+        // 切到历史回放再切回当前对局，右侧预测不得变成 --。
+        // 根因：赛前对局没有入库记录，详情区重建时若直接清空预测再查库，
+        // 查不到就会留空。收敛循环必须自己持有预测，重建时用回它。
+        WriteArena();
+        using var holder = await TestServices.CreateAsync(CreateConfig());
+
+        // 种一局历史回放，供切换用。
+        await holder.Services.Repository.SaveBattleAsync(new BattleRecord
+        {
+            BattleId = "hist-1",
+            StartedAt = DateTimeOffset.UtcNow.AddHours(-1),
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1001", PlayerName = "HistAlly", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+            ],
+        });
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        holder.Services.ArenaWatcher.ScanOnce();
+        await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
+
+        // 等收敛循环跑出第一版预测。
+        await WaitUntilAsync(
+            () => vm.PredictedWinrateText != "-",
+            "赛前预测落定",
+            timeoutSeconds: 30);
+
+        var live = vm.LiveBattles[0];
+
+        // 切到历史回放。
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "历史对局详情加载");
+
+        // 切回当前对局，预测必须还在。
+        vm.SelectedLiveBattle = live;
+        await WaitUntilAsync(
+            () => ReferenceEquals(vm.SelectedBattle, live.Battle),
+            "切回当前对局");
+
+        Assert.NotEqual("-", vm.PredictedWinrateText);
+        Assert.NotEqual("-", vm.TierText);
+    }
+
+    [Fact]
+    public async Task CurrentBattle_LoopStopsWithDangerColorAfterNoProgress()
+    {
+        // 测试环境网络必失败，补拉永远拉不到数据。连续多轮无进展后循环
+        // 必须停止并把倒计时转成危险色，不能无限空转。
+        WriteArena();
+        using var holder = await TestServices.CreateAsync(CreateConfig());
+        var vm = new MainViewModel(holder.Services);
+
+        holder.Services.ArenaWatcher.ScanOnce();
+
+        await WaitUntilAsync(
+            () => vm.CountdownBrushKey == "DangerBrush",
+            "连续无进展后转危险色",
+            timeoutSeconds: 60);
+
+        Assert.Contains("已停止", vm.CountdownText);
     }
 }

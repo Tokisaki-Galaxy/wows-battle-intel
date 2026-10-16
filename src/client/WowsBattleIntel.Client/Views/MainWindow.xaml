@@ -109,7 +109,7 @@
                 </StackPanel>
                 <ListBox x:Name="LiveBattlesList"
                          ItemsSource="{Binding LiveBattles}"
-                         SelectedItem="{Binding SelectedBattleSummary}"
+                         SelectedItem="{Binding SelectedLiveBattle}"
                          ItemTemplate="{StaticResource BattleItemTemplate}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          MaxHeight="220"
@@ -161,7 +161,7 @@
                 </StackPanel>
               </StackPanel>
               <ListBox ItemsSource="{Binding HistoryBattles}"
-                       SelectedItem="{Binding SelectedBattleSummary}"
+                       SelectedItem="{Binding SelectedHistoryBattle}"
                        ItemTemplate="{StaticResource BattleItemTemplate}"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
             </DockPanel>
@@ -218,10 +218,11 @@
                 <StackPanel Grid.Column="1"
                             VerticalAlignment="Center"
                             Margin="24,0,0,2">
-                  <!-- 赛前数据刷新倒计时：循环运行时可见，主色提醒读数在收敛 -->
+                  <!-- 赛前数据刷新倒计时：循环运行时可见，主色提醒读数在收敛，
+                       连续无进展停止时转危险色 -->
                   <TextBlock Text="{Binding CountdownText}"
                              Style="{StaticResource SecondaryTextStyle}"
-                             Foreground="{StaticResource PrimaryFgBrush}"
+                             Foreground="{Binding CountdownBrushKey, Converter={StaticResource BrushKeyConverter}}"
                              TextTrimming="CharacterEllipsis"
                              ToolTip="{Binding CountdownText, TargetNullValue=正在在线补齐玩家数据}"
                              Visibility="{Binding CountdownText, Converter={StaticResource EmptyStringToCollapsedConverter}}" />

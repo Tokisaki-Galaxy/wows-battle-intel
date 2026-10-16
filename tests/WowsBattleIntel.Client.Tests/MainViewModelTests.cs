@@ -123,7 +123,7 @@ public class MainViewModelTests
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Single(vm.Allies);
@@ -147,7 +147,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Equal("36%", vm.ModelConfidenceText);
@@ -162,7 +162,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         // 无预测时模型置信度显示占位符。
@@ -224,7 +224,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Equal("预测错误", vm.PredictionVerdict);
@@ -239,7 +239,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Equal("-", vm.PredictedWinrateText);
@@ -274,22 +274,40 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task StartAndStopObservation_TogglesFlag()
+    public async Task ObservationStatus_AlwaysReportsObserving()
     {
         using var holder = await TestServices.CreateAsync();
         var vm = new MainViewModel(holder.Services);
 
-        Assert.False(vm.IsObserving);
-        Assert.Equal("开始观测", vm.ObservationButtonText);
-
-        vm.StartObservation();
-        Assert.True(vm.IsObserving);
-        Assert.Equal("停止观测", vm.ObservationButtonText);
+        // 观测常驻，界面不再提供开始/停止开关，状态栏始终反映观测中。
         Assert.Contains("观测中", vm.ObservationStatusText);
+    }
 
-        vm.StopObservation();
-        Assert.False(vm.IsObserving);
-        Assert.Equal("未观测", vm.ObservationStatusText);
+    [Fact]
+    public async Task Selection_LiveAndHistoryAreMutuallyExclusive()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.6);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "历史对局详情加载");
+
+        // 切到实时区：历史区选中被清空，反之亦然。两个列表不能共用选中项，
+        // 否则在其中一个列表选中会清掉另一个，表现为"点了历史就回不到当前对局"。
+        var live = BattleSummaryViewModel.FromPreBattle(new BattleRecord
+        {
+            BattleId = "pre-1",
+            StartedAt = DateTimeOffset.UtcNow,
+        });
+        vm.SelectedLiveBattle = live;
+
+        Assert.Null(vm.SelectedHistoryBattle);
+        Assert.Same(live, vm.SelectedLiveBattle);
+
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        Assert.Null(vm.SelectedLiveBattle);
     }
 
     [Fact]
@@ -300,11 +318,11 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
 
         await vm.LoadRecentBattlesAsync();
 
-        Assert.NotNull(vm.SelectedBattleSummary);
+        Assert.NotNull(vm.SelectedHistoryBattle);
         Assert.Equal("battle-001", vm.SelectedBattle!.BattleId);
     }
 
@@ -317,7 +335,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Equal("95.0%", vm.PredictedWinrateText);
@@ -334,7 +352,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         Assert.Equal("势均力敌", vm.TierText);
@@ -388,7 +406,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 5, "友方名单加载");
 
         // 舰种次序航母、战列、巡洋、驱逐，同舰种内按账号标识。
@@ -439,7 +457,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 4, "友方名单加载");
 
         // 真人按舰种次序（BB 在 DD 前），人机整体垫底。
@@ -468,7 +486,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
 
         // 友方有快照：账号胜率、加权胜率与场次进汇总；敌方无快照显示占位符。
@@ -503,6 +521,143 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void SelectPlayersNeedingStats_IncludesSentinelAccountPlayers()
+    {
+        // 赛前名单的账号 ID 是 -1 哨兵，真账号要由补拉按昵称解析。
+        // 若这里按 -1 过滤，整份赛前名单会被滤掉，界面恒显示"隐藏"。
+        var sentinel = new PlayerRecord
+        {
+            AccountId = "-1",
+            PlayerName = "PreBattlePlayer",
+            AccountBattles = -1,
+            ShipBattles = -1,
+        };
+        var bot = new PlayerRecord
+        {
+            AccountId = "-1",
+            PlayerName = ":bot",
+            IsBot = true,
+            AccountBattles = -1,
+        };
+        var alreadyCovered = new PlayerRecord
+        {
+            AccountId = "2002",
+            PlayerName = "Covered",
+            AccountWinrate = 0.55,
+            AccountBattles = 1000,
+            ShipBattles = 100,
+            ClassStatsJson = "{\"BB\":{\"battles\":10,\"wins\":5}}",
+        };
+
+        var result = MainViewModel.SelectPlayersNeedingStats([sentinel, bot, alreadyCovered]).ToList();
+
+        // 哨兵玩家必须入选，人机与三项数据齐全的玩家排除。
+        var only = Assert.Single(result);
+        Assert.Same(sentinel, only);
+    }
+
+    [Fact]
+    public void SelectPlayersNeedingStats_IncompleteClassOrShipStats_StillIncluded()
+    {
+        // 只到账号胜率不算齐全：舰种或单船数据缺了要继续拉，
+        // 否则表格的舰种列与单船列会一直空着。
+        var missingClass = new PlayerRecord
+        {
+            AccountId = "3001",
+            PlayerName = "NoClass",
+            AccountWinrate = 0.5,
+            ShipBattles = 100,
+            ClassStatsJson = string.Empty,
+        };
+        var missingShip = new PlayerRecord
+        {
+            AccountId = "3002",
+            PlayerName = "NoShip",
+            AccountWinrate = 0.5,
+            ShipBattles = -1,
+            ClassStatsJson = "{\"BB\":{\"battles\":10,\"wins\":5}}",
+        };
+        var emptyClass = new PlayerRecord
+        {
+            AccountId = "3003",
+            PlayerName = "EmptyClass",
+            AccountWinrate = 0.5,
+            ShipBattles = 100,
+            ClassStatsJson = "{}",
+        };
+
+        var result = MainViewModel
+            .SelectPlayersNeedingStats([missingClass, missingShip, emptyClass])
+            .ToList();
+
+        Assert.Equal(3, result.Count);
+    }
+
+    [Fact]
+    public void SelectPlayersNeedingStats_HiddenPlayerExcluded()
+    {
+        // 隐藏战绩玩家 WG API 永不返回数据，反复拉只会空转。
+        var hidden = new PlayerRecord
+        {
+            AccountId = "4001",
+            PlayerName = "Hidden",
+            IsHidden = true,
+            AccountWinrate = -1,
+        };
+
+        Assert.Empty(MainViewModel.SelectPlayersNeedingStats([hidden]));
+    }
+
+    [Fact]
+    public void DescribeCoverage_SeparatesHiddenAndIncomplete()
+    {
+        // 隐藏战绩不计入不完整，否则收敛循环永不结束。
+        var battle = new BattleRecord
+        {
+            BattleId = "cov",
+            StartedAt = DateTimeOffset.UtcNow,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1", PlayerName = "Full", AccountWinrate = 0.5,
+                    ShipBattles = 10, ClassStatsJson = "{\"BB\":{\"battles\":1,\"wins\":0}}",
+                },
+                new PlayerRecord
+                {
+                    AccountId = "2", PlayerName = "Partial", AccountWinrate = 0.5,
+                    ShipBattles = -1, ClassStatsJson = string.Empty,
+                },
+                new PlayerRecord
+                {
+                    AccountId = "3", PlayerName = "Hidden", IsHidden = true, AccountWinrate = -1,
+                },
+            ],
+        };
+
+        var (humans, covered, hidden, incomplete) = MainViewModel.DescribeCoverage(battle);
+
+        Assert.Equal(3, humans);
+        Assert.Equal(1, covered);
+        Assert.Equal(1, hidden);
+        Assert.Equal(1, incomplete);
+    }
+
+    [Fact]
+    public void SelectPlayersNeedingStats_EmptyNameExcluded()
+    {
+        // 空昵称无法按昵称解析账号，排除。
+        var empty = new PlayerRecord
+        {
+            AccountId = "-1",
+            PlayerName = string.Empty,
+            AccountBattles = -1,
+        };
+
+        Assert.Empty(MainViewModel.SelectPlayersNeedingStats([empty]));
+    }
+
+    [Fact]
     public async Task SelectBattle_ProgressiveLoad_RosterFirstThenBackgroundStatsFetch()
     {
         // 渐进式加载路径：缺统计的名单先展示占位行，补拉失败后保留占位符，
@@ -520,7 +675,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
 
         // 阶段一立即出现名单，不等在线补拉。
         await WaitUntilAsync(
@@ -580,19 +735,21 @@ public class MainViewModelTests
                 WeightedWinrate = 0.5,
                 ShipId = shipId,
                 ShipBattles = 100,
+                // 分舰种数据也要齐，否则按新口径仍算不完整会触发补拉。
+                ClassStatsJson = "{\"BB\":{\"battles\":100,\"wins\":50}}",
             });
         }
 
         var vm = new MainViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
-        vm.SelectedBattleSummary = vm.RecentBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0 && !vm.IsBusy, "第一局加载");
         await WaitUntilAsync(
             () => vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
             "补拉提示出现");
 
-        vm.SelectedBattleSummary = vm.RecentBattles[1];
+        vm.SelectedHistoryBattle = vm.RecentBattles[1];
         await WaitUntilAsync(
             () => vm.Allies.Count > 0 && !vm.IsBusy,
             "第二局加载");
