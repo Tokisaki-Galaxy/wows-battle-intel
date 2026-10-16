@@ -3,7 +3,9 @@ using System.Windows;
 using System.Windows.Markup;
 using WowsBattleIntel.Client.Configuration;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Core.Scoring;
 using WowsBattleIntel.Client.Views;
+using WowsBattleIntel.Stats;
 
 namespace WowsBattleIntel.Client;
 
@@ -29,6 +31,17 @@ public partial class App : Application
         Velopack.VelopackApp.Build()
             .SetLogger(new VelopackLogAdapter())
             .Run();
+
+        // 赛前名单的舰种与等级回填：Core 不引用 Stats，注入委托桥接。
+        ArenaInfoParser.ShipMetaLookup = shipId =>
+        {
+            if (!ShipCatalog.TryGetMeta(shipId, out var meta) || meta is null)
+            {
+                return null;
+            }
+
+            return (meta.Type, meta.Tier);
+        };
 
         // 界面用简体中文习惯的格式。
         var culture = new CultureInfo("zh-CN");

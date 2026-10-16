@@ -43,7 +43,9 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// 列表首行显示文本：对局类型与地图名。
     /// </summary>
     public string DisplayText =>
-        $"{BattleTypeLabel} {Battle.MapId}";
+        Battle.MapId.Length == 0
+            ? $"赛前名单 · {BattleTypeLabel}"
+            : $"{BattleTypeLabel} {Battle.MapId}";
 
     /// <summary>
     /// 列表次行显示文本：时间、服务器与时长。
@@ -89,7 +91,26 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         _ => "HiddenBrush",
     };
 
-    /// <summary>是否实时对局。开始时间在近三小时内的对局视为观测会话内的记录。</summary>
+    /// <summary>
+    /// 赛前名单的占位摘要，插进实时区供用户点击。不落库，正式回放入库后由
+    /// RefreshAfterIngestionAsync 重建列表自然替换。
+    /// </summary>
+    /// <remarks>
+    /// 赛前记录的 MapId 为空，标题显示"赛前名单 · 模式"。共享 BattleItemTemplate
+    /// 的字段：DisplayText 会显示空地图名，因此给 Battle 塞入模式名兜底。
+    /// </remarks>
+    public static BattleSummaryViewModel FromPreBattle(BattleRecord battle)
+    {
+        ArgumentNullException.ThrowIfNull(battle);
+
+        return new BattleSummaryViewModel
+        {
+            Battle = battle,
+            SourcePath = "pre-battle",
+        };
+    }
+
+    /// <summary>是否实时对局。开始时间在近三小时内的对局视为观测会话内的记录。赛前名单同样属于实时。</summary>
     public bool IsLive => StartedAt >= DateTimeOffset.UtcNow.AddHours(-3);
 
     /// <summary>

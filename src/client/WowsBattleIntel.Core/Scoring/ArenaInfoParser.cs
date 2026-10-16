@@ -21,6 +21,15 @@ public static class ArenaInfoParser
     private static readonly byte[] PackedMagic = [0x12, 0x32, 0x34, 0x11];
 
     /// <summary>
+    /// 船目录元数据查询，供缺失的舰种与等级回填。
+    /// </summary>
+    /// <remarks>
+    /// Core 不引用 Stats，由 Client 启动时注入委托。未注入时缺失字段
+    /// 保持原值（15.9+ 的 tempArenaInfo 为空/0）。
+    /// </remarks>
+    public static Func<string, (string Type, int Tier)?>? ShipMetaLookup { get; set; }
+
+    /// <summary>
     /// 读取并解析 tempArenaInfo.json。
     /// </summary>
     /// <param name="filePath">tempArenaInfo.json 的完整路径。</param>
@@ -91,11 +100,25 @@ public static class ArenaInfoParser
         var battle = new BattleRecord
         {
             StartedAt = arenaInfo.StartedAt,
-            BattleType = BattleTypeExtensions.FromMatchGroup(arenaInfo.MatchGroup),
             Server = MapServer(arenaInfo.Realm),
             Outcome = BattleOutcome.Unknown,
             Players = players,
         };
+
+        // gameType 比 matchGroup 更具体（RandomBattle 对 pvp），非空时优先。
+        // 映射键与 ReplaysharkMapper.MapBattleType 保持同一套（Core 不引用
+        // Replay，就地维护，双侧同步改）。
+        battle.BattleType = string.IsNullOrEmpty(arenaInfo.GameType)
+            ? BattleTypeExtensions.FromMatchGroup(arenaInfo.MatchGroup)
+            : arenaInfo.GameType.Trim().ToUpperInvariant() switch
+            {
+                "RANDOMBATTLE" => BattleType.Random,
+                "RANKEDBATTLE" => BattleType.Ranked,
+                "COOPERATIVEBATTLE" or "COOPBATTLE" or "PVEBATTLE" => BattleType.Coop,
+                "CLANBATTLE" => BattleType.Clan,
+                "TRAININGBATTLE" or "PRIVATEBATTLE" => BattleType.Training,
+                _ => BattleTypeExtensions.FromMatchGroup(arenaInfo.MatchGroup),
+            };
 
         battle.BattleId = ToBattleId(battle);
         return battle;
@@ -144,6 +167,23 @@ public static class ArenaInfoParser
     /// </summary>
     private static PlayerRecord MapPlayer(ArenaVehicle vehicle)
     {
+        // 15.9 起 tempArenaInfo 的 vehicles 不带 shipType/shipTier，从
+        // 船目录回填。Core 不引用 Stats，通过静态委托注入避免反向依赖。
+        string shipType = vehicle.ShipType;
+        int shipTier = vehicle.ShipTier;
+        if (ShipMetaLookup?.Invoke(vehicle.ShipId) is { } meta)
+        {
+            if (shipType.Length == 0)
+            {
+                shipType = meta.Type;
+            }
+
+            if (shipTier <= 0)
+            {
+                shipTier = meta.Tier;
+            }
+        }
+
         return new PlayerRecord
         {
             AccountId = vehicle.Id,
@@ -156,8 +196,8 @@ public static class ArenaInfoParser
             ShipId = vehicle.ShipId,
             // 临时名单阶段查不到中文船名，留空由 UI 层的 ShipCatalog 兜底。
             ShipName = string.Empty,
-            ShipTier = vehicle.ShipTier,
-            ShipClass = ShipClassExtensions.Parse(vehicle.ShipType),
+            ShipTier = shipTier,
+            ShipClass = ShipClassExtensions.Parse(shipType),
             DivisionSize = 1,
 
             // 赛前没有任何战绩与表现数据，全部走哨兵与零值默认。
