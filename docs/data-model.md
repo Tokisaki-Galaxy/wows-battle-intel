@@ -104,6 +104,13 @@
 | weighted_winrate | REAL | 加权胜率 |
 | pr | REAL | 个人评分，可空 |
 | source | TEXT | 数据来源，VORTEX/WG_PUBLIC/YUYUKO |
+| class_stats | TEXT | 分舰种聚合统计 JSON，形如 `{"BB":{"battles":1000,"wins":560,"damage":50000}}` |
+| clan_tag | TEXT | 采集时的公会标签快照，含方括号。身份字段，不参与训练，供缓存加速路径回填名单 |
+| ship_id | TEXT | 快照对应本局船只的标识，空表示纯账号级快照 |
+| ship_battles | INTEGER | 本局船只的账号场次 |
+| ship_winrate | REAL | 本局船只的账号胜率 |
+| ship_avg_damage | REAL | 本局船只的账号场均伤害 |
+| favorite_tier | INTEGER | 账号最常玩等级 |
 
 唯一约束：`(account_id, server, captured_at)`。
 
