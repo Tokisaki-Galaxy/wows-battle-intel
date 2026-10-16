@@ -1207,6 +1207,26 @@ public sealed class MainViewModel : ViewModelBase
                         .GetResult() ?? account;
                 });
 
+                // 合并后的军团标签写回原始名单记录：赛前 tempArenaInfo 不含标签，
+                // 原始记录本为空，写回后供军团分档查询与列表项使用。只补空值。
+                foreach (var enrichedPlayer in enriched.Players)
+                {
+                    if (string.IsNullOrEmpty(enrichedPlayer.ClanTag))
+                    {
+                        continue;
+                    }
+
+                    var original = battle.Players.FirstOrDefault(
+                        p => string.Equals(p.PlayerName, enrichedPlayer.PlayerName, StringComparison.Ordinal));
+                    if (original is not null && string.IsNullOrEmpty(original.ClanTag))
+                    {
+                        original.ClanTag = enrichedPlayer.ClanTag;
+                    }
+                }
+
+                // 军团标签就位后查分档，让标签按强度着色。
+                await FetchClanGradesAsync(battle, detailsVersion, token).ConfigureAwait(true);
+
                 var prediction = await services.Predictor.PredictAsync(enriched).ConfigureAwait(true);
 
                 if (token.IsCancellationRequested)
@@ -1238,7 +1258,9 @@ public sealed class MainViewModel : ViewModelBase
                     if (ReferenceEquals(selectedBattle, battle))
                     {
                         currentPrediction = prediction;
-                        RefreshRowsFor(detailsVersion, battle.Players);
+                        // 用合并快照后的记录刷行：赛前 tempArenaInfo 不含军团标签，
+                        // 合并后的记录从快照补上了标签，行才能显示军团。
+                        RefreshRowsFor(detailsVersion, enriched.Players);
                         AllySummaryText = BuildTeamSummary(enriched.Allies);
                         EnemySummaryText = BuildTeamSummary(enriched.Enemies);
                         NotifyDetailsChanged();

@@ -654,6 +654,48 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveSnapshot_RoundTripsClanTag()
+    {
+        var snapshot = new PlayerSnapshot
+        {
+            AccountId = "1003",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 800,
+            AccountWinrate = 0.6,
+            ClanTag = "[ABC]",
+        };
+
+        await repository.SaveSnapshotAsync(snapshot);
+
+        var loaded = await repository.GetLatestSnapshotAsync("1003", GameServer.Asia);
+        Assert.NotNull(loaded);
+        Assert.Equal("[ABC]", loaded.ClanTag);
+    }
+
+    [Fact]
+    public async Task GetAccountSnapshot_RespectsMaxAge()
+    {
+        // 三天前的快照在一天有效期下应视为未命中，无限有效期下命中。
+        var stale = new PlayerSnapshot
+        {
+            AccountId = "1004",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow.AddDays(-3),
+            AccountBattles = 100,
+            AccountWinrate = 0.5,
+        };
+        await repository.SaveSnapshotAsync(stale);
+
+        Assert.Null(await repository.GetAccountSnapshotAsync(
+            "1004", GameServer.Asia, TimeSpan.FromDays(1)));
+        Assert.NotNull(await repository.GetAccountSnapshotAsync(
+            "1004", GameServer.Asia, TimeSpan.FromDays(7)));
+        Assert.NotNull(await repository.GetAccountSnapshotAsync(
+            "1004", GameServer.Asia, TimeSpan.MaxValue));
+    }
+
+    [Fact]
     public async Task CleanupSnapshots_DeletesOnlyRowsOlderThanRetention()
     {
         var oldSnapshot = new PlayerSnapshot

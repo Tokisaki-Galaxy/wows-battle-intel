@@ -429,4 +429,33 @@ public class WgApiParserTests
         Assert.Equal("PrimaryFgBrush", new ClanGradeInfo { Grade = ClanGradeTier.Good }.ColorKey);
         Assert.Equal(string.Empty, new ClanGradeInfo { Grade = ClanGradeTier.Normal }.ColorKey);
     }
+
+    [Fact]
+    public void ParsePlayerClans_ExtractsTagsFromAccountInfo()
+    {
+        const string json = """
+            {
+              "status": "ok",
+              "data": {
+                "1001": { "clan_id": 5, "clan": { "tag": "ABC", "name": "Alpha Clan" } },
+                "1002": { "clan_id": null, "clan": null },
+                "1003": { "clan": {} }
+              }
+            }
+            """;
+
+        var tags = WgApiParser.ParsePlayerClans(json);
+
+        // 有军团的进结果，无军团或空 clan 对象的不进。
+        Assert.Single(tags);
+        Assert.Equal("ABC", tags["1001"]);
+    }
+
+    [Fact]
+    public void ParsePlayerClans_ErrorStatus_ReturnsEmpty()
+    {
+        const string json = """{ "status": "error", "error": { "message": "INVALID_ACCOUNT_ID" } }""";
+
+        Assert.Empty(WgApiParser.ParsePlayerClans(json));
+    }
 }

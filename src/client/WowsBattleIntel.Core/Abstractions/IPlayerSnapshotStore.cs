@@ -62,6 +62,15 @@ public sealed class PlayerSnapshot
     /// <summary>服务器。</summary>
     public GameServer Server { get; set; } = GameServer.Auto;
 
+    /// <summary>
+    /// 采集时的军团标签快照，含方括号，如 [ABC]，无军团为空串。
+    /// </summary>
+    /// <remarks>
+    /// 身份字段而非统计字段，不参与训练特征。落进快照是为了让缓存加速路径
+    /// 也能把军团标签灌回名单，赛前 tempArenaInfo 本身不含标签。
+    /// </remarks>
+    public string ClanTag { get; set; } = string.Empty;
+
     /// <summary>采集时间。</summary>
     public DateTimeOffset CapturedAt { get; set; }
 
@@ -131,6 +140,7 @@ public sealed class PlayerSnapshot
             AccountId = player.AccountId,
             Server = player.Server,
             CapturedAt = capturedAt,
+            ClanTag = player.ClanTag,
             AccountBattles = (int)Math.Max(0, player.AccountBattles),
             AccountWinrate = player.AccountWinrate,
             AccountAvgDamage = player.AccountAvgDamage,

@@ -92,6 +92,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         await AddColumnIfMissing(existing, connection, "ship_avg_damage", "REAL");
         await AddColumnIfMissing(existing, connection, "favorite_tier", "INTEGER");
 
+        // 军团标签快照列。身份字段，让缓存加速路径也能把标签灌回名单。
+        await AddColumnIfMissing(existing, connection, "clan_tag", "TEXT");
+
         // 单船层快照的查询索引。引用 ship_id，必须在加列之后建，
         // 因此放迁移里而 schema.sql 只服务新库也不重复建。
         await using (var command = connection.CreateCommand())
@@ -913,7 +916,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     account_winrate_solo, account_battles_solo,
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
-                    weighted_winrate, pr, source, class_stats,
+                    weighted_winrate, pr, source, class_stats, clan_tag,
                     ship_id, ship_battles, ship_winrate, ship_avg_damage, favorite_tier
                 ) VALUES (
                     $accountId, $server, $capturedAt,
@@ -921,7 +924,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     $wrSolo, $bSolo,
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
-                    $weighted, NULL, $source, $classStats,
+                    $weighted, NULL, $source, $classStats, $clanTag,
                     $shipId, $shipBattles, $shipWinrate, $shipAvgDamage, $favoriteTier
                 )
                 ON CONFLICT(account_id, server, captured_at) DO NOTHING;
@@ -941,6 +944,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$bDiv3", s.AccountBattlesDiv3);
             command.Parameters.AddWithValue("$weighted", s.WeightedWinrate);
             command.Parameters.AddWithValue("$source", s.Source ?? string.Empty);
+            command.Parameters.AddWithValue("$clanTag", s.ClanTag ?? string.Empty);
             var classStats = command.Parameters.Add("$classStats", SqliteType.Text);
             classStats.Value = string.IsNullOrEmpty(s.ClassStatsJson)
                 ? DBNull.Value
@@ -1017,6 +1021,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 ? null
                 : reader.GetString(reader.GetOrdinal("class_stats")),
 
+            // 军团标签列，旧快照无此列或为 NULL 时落空串。
+            ClanTag = TryGetString(reader, "clan_tag"),
+
             // 单船三列，旧快照与账号级快照均无值，落回 -1 哨兵。
             ShipId = shipIdOrdinal >= 0 && !reader.IsDBNull(shipIdOrdinal)
                 ? reader.GetString(shipIdOrdinal)
@@ -1046,6 +1053,13 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     {
         int ordinal = TryGetOrdinal(reader, name);
         return ordinal < 0 || reader.IsDBNull(ordinal) ? -1 : reader.GetDouble(ordinal);
+    }
+
+    /// <summary>按列名取文本，列不存在或为 NULL 时返回空串。</summary>
+    private static string TryGetString(SqliteDataReader reader, string name)
+    {
+        int ordinal = TryGetOrdinal(reader, name);
+        return ordinal < 0 || reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
     }
 
     /// <inheritdoc />

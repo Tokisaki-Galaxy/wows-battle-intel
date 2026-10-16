@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
     pr                  REAL,
     source              TEXT    NOT NULL DEFAULT '',
     class_stats         TEXT,
+    clan_tag            TEXT    NOT NULL DEFAULT '',
     UNIQUE (account_id, server, captured_at)
 );
 

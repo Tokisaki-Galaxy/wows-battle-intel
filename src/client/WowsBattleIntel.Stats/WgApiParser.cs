@@ -372,6 +372,41 @@ internal static class WgApiParser
     }
 
     /// <summary>
+    /// 解析 clans/accountinfo 响应，得到 account_id 到军团标签的映射。
+    /// </summary>
+    /// <remarks>
+    /// 响应形如 {"status":"ok","data":{"123":{"clan_id":...,"clan":{"tag":"ABC"}}}}。
+    /// 未加入军团或查不到的账号 clan 为 null，不进入结果。标签不含方括号，
+    /// 由调用方按展示口径补。
+    /// </remarks>
+    public static Dictionary<string, string> ParsePlayerClans(string json)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var root = JObject.Parse(json);
+
+        if (root["status"]?.Value<string>() != "ok" || root["data"] is not JObject data)
+        {
+            return result;
+        }
+
+        foreach (var prop in data.Properties())
+        {
+            if (prop.Value is not JObject entry || entry["clan"] is not JObject clan)
+            {
+                continue;
+            }
+
+            string? tag = clan["tag"]?.Value<string>();
+            if (!string.IsNullOrEmpty(tag))
+            {
+                result[prop.Name] = tag;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 解析 clans/info 响应，得到 clan_id 到军团条目的映射。
     /// </summary>
     /// <remarks>

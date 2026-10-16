@@ -240,6 +240,12 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
         {
             player.FavoriteTier = account.FavoriteTier;
         }
+
+        // 军团标签：只补空值。回放链路已带回放里的标签，不被缓存覆盖。
+        if (string.IsNullOrEmpty(player.ClanTag) && !string.IsNullOrEmpty(account.ClanTag))
+        {
+            player.ClanTag = account.ClanTag;
+        }
     }
 
     /// <summary>
