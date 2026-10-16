@@ -123,6 +123,99 @@ public sealed class AppConfig
         GamePath = ResolveGamePath(GamePath);
         DatabasePath = ResolveDatabasePath(DatabasePath);
         ModelPath = ResolveModelPath(ModelPath);
+        ReplaysharkPath = ResolveReplaysharkPath(ReplaysharkPath);
+        ExtractedDataPath = ResolveExtractedDataPath(ExtractedDataPath);
+        ConstantsRootPath = ResolveConstantsRootPath(ConstantsRootPath);
+    }
+
+    /// <summary>
+    /// 解析 replayshark 可执行文件。空值或路径失效时探测发布包 tools 目录
+    /// 与仓库 data/tools。
+    /// </summary>
+    private static string ResolveReplaysharkPath(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && File.Exists(value))
+        {
+            return ToAbsolutePath(value);
+        }
+
+        foreach (string candidate in GetReplaysharkCandidates())
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 解析游戏数据根目录（各版本子目录的父目录）。
+    /// </summary>
+    private static string ResolveExtractedDataPath(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
+        {
+            return ToAbsolutePath(value);
+        }
+
+        foreach (string candidate in GetDataRootCandidates("gamedata"))
+        {
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 解析 constants 根目录（各版本子目录的父目录）。
+    /// </summary>
+    private static string ResolveConstantsRootPath(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
+        {
+            return ToAbsolutePath(value);
+        }
+
+        foreach (string candidate in GetDataRootCandidates("constants"))
+        {
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// replayshark.exe 候选位置。发布包 tools 目录优先，其次仓库 data/tools。
+    /// </summary>
+    private static IEnumerable<string> GetReplaysharkCandidates()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "tools", "replayshark.exe");
+        string? repoDataDir = FindRepoDataDirectory();
+        if (repoDataDir is not null)
+        {
+            yield return Path.Combine(repoDataDir, "tools", "replayshark.exe");
+        }
+    }
+
+    /// <summary>
+    /// 游戏数据与 constants 根目录候选。发布包内目录优先，其次仓库 data。
+    /// </summary>
+    private static IEnumerable<string> GetDataRootCandidates(string subdirectory)
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, subdirectory);
+        string? repoDataDir = FindRepoDataDirectory();
+        if (repoDataDir is not null)
+        {
+            yield return Path.Combine(repoDataDir, subdirectory);
+        }
     }
 
     /// <summary>
