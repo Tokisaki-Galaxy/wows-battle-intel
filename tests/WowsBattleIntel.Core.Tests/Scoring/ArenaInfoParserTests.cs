@@ -49,9 +49,9 @@ public class ArenaInfoParserTests : IDisposable
             };
             string name = i switch
             {
-                0 => "Bot_Ally",
+                0 => "bot_ally",
                 1 => string.Empty,
-                12 => ":enemy_bot",
+                12 => ":bot_enemy",
                 _ => $"player_{i}",
             };
             vehicles.Add($$"""
@@ -95,7 +95,7 @@ public class ArenaInfoParserTests : IDisposable
         Assert.Equal(expected, arenaInfo.StartedAt);
         // 抽查首尾条目。
         Assert.Equal("20", arenaInfo.Vehicles[0].Id);
-        Assert.Equal("Bot_Ally", arenaInfo.Vehicles[0].Name);
+        Assert.Equal("bot_ally", arenaInfo.Vehicles[0].Name);
         Assert.Equal("4286581900", arenaInfo.Vehicles[0].ShipId);
         Assert.Equal(0, arenaInfo.Vehicles[0].Relation);
         Assert.Equal("Destroyer", arenaInfo.Vehicles[0].ShipType);
@@ -200,12 +200,14 @@ public class ArenaInfoParserTests : IDisposable
         Assert.All(battle.Enemies, p => Assert.False(p.IsAlly));
 
         // 人机判定两条路：id<=30 号段与 ":" 昵称前缀。
-        var allyBot = battle.Players.Single(p => p.AccountId == "20");
+        // 注意 vehicles.id 是会话临时 ID，不映射到 AccountId（恒为 -1 哨兵），
+        // 因此人机判定发生在解析期（依据原始 id），识别结果落在 IsBot 标志。
+        var allyBot = battle.Players.Single(p => p.PlayerName == "bot_ally");
         Assert.True(allyBot.IsBot);
-        var enemyBot = battle.Players.Single(p => p.AccountId == "5");
+        var enemyBot = battle.Players.Single(p => p.PlayerName == ":bot_enemy");
         Assert.True(enemyBot.IsBot);
         Assert.StartsWith(":", enemyBot.PlayerName);
-        var human = battle.Players.Single(p => p.AccountId == "1000000002");
+        var human = battle.Players.Single(p => p.PlayerName == "player_2");
         Assert.False(human.IsBot);
 
         // 空昵称按隐藏战绩处理为人类玩家，不误判成人机。
@@ -238,9 +240,9 @@ public class ArenaInfoParserTests : IDisposable
         Assert.True(ArenaInfoParser.TryRead(filePath, out var arenaInfo));
 
         var battle = ArenaInfoParser.ToBattleRecord(arenaInfo!);
-        var ship = battle.Players.Single(p => p.AccountId == "1000000002");
+        var ship = battle.Players.Single(p => p.PlayerName == "player_2");
 
-        Assert.Equal("1000000002", ship.AccountId);
+        Assert.Equal("-1", ship.AccountId);
         Assert.Equal("player_2", ship.PlayerName);
         Assert.Equal("4286581902", ship.ShipId);
         // i=2 落在 Battleship 槽位（i % 4 == 2）。

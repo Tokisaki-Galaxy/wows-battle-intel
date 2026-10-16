@@ -1018,7 +1018,27 @@ public sealed class MainViewModel : ViewModelBase
         }
         preBattleKey = key;
 
-        LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType}");
+        // tempArenaInfo 15.9 实测不带 realm 字段，赛前记录的 Server 会是
+        // Auto，而 WG API 补拉对 Auto 组直接跳过，整名单会全显示"隐藏"。
+        // 用户服务器固定，从库里最近一局推断兜底。
+        if (battle.Server == Core.Models.GameServer.Auto)
+        {
+            var inferred = await services.Repository
+                .GetRecentBattlesAsync(limit: 1)
+                .ConfigureAwait(true);
+            if (inferred.Count > 0)
+            {
+                battle.Server = inferred[0].Server;
+                // PlayerRecord 各自带 Server 字段，补拉按它分组。BattleRecord
+                // 改了不等于玩家记录改了，必须逐个同步。
+                foreach (var p in battle.Players)
+                {
+                    p.Server = battle.Server;
+                }
+            }
+        }
+
+        LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType} · {battle.Server}");
 
         // 插进实时区：把赛前摘要放到列表最前，让用户在列表里也看得见正在
         // 进行中的对局。刷新列表（LoadRecentBattlesAsync）会整体重建并自然

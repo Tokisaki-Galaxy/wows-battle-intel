@@ -72,6 +72,8 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             cancellationToken.ThrowIfCancellationRequested();
             if (group.Key == GameServer.Auto)
             {
+                // Auto 无法确定 API 域名，跳过。调用方应在上游解析出具体
+                // 服务器（如赛前链路从最近对局推断）。
                 continue;
             }
 
@@ -134,18 +136,39 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         string host,
         CancellationToken cancellationToken)
     {
-        // 昵称去重后拼接，WG 支持逗号分隔的精确查询。
+        // 逐昵称查询。WG 的 account/list 对逗号分隔多昵称的批量精确搜索
+        // 在部分服务器（Asia 实测）只返回部分结果，逐个查才可靠。每次
+        // 请求之间限速，避免触发限流。
+        var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
         var names = group
             .Select(p => p.PlayerName)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        string nameList = Uri.EscapeDataString(string.Join(",", names));
-        string url = $"https://{host}/wows/account/list/"
-            + $"?application_id={options.ApplicationId}&type=exact&search={nameList}";
+        foreach (var name in names)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-        var mapping = WgApiParser.ParseAccountIds(json);
+            string url = $"https://{host}/wows/account/list/"
+                + $"?application_id={options.ApplicationId}&type=exact&search={Uri.EscapeDataString(name)}";
+
+            try
+            {
+                string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+                var parsed = WgApiParser.ParseAccountIds(json);
+                foreach (var kv in parsed)
+                {
+                    mapping[kv.Key] = kv.Value;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 单个昵称失败不影响其他玩家。
+                continue;
+            }
+
+            await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+        }
 
         foreach (var player in group)
         {
