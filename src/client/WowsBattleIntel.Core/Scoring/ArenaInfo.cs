@@ -29,6 +29,13 @@ public sealed class ArenaInfo
     /// <summary>当前用户账号 ID。</summary>
     public string PlayerId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// gameType 字段，如 "RandomBattle"。比 matchGroup 的 "pvp" 更具体，
+    /// matchGroup 只粗分 PvP/PvE。
+    /// </summary>
+    [JsonProperty("gameType")]
+    public string GameType { get; set; } = string.Empty;
+
     /// <summary>参战者列表，通常 24 项，含人机。</summary>
     public List<ArenaVehicle> Vehicles { get; set; } = [];
 }

@@ -1008,14 +1008,25 @@ public sealed class MainViewModel : ViewModelBase
 
     private async Task HandlePreBattleAsync(BattleRecord battle)
     {
-        // 同局判重：BattleId 由时间与参战者集合生成，稳定可复现。
-        if (preBattleKey == battle.BattleId)
+        // 同局判重：键 = BattleId + 人数。加载过程中 tempArenaInfo 会随
+        // 玩家陆续加入多次重写，BattleId 不变但人数递增，人数变化要放行
+        // 刷新名单；人数相同的重复读取（watcher 轮询）被挡掉。
+        string key = $"{battle.BattleId}:{battle.Players.Count}";
+        if (preBattleKey == key)
         {
             return;
         }
-        preBattleKey = battle.BattleId;
+        preBattleKey = key;
 
         LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType}");
+
+        // 插进实时区：把赛前摘要放到列表最前，让用户在列表里也看得见正在
+        // 进行中的对局。刷新列表（LoadRecentBattlesAsync）会整体重建并自然
+        // 顶掉它，正式回放入库后由那条记录接管。
+        var summary = BattleSummaryViewModel.FromPreBattle(battle);
+        RecentBattles.Insert(0, summary);
+        OnPropertyChanged(nameof(LiveBattles));
+        OnPropertyChanged(nameof(HasLiveBattles));
 
         // 记代次：SelectedBattle 触发的 LoadBattleDetailsAsync 是异步的，
         // 它末尾会查一次（必然为空的）入库预测。预测推理完成晚于那次查询

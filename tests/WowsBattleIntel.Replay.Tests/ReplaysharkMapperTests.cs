@@ -266,7 +266,9 @@ public class ReplaysharkMapperTests
     [InlineData("CoopBattle", BattleType.Coop)]
     [InlineData("CooperativeBattle", BattleType.Coop)]
     [InlineData("ClanBattle", BattleType.Clan)]
-    [InlineData("UnknownType", BattleType.Unknown)]
+    // matchGroup "pvp" 是 tempArenaInfo 实测值（16.10 真实文件），经 FromMatchGroup
+    // 映射为 Random；gameType 未知时以 matchGroup 兜底，pvp 即随机战。
+    [InlineData("UnknownType", BattleType.Random)]
     public void MapBattleType_MapsKnownTypes(string gameType, BattleType expected)
     {
         var actual = ReplaysharkMapper.MapBattleType(gameType, "pvp");

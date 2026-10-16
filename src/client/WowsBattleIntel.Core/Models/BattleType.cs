@@ -45,7 +45,7 @@ public static class BattleTypeExtensions
 
         return matchGroup.Trim().ToUpperInvariant() switch
         {
-            "RANDOM" or "RANDOM_BATTLE" => BattleType.Random,
+            "RANDOM" or "RANDOM_BATTLE" or "PVP" => BattleType.Random,
             "RANKED" or "RANKED_BATTLE" => BattleType.Ranked,
             "COOP" or "PVE" or "COOPERATIVE" => BattleType.Coop,
             "TRAINING" or "PRIVATE" => BattleType.Training,
