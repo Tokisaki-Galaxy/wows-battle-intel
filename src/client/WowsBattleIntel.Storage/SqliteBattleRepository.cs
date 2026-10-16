@@ -620,6 +620,74 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     }
 
     /// <summary>
+    /// 按昵称批量查已入库的真实账号 ID，供赛前名单命中缓存。
+    /// </summary>
+    /// <remarks>
+    /// 赛前名单的 vehicles.id 是会话临时 ID，解析期一律置 -1 哨兵，真账号
+    /// 要按昵称解析。历史回放里同一玩家早已带真账号入库，先用本地历史把
+    /// 昵称换成账号，可省一次 account/list 请求，也能让账号级快照直接命中
+    /// 缓存。WG 昵称在同一服务器内唯一，同名取最近一条。
+    /// </remarks>
+    /// <returns>昵称到账号 ID 的映射，查不到的昵称不在其中。</returns>
+    public async Task<Dictionary<string, string>> GetAccountIdsByNamesAsync(
+        IReadOnlyList<string> playerNames,
+        GameServer server,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(playerNames);
+
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var names = playerNames
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (names.Count == 0)
+        {
+            return result;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        // 分批查询避免参数过多。每批一次 IN 查询，取账号非哨兵的最近记录。
+        const int batchSize = 100;
+        for (int offset = 0; offset < names.Count; offset += batchSize)
+        {
+            var batch = names.Skip(offset).Take(batchSize).ToList();
+            await using var command = connection.CreateCommand();
+            var placeholders = string.Join(",", batch.Select((_, i) => $"$n{i}"));
+            // 每个昵称取最新一条带真账号的记录。窗口函数按 id 倒序取第一行，
+            // 结果确定；同名多账号的极端情况取最近一次入库的那个。
+            command.CommandText = $"""
+                SELECT player_name, account_id FROM (
+                    SELECT player_name, account_id,
+                           ROW_NUMBER() OVER (PARTITION BY player_name ORDER BY id DESC) AS rn
+                    FROM battle_players
+                    WHERE player_name IN ({placeholders})
+                      AND account_id <> '-1' AND account_id <> ''
+                      AND server = $server
+                ) WHERE rn = 1;
+                """;
+            for (int i = 0; i < batch.Count; i++)
+            {
+                command.Parameters.AddWithValue($"$n{i}", batch[i]);
+            }
+
+            command.Parameters.AddWithValue("$server", server.ToString());
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string name = reader.GetString(0);
+                string accountId = reader.GetString(1);
+                result[name] = accountId;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 查账号在指定服务器上的最新快照，不设时间上界，供展示层使用。
     /// </summary>
     /// <remarks>

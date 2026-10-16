@@ -32,10 +32,11 @@ public sealed class AppServices : IDisposable
         Config = config;
         Repository = repository;
         StatsProvider = statsProvider;
+        Logs = new LogService();
+        Stats = new PlayerStatsService(statsProvider, repository, Logs);
         ClanCatalog = clanCatalog;
         Predictor = predictor;
         PredictionInfo = predictionInfo;
-        Logs = new LogService();
         ReplayParser = new ReplayService(config);
         Ingestion = new BattleIngestionService(ReplayParser, repository, predictor);
         Observer = observer;
@@ -58,6 +59,11 @@ public sealed class AppServices : IDisposable
 
     /// <summary>玩家统计来源。</summary>
     public IPlayerStatsProvider StatsProvider { get; private set; }
+
+    /// <summary>
+    /// 玩家战绩的统一入口：拉取并落库缓存。所有战绩查询都走这里。
+    /// </summary>
+    public PlayerStatsService Stats { get; private set; }
 
     /// <summary>军团强度目录，按标签提供分档查询。</summary>
     public ClanCatalogService ClanCatalog { get; private set; }
@@ -199,6 +205,7 @@ public sealed class AppServices : IDisposable
             Config = updated;
             Repository = repository;
             StatsProvider = CreateStatsProvider(updated);
+            Stats = new PlayerStatsService(StatsProvider, repository, Logs);
             ClanCatalog = new ClanCatalogService(CreateWgOptions(updated), repository);
             Predictor = createResult.Predictor;
             PredictionInfo = new PredictionFallbackInfo(
