@@ -135,6 +135,40 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Validate_NegativeBattleCacheDays_Fails()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            BattleCacheDays = -1,
+        };
+
+        Assert.Contains("战绩缓存天数不能为负", vm.Validate());
+    }
+
+    [Fact]
+    public async Task BattleCache_RoundTripsThroughConfig()
+    {
+        // 缓存开关与时长应能写盘再读回，0 天在配置里换算成"不过期"。
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            EnableBattleCache = true,
+            BattleCacheDays = 3,
+        };
+
+        await vm.SaveAsync();
+
+        Assert.True(holder.Services.Config.EnableBattleCache);
+        Assert.Equal(3, holder.Services.Config.BattleCacheDays);
+        Assert.Equal(TimeSpan.FromDays(3), holder.Services.Config.BattleCacheTtl);
+
+        holder.Services.Config.BattleCacheDays = 0;
+        Assert.Equal(TimeSpan.MaxValue, holder.Services.Config.BattleCacheTtl);
+    }
+
+    [Fact]
     public async Task SaveAsync_InvalidSettings_DoesNotApply()
     {
         using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));

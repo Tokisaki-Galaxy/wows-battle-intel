@@ -904,6 +904,39 @@
 
             <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
               <StackPanel>
+                <TextBlock Text="战绩缓存" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="开启后同一玩家在有效期内重复出现在名单里，直接读本地缓存，不再请求 WG API，加快查询。缓存数据可能有滞后，追求最新请关闭。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="缓存对局战绩"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <CheckBox Grid.Row="0" Grid.Column="1" Content="加速查询"
+                            IsChecked="{Binding EnableBattleCache, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="缓存时长（天）"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <TextBox Grid.Row="1" Grid.Column="1" MaxWidth="120" HorizontalAlignment="Left"
+                           IsEnabled="{Binding EnableBattleCache}"
+                           Text="{Binding BattleCacheDays, UpdateSourceTrigger=PropertyChanged}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
                 <TextBlock Text="模型与观测" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,12" />
 
                 <Grid>

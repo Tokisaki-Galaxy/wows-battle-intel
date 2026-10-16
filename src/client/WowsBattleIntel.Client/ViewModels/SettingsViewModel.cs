@@ -24,6 +24,8 @@ public sealed class SettingsViewModel : ViewModelBase
     private string wgApplicationId = string.Empty;
     private int pollIntervalSeconds = 10;
     private int snapshotRetentionDays = 14;
+    private bool enableBattleCache;
+    private int battleCacheDays = 7;
     private int themeIndex;
     private string statusMessage = string.Empty;
     private bool isBusy;
@@ -117,6 +119,28 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => snapshotRetentionDays;
         set => SetFieldAndMarkDirty(ref snapshotRetentionDays, value);
+    }
+
+    /// <summary>
+    /// 是否缓存对局战绩加速查询。开启后同一玩家在有效期内重复查询直接命中本地。
+    /// </summary>
+    public bool EnableBattleCache
+    {
+        get => enableBattleCache;
+        set => SetFieldAndMarkDirty(ref enableBattleCache, value);
+    }
+
+    /// <summary>
+    /// 战绩缓存有效期天数，默认 7。0 表示不设新鲜度上界，永不按时间过期。
+    /// </summary>
+    /// <remarks>
+    /// 与缓存开关联动：关闭缓存时该项在界面上禁用，但仍按原值保存，
+    /// 用户重新开启后沿用上次设置的时长。
+    /// </remarks>
+    public int BattleCacheDays
+    {
+        get => battleCacheDays;
+        set => SetFieldAndMarkDirty(ref battleCacheDays, value);
     }
 
     /// <summary>
@@ -233,6 +257,11 @@ public sealed class SettingsViewModel : ViewModelBase
             return "快照保留天数不能为负，0 表示不清理。";
         }
 
+        if (BattleCacheDays < 0)
+        {
+            return "战绩缓存天数不能为负，0 表示不过期。";
+        }
+
         return null;
     }
 
@@ -250,6 +279,8 @@ public sealed class SettingsViewModel : ViewModelBase
             WgApplicationId = WgApplicationId.Trim(),
             PollIntervalSeconds = PollIntervalSeconds,
             SnapshotRetentionDays = SnapshotRetentionDays,
+            EnableBattleCache = EnableBattleCache,
+            BattleCacheDays = BattleCacheDays,
             Theme = ThemeConfigValue(ThemeIndex),
         };
     }
@@ -311,6 +342,8 @@ public sealed class SettingsViewModel : ViewModelBase
         wgApplicationId = config.WgApplicationId;
         pollIntervalSeconds = config.PollIntervalSeconds;
         snapshotRetentionDays = config.SnapshotRetentionDays;
+        enableBattleCache = config.EnableBattleCache;
+        battleCacheDays = config.BattleCacheDays;
         themeIndex = ThemeIndexFromConfig(config.Theme);
         hasUnsavedChanges = false;
 
@@ -321,6 +354,8 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(WgApplicationId));
         OnPropertyChanged(nameof(PollIntervalSeconds));
         OnPropertyChanged(nameof(SnapshotRetentionDays));
+        OnPropertyChanged(nameof(EnableBattleCache));
+        OnPropertyChanged(nameof(BattleCacheDays));
         OnPropertyChanged(nameof(ThemeIndex));
         OnPropertyChanged(nameof(HasUnsavedChanges));
     }
