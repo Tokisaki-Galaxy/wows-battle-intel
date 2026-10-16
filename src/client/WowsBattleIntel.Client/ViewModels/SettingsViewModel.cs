@@ -19,9 +19,6 @@ public sealed class SettingsViewModel : ViewModelBase
 
     private string gamePath = string.Empty;
     private string databasePath = string.Empty;
-    private string replaysharkPath = string.Empty;
-    private string extractedDataPath = string.Empty;
-    private string constantsRootPath = string.Empty;
     private string modelPath = string.Empty;
     private string modelVersion = string.Empty;
     private string wgApplicationId = string.Empty;
@@ -52,13 +49,6 @@ public sealed class SettingsViewModel : ViewModelBase
         BrowseDatabasePathCommand = SyncCommand(_ => BrowseFile(
             "选择数据库文件", "SQLite 数据库 (*.db)|*.db|所有文件 (*.*)|*.*", DatabasePath,
             p => DatabasePath = p));
-        BrowseReplaysharkPathCommand = SyncCommand(_ => BrowseFile(
-            "选择 replayshark 可执行文件", "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*",
-            ReplaysharkPath, p => ReplaysharkPath = p));
-        BrowseExtractedDataPathCommand = SyncCommand(_ => BrowseFolder(
-            "选择游戏数据目录", ExtractedDataPath, p => ExtractedDataPath = p));
-        BrowseConstantsRootPathCommand = SyncCommand(_ => BrowseFolder(
-            "选择 constants 根目录", ConstantsRootPath, p => ConstantsRootPath = p));
         BrowseModelPathCommand = SyncCommand(_ => BrowseFile(
             "选择 ONNX 模型", "ONNX 模型 (*.onnx)|*.onnx|所有文件 (*.*)|*.*", ModelPath,
             p => ModelPath = p));
@@ -93,27 +83,6 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => databasePath;
         set => SetFieldAndMarkDirty(ref databasePath, value);
-    }
-
-    /// <summary>replayshark 可执行文件路径。</summary>
-    public string ReplaysharkPath
-    {
-        get => replaysharkPath;
-        set => SetFieldAndMarkDirty(ref replaysharkPath, value);
-    }
-
-    /// <summary>游戏数据目录。</summary>
-    public string ExtractedDataPath
-    {
-        get => extractedDataPath;
-        set => SetFieldAndMarkDirty(ref extractedDataPath, value);
-    }
-
-    /// <summary>constants.json 根目录。</summary>
-    public string ConstantsRootPath
-    {
-        get => constantsRootPath;
-        set => SetFieldAndMarkDirty(ref constantsRootPath, value);
     }
 
     /// <summary>ONNX 模型路径，为空时用基线预测器。</summary>
@@ -208,15 +177,6 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>选择数据库文件命令。</summary>
     public System.Windows.Input.ICommand BrowseDatabasePathCommand { get; }
 
-    /// <summary>选择 replayshark 命令。</summary>
-    public System.Windows.Input.ICommand BrowseReplaysharkPathCommand { get; }
-
-    /// <summary>选择游戏数据目录命令。</summary>
-    public System.Windows.Input.ICommand BrowseExtractedDataPathCommand { get; }
-
-    /// <summary>选择 constants 根目录命令。</summary>
-    public System.Windows.Input.ICommand BrowseConstantsRootPathCommand { get; }
-
     /// <summary>选择模型文件命令。</summary>
     public System.Windows.Input.ICommand BrowseModelPathCommand { get; }
 
@@ -266,21 +226,6 @@ public sealed class SettingsViewModel : ViewModelBase
             return $"游戏目录不存在: {GamePath}";
         }
 
-        if (!string.IsNullOrWhiteSpace(ReplaysharkPath) && !File.Exists(ReplaysharkPath))
-        {
-            return $"replayshark 文件不存在: {ReplaysharkPath}";
-        }
-
-        if (!string.IsNullOrWhiteSpace(ExtractedDataPath) && !Directory.Exists(ExtractedDataPath))
-        {
-            return $"游戏数据目录不存在: {ExtractedDataPath}";
-        }
-
-        if (!string.IsNullOrWhiteSpace(ConstantsRootPath) && !Directory.Exists(ConstantsRootPath))
-        {
-            return $"constants 根目录不存在: {ConstantsRootPath}";
-        }
-
         if (!string.IsNullOrWhiteSpace(ModelPath) && !File.Exists(ModelPath))
         {
             return $"模型文件不存在: {ModelPath}";
@@ -308,9 +253,6 @@ public sealed class SettingsViewModel : ViewModelBase
         {
             GamePath = GamePath.Trim(),
             DatabasePath = DatabasePath.Trim(),
-            ReplaysharkPath = ReplaysharkPath.Trim(),
-            ExtractedDataPath = ExtractedDataPath.Trim(),
-            ConstantsRootPath = ConstantsRootPath.Trim(),
             ModelPath = ModelPath.Trim(),
             ModelVersion = string.IsNullOrWhiteSpace(ModelVersion) ? "baseline-logistic-v1" : ModelVersion.Trim(),
             WgApplicationId = WgApplicationId.Trim(),
@@ -373,9 +315,6 @@ public sealed class SettingsViewModel : ViewModelBase
 
         gamePath = config.GamePath;
         databasePath = config.DatabasePath;
-        replaysharkPath = config.ReplaysharkPath;
-        extractedDataPath = config.ExtractedDataPath;
-        constantsRootPath = config.ConstantsRootPath;
         modelPath = config.ModelPath;
         modelVersion = config.ModelVersion;
         wgApplicationId = config.WgApplicationId;
@@ -387,9 +326,6 @@ public sealed class SettingsViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(GamePath));
         OnPropertyChanged(nameof(DatabasePath));
-        OnPropertyChanged(nameof(ReplaysharkPath));
-        OnPropertyChanged(nameof(ExtractedDataPath));
-        OnPropertyChanged(nameof(ConstantsRootPath));
         OnPropertyChanged(nameof(ModelPath));
         OnPropertyChanged(nameof(ModelVersion));
         OnPropertyChanged(nameof(WgApplicationId));

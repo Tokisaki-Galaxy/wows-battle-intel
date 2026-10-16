@@ -5,11 +5,10 @@ wows-battle-intel 解压即用绿色包
 
 1. 将本目录解压到任意位置，路径建议不含特殊字符。
 2. 双击 WowsBattleIntel.Client.exe 启动。
-3. 首次运行请打开设置页完成以下配置：
-   - 回放目录：填写 World of Warships 的 replays 文件夹，
-     通常位于游戏安装目录下，例如 D:\Games\World_of_Warships\replays。
-   - WG API ID：可选。不填时使用内置共享 ID，
-     需要独立配额的用户可在 Wargaming 开发者中心申请。
+3. 首次运行只需在设置页完成一项配置：
+   - 游戏目录：程序会自动探测（要求游戏正在运行，或曾通过
+     Wargaming 启动器/Steam 安装），探测不到时手动浏览选择
+     游戏安装目录即可。
 4. 其余路径项留空即可，程序会自动使用包内默认值。
 
 二、运行环境
@@ -37,4 +36,7 @@ wows-intel.exe              命令行工具
 onnxruntime.dll             ONNX 推理原生库
 e_sqlite3.dll               SQLite 原生库
 models\baseline.onnx        默认预测模型
+tools\replayshark.exe       回放解析器
+gamedata\                   各版本游戏定义数据（回放解析依赖）
+constants\                  各版本 constants.json（回放解析依赖）
 config.sample.json          配置模板

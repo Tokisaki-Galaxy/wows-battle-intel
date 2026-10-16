@@ -854,9 +854,6 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                   </Grid.RowDefinitions>
 
                   <TextBlock Grid.Row="0" Grid.Column="0" Text="游戏目录"
@@ -877,32 +874,14 @@
                   <Button Grid.Row="1" Grid.Column="2" Content="浏览"
                           Command="{Binding BrowseDatabasePathCommand}" Margin="0,0,0,8" />
 
-                  <TextBlock Grid.Row="2" Grid.Column="0" Text="replayshark"
-                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
-                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ReplaysharkPath, UpdateSourceTrigger=PropertyChanged}"
-                           Margin="0,0,8,8" />
-                  <Button Grid.Row="2" Grid.Column="2" Content="浏览"
-                          Command="{Binding BrowseReplaysharkPathCommand}" Margin="0,0,0,8" />
+                  <!-- replayshark、游戏数据与 constants 三个路径已内置自动探测，
+                       不再暴露给用户。高级需求直接编辑 config.json。 -->
 
-                  <TextBlock Grid.Row="3" Grid.Column="0" Text="游戏数据目录"
-                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
-                  <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ExtractedDataPath, UpdateSourceTrigger=PropertyChanged}"
-                           Margin="0,0,8,8" />
-                  <Button Grid.Row="3" Grid.Column="2" Content="浏览"
-                          Command="{Binding BrowseExtractedDataPathCommand}" Margin="0,0,0,8" />
-
-                  <TextBlock Grid.Row="4" Grid.Column="0" Text="constants 根目录"
-                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
-                  <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ConstantsRootPath, UpdateSourceTrigger=PropertyChanged}"
-                           Margin="0,0,8,8" />
-                  <Button Grid.Row="4" Grid.Column="2" Content="浏览"
-                          Command="{Binding BrowseConstantsRootPathCommand}" Margin="0,0,0,8" />
-
-                  <TextBlock Grid.Row="5" Grid.Column="0" Text="模型路径"
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="模型路径"
                              Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                  <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ModelPath, UpdateSourceTrigger=PropertyChanged}"
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ModelPath, UpdateSourceTrigger=PropertyChanged}"
                            Margin="0,0,8,0" />
-                  <Button Grid.Row="5" Grid.Column="2" Content="浏览"
+                  <Button Grid.Row="2" Grid.Column="2" Content="浏览"
                           Command="{Binding BrowseModelPathCommand}" />
                 </Grid>
               </StackPanel>
