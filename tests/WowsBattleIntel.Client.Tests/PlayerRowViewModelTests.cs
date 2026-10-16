@@ -476,4 +476,59 @@ public class PlayerRowViewModelTests
         var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
         Assert.Throws<ArgumentNullException>(() => vm.RefreshFrom(null!));
     }
+
+    [Fact]
+    public void BuildBattleRecordText_FullData_MatchesTemplate()
+    {
+        var player = new PlayerRecord
+        {
+            AccountId = "1",
+            PlayerName = "测试玩家",
+            ClanTag = "[ABC]",
+            ShipName = "TestShip",
+            ShipId = "TEST001",
+            ShipClass = ShipClass.Battleship,
+            ShipTier = 10,
+            AccountBattles = 5000,
+            AccountWinrate = 0.58,
+            AccountAvgDamage = 34567,
+            FavoriteTier = 10,
+            ClassBattles = 1234,
+            ClassWins = 700,
+            ShipBattles = 200,
+            ShipWinrate = 0.6,
+            ShipAvgDamage = 45000,
+        };
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        string text = vm.BuildBattleRecordText();
+
+        Assert.Contains("[ABC] 测试玩家（", text);
+        Assert.Contains("账号5,000场 58.00%胜率 场均34,567", text);
+        Assert.Contains("最常用等级X", text);
+        Assert.Contains("舰种1,234场 56.73%胜率", text);
+        Assert.Contains("单船200场 60.00%胜率 45,000场均", text);
+    }
+
+    [Fact]
+    public void BuildBattleRecordText_MissingData_UsesDash()
+    {
+        var player = new PlayerRecord
+        {
+            AccountId = "1",
+            PlayerName = "NoClan",
+            ShipName = "TestShip",
+            ShipId = "TEST001",
+            ShipClass = ShipClass.Destroyer,
+            ShipTier = 8,
+        };
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        string text = vm.BuildBattleRecordText();
+
+        // 无军团时不留多余空格，缺失统计用 "-"。
+        Assert.StartsWith("NoClan（", text);
+        Assert.Contains("账号-场 -胜率 场均-", text);
+        Assert.Contains("单船-场 -胜率 -场均", text);
+    }
 }

@@ -37,6 +37,51 @@ public sealed class PlayerRowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 一键复制战绩命令。把本行玩家的战绩文本写入剪贴板。
+    /// </summary>
+    /// <remarks>
+    /// 剪贴板可能被其他进程占用，SetText 抛异常时静默忽略，不打断界面。
+    /// 复制内容由 <see cref="BuildBattleRecordText"/> 生成。
+    /// </remarks>
+    public System.Windows.Input.ICommand CopyBattleRecordCommand { get; }
+
+    /// <summary>
+    /// 构造视图模型，装配命令。命令的委托捕获本实例，必须在构造里建。
+    /// </summary>
+    private PlayerRowViewModel()
+    {
+        CopyBattleRecordCommand = new RelayCommand(_ =>
+        {
+            CopyBattleRecordToClipboard();
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// 把本行战绩写入剪贴板。供命令调用，抽取出来便于单测。
+    /// </summary>
+    /// <returns>复制成功返回 true。</returns>
+    public bool CopyBattleRecordToClipboard()
+    {
+        string text = BuildBattleRecordText();
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            return true;
+        }
+        catch (Exception)
+        {
+            // 剪贴板被占用等场景，静默失败。
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 用新的领域模型刷新本行。
     /// </summary>
     /// <remarks>
@@ -582,4 +627,56 @@ public sealed class PlayerRowViewModel : ViewModelBase
         11 => "XI",
         _ => tier > 0 ? tier.ToString() : string.Empty,
     };
+
+    /// <summary>
+    /// 生成一键复制用的战绩文本。
+    /// </summary>
+    /// <remarks>
+    /// 形如「[ABC] 玩家名（船名），账号5000场 58.00%胜率 场均34567 最常用等级X，
+    /// 舰种1234场 56.78%胜率，单船200场 60.00%胜率 45000场均。」。缺失项用 "-"
+    /// 占位，保持模板结构不塌。舰种取本局所开船的舰种，与名单舰种列口径一致。
+    /// </remarks>
+    public string BuildBattleRecordText()
+    {
+        if (source is null)
+        {
+            return string.Empty;
+        }
+
+        string clanTag = ClanTagText;
+        string namePart = clanTag.Length == 0 ? PlayerName : $"{clanTag} {PlayerName}";
+        string shipName = ShipLineText.Length > 0 ? ShipLineText : ShipText;
+
+        string battles = source.AccountBattles >= 0
+            ? ((int)source.AccountBattles).ToString("N0")
+            : "-";
+        string winrate = source.AccountWinrate >= 0
+            ? source.AccountWinrate.ToString("P2")
+            : "-";
+        string avgDamage = source.AccountAvgDamage >= 0
+            ? ((int)source.AccountAvgDamage).ToString("N0")
+            : "-";
+        string favoriteTier = FavoriteTierRoman ?? "-";
+
+        string classBattles = source.ClassBattles >= 0
+            ? ((int)source.ClassBattles).ToString("N0")
+            : "-";
+        string classWinrate = source.ClassBattles > 0 && source.ClassWins >= 0
+            ? (source.ClassWins / source.ClassBattles).ToString("P2")
+            : "-";
+
+        string shipBattles = source.ShipBattles >= 0
+            ? ((int)source.ShipBattles).ToString("N0")
+            : "-";
+        string shipWinrate = source.ShipWinrate >= 0
+            ? source.ShipWinrate.ToString("P2")
+            : "-";
+        string shipAvgDamage = source.ShipAvgDamage >= 0
+            ? ((int)source.ShipAvgDamage).ToString("N0")
+            : "-";
+
+        return $"{namePart}（{shipName}），账号{battles}场 {winrate}胜率 场均{avgDamage}"
+            + $" 最常用等级{favoriteTier}，舰种{classBattles}场 {classWinrate}胜率，"
+            + $"单船{shipBattles}场 {shipWinrate}胜率 {shipAvgDamage}场均。";
+    }
 }
