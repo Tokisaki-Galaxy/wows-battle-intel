@@ -937,6 +937,49 @@
 
             <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
               <StackPanel>
+                <TextBlock Text="名单染色规则" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="自定义名单整行染色的条件。第一条命中即生效，紫色规则在前。胜率类阈值填百分数，如 58 表示 58%。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <ItemsControl ItemsSource="{Binding ColorRules}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="若玩家" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <ComboBox Width="120" VerticalAlignment="Center"
+                                  SelectedIndex="{Binding MetricIndex, UpdateSourceTrigger=PropertyChanged}">
+                          <ComboBoxItem Content="胜率" />
+                          <ComboBoxItem Content="加权胜率" />
+                          <ComboBoxItem Content="场次" />
+                          <ComboBoxItem Content="场均伤害" />
+                          <ComboBoxItem Content="单船胜率" />
+                          <ComboBoxItem Content="单船场均" />
+                        </ComboBox>
+                        <ComboBox Width="100" Margin="6,0,0,0" VerticalAlignment="Center"
+                                  SelectedIndex="{Binding OperatorIndex, UpdateSourceTrigger=PropertyChanged}">
+                          <ComboBoxItem Content="大于" />
+                          <ComboBoxItem Content="大于等于" />
+                          <ComboBoxItem Content="小于" />
+                          <ComboBoxItem Content="小于等于" />
+                        </ComboBox>
+                        <TextBox Width="100" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding Threshold, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="则整行染色为" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" Margin="6,0,6,0" />
+                        <TextBlock Text="{Binding ColorLabel}" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" FontWeight="SemiBold" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
                 <TextBlock Text="模型与观测" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,12" />
 
                 <Grid>

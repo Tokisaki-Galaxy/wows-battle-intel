@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WowsBattleIntel.Core.Scoring;
 
 namespace WowsBattleIntel.Client.Configuration;
 
@@ -50,6 +51,20 @@ public sealed class AppConfig
     /// 战绩缓存有效期天数，默认 7。0 表示不设新鲜度上界，永不按时间过期。
     /// </summary>
     public int BattleCacheDays { get; set; } = 7;
+
+    /// <summary>
+    /// 名单整行染色规则。按顺序求值，第一条命中的决定行色。
+    /// </summary>
+    /// <remarks>
+    /// 默认两条：胜率大于 0.58 染紫、胜率小于等于 0.47 染红，即原有的
+    /// 紫色大佬与红色海猴口径。规则可空，为空时名单不按水平染底色。
+    /// </remarks>
+    public List<ColorRule> ColorRules { get; set; } = DefaultColorRules.Clone();
+
+    /// <summary>
+    /// 默认染色规则。紫规则在前，保证高胜率玩家判紫优先于红。
+    /// </summary>
+    public static List<ColorRule> CreateDefaultColorRules() => DefaultColorRules.Clone();
 
     /// <summary>WG API 应用 ID。为空时用默认共享 ID。</summary>
     public string WgApplicationId { get; set; } = string.Empty;
@@ -134,6 +149,10 @@ public sealed class AppConfig
         ReplaysharkPath = ResolveReplaysharkPath(ReplaysharkPath);
         ExtractedDataPath = ResolveExtractedDataPath(ExtractedDataPath);
         ConstantsRootPath = ResolveConstantsRootPath(ConstantsRootPath);
+
+        // 旧配置无染色规则字段，反序列化后为 null，补默认；显式存过 null
+        // 也按缺失处理，避免名单着色被清空。
+        ColorRules ??= CreateDefaultColorRules();
     }
 
     /// <summary>

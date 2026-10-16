@@ -1,7 +1,9 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
 using WowsBattleIntel.Client.Configuration;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Core.Scoring;
 
 namespace WowsBattleIntel.Client.ViewModels;
 
@@ -163,7 +165,18 @@ public sealed class SettingsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>状态提示。</summary>
+    /// <summary>
+    /// 名单染色规则编辑项。前两条分别是紫色与红色规则，顺序即优先级。
+    /// </summary>
+    /// <remarks>
+    /// 固定两条：紫规则在前保证高胜率优先判紫。用户只改指标、算子与阈值，
+    /// 不改颜色。编辑后标记脏，保存时随配置写盘。
+    /// </remarks>
+    public ObservableCollection<ColorRuleViewModel> ColorRules { get; } = [];
+
+    /// <summary>
+    /// 状态提示。
+    /// </summary>
     public string StatusMessage
     {
         get => statusMessage;
@@ -262,6 +275,19 @@ public sealed class SettingsViewModel : ViewModelBase
             return "战绩缓存天数不能为负，0 表示不过期。";
         }
 
+        foreach (var rule in ColorRules)
+        {
+            if (rule.Threshold < 0)
+            {
+                return $"染色规则「{rule.ColorLabel}」的阈值不能为负。";
+            }
+
+            if (ColorRuleViewModel.IsWinrateMetric(rule.Metric) && rule.Threshold > 100)
+            {
+                return $"染色规则「{rule.ColorLabel}」的胜率阈值应在 0 到 100 之间。";
+            }
+        }
+
         return null;
     }
 
@@ -281,6 +307,7 @@ public sealed class SettingsViewModel : ViewModelBase
             SnapshotRetentionDays = SnapshotRetentionDays,
             EnableBattleCache = EnableBattleCache,
             BattleCacheDays = BattleCacheDays,
+            ColorRules = ColorRules.Select(r => r.ToRule()).ToList(),
             Theme = ThemeConfigValue(ThemeIndex),
         };
     }
@@ -358,6 +385,8 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(BattleCacheDays));
         OnPropertyChanged(nameof(ThemeIndex));
         OnPropertyChanged(nameof(HasUnsavedChanges));
+
+        LoadColorRules(config.ColorRules);
     }
 
     private void BrowseFolder(string title, string current, Action<string> apply)
@@ -401,6 +430,54 @@ public sealed class SettingsViewModel : ViewModelBase
             HasUnsavedChanges = true;
             StatusMessage = string.Empty;
         }
+    }
+
+    /// <summary>
+    /// 用配置里的染色规则重建编辑项。固定两条，缺位补默认。
+    /// </summary>
+    /// <remarks>
+    /// 颜色由序位决定：第一条紫、第二条红。配置里键名缺失或顺序错乱时按序位
+    /// 强制校正，保证界面上的"紫色/红色"标签与实际染色一致。
+    /// </remarks>
+    private void LoadColorRules(IReadOnlyList<ColorRule>? source)
+    {
+        foreach (var existing in ColorRules)
+        {
+            existing.PropertyChanged -= OnColorRuleChanged;
+        }
+
+        ColorRules.Clear();
+
+        var fallback = DefaultColorRules.Value;
+        var labels = new[] { "紫色", "红色" };
+        var keys = new[] { "RowUnicumBrush", "RowApeBrush" };
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            ColorRule rule = source is not null && i < source.Count
+                ? source[i]
+                : fallback[i];
+
+            // 键名按序位校正，防止配置被外部改乱后标签与颜色对不上。
+            var normalized = new ColorRule
+            {
+                Metric = rule.Metric,
+                Operator = rule.Operator,
+                Threshold = rule.Threshold,
+                RowBrushKey = keys[i],
+            };
+
+            var vm = new ColorRuleViewModel(normalized, labels[i]);
+            vm.PropertyChanged += OnColorRuleChanged;
+            ColorRules.Add(vm);
+        }
+    }
+
+    /// <summary>任一条染色规则被编辑即标记脏。</summary>
+    private void OnColorRuleChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        HasUnsavedChanges = true;
+        StatusMessage = string.Empty;
     }
 
     /// <summary>

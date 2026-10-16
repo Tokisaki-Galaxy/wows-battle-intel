@@ -35,6 +35,8 @@ public sealed class AppServices : IDisposable
         Logs = new LogService();
         Stats = new PlayerStatsService(statsProvider, repository, Logs);
         ClanCatalog = clanCatalog;
+        // 名单染色规则是全局共享的，装配时同步一次，配置变更时再更新。
+        ColorRuleSet.Set(config.ColorRules);
         Predictor = predictor;
         PredictionInfo = predictionInfo;
         ReplayParser = new ReplayService(config);
@@ -207,6 +209,7 @@ public sealed class AppServices : IDisposable
             StatsProvider = CreateStatsProvider(updated, repository);
             Stats = new PlayerStatsService(StatsProvider, repository, Logs);
             ClanCatalog = new ClanCatalogService(CreateWgOptions(updated), repository);
+            ColorRuleSet.Set(updated.ColorRules);
             Predictor = createResult.Predictor;
             PredictionInfo = new PredictionFallbackInfo(
                 createResult.UsedFallback,

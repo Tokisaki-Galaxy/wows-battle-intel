@@ -169,6 +169,50 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task ColorRules_DefaultTwoRulesWithExpectedThresholds()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        // 固定两条：紫在前红在后，阈值按界面百分数展示。
+        Assert.Equal(2, vm.ColorRules.Count);
+        Assert.Equal("紫色", vm.ColorRules[0].ColorLabel);
+        Assert.Equal("红色", vm.ColorRules[1].ColorLabel);
+        Assert.Equal("RowUnicumBrush", vm.ColorRules[0].RowBrushKey);
+        Assert.Equal("RowApeBrush", vm.ColorRules[1].RowBrushKey);
+        Assert.Equal(58, vm.ColorRules[0].Threshold, 3);
+        Assert.Equal(47, vm.ColorRules[1].Threshold, 3);
+    }
+
+    [Fact]
+    public async Task ColorRules_EditRoundTripsAsFraction()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        // 界面按百分数改成 60，落盘应是 0.6 的小数。
+        vm.ColorRules[0].Threshold = 60;
+        Assert.True(vm.HasUnsavedChanges);
+
+        await vm.SaveAsync();
+
+        Assert.Equal(0.6, holder.Services.Config.ColorRules[0].Threshold, 3);
+    }
+
+    [Fact]
+    public async Task Validate_ColorRuleOver100Percent_Fails()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+        };
+        vm.ColorRules[0].Threshold = 120;
+
+        Assert.Contains("胜率阈值应在 0 到 100 之间", vm.Validate());
+    }
+
+    [Fact]
     public async Task SaveAsync_InvalidSettings_DoesNotApply()
     {
         using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
