@@ -40,12 +40,22 @@ public static class ShipClassExtensions
             return ShipClass.Unknown;
         }
 
-        return shipType.Trim().ToUpperInvariant() switch
+        // 归一化时去掉下划线与连字符，再统一比对。船目录里航母写作
+        // AirCarrier（无下划线），旧实现只认 AIR_CARRIER，导致所有航母
+        // 落到 Unknown 显示 "??"。归一化后 AirCarrier 与 AIR_CARRIER 同形。
+        string normalized = shipType
+            .Trim()
+            .ToUpperInvariant()
+            .Replace("_", string.Empty)
+            .Replace("-", string.Empty)
+            .Replace(" ", string.Empty);
+
+        return normalized switch
         {
             "DD" or "DESTROYER" => ShipClass.Destroyer,
             "CA" or "CL" or "CRUISER" => ShipClass.Cruiser,
             "BB" or "BATTLESHIP" => ShipClass.Battleship,
-            "CV" or "CARRIER" or "AIR_CARRIER" => ShipClass.Carrier,
+            "CV" or "CARRIER" or "AIRCARRIER" => ShipClass.Carrier,
             "SS" or "SUBMARINE" => ShipClass.Submarine,
             _ => ShipClass.Unknown,
         };
