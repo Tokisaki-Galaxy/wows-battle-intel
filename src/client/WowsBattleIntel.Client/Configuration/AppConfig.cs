@@ -40,6 +40,17 @@ public sealed class AppConfig
     /// <summary>快照保留天数，默认 14，0 表示不清理。</summary>
     public int SnapshotRetentionDays { get; set; } = 14;
 
+    /// <summary>
+    /// 是否缓存对局战绩加速查询。开启后同一玩家在缓存有效期内的重复查询
+    /// 直接命中本地，不再请求 WG API。默认关闭，避免用户没预期到数据滞后。
+    /// </summary>
+    public bool EnableBattleCache { get; set; }
+
+    /// <summary>
+    /// 战绩缓存有效期天数，默认 7。0 表示不设新鲜度上界，永不按时间过期。
+    /// </summary>
+    public int BattleCacheDays { get; set; } = 7;
+
     /// <summary>WG API 应用 ID。为空时用默认共享 ID。</summary>
     public string WgApplicationId { get; set; } = string.Empty;
 
@@ -410,6 +421,17 @@ public sealed class AppConfig
             return DefaultReplayDirectory;
         }
     }
+
+    /// <summary>
+    /// 战绩缓存有效期。0 天表示不设新鲜度上界，取任意最新快照。
+    /// </summary>
+    /// <remarks>
+    /// 负数按 0 处理，与界面校验的口径一致，避免装饰器拿到负 TTL。
+    /// </remarks>
+    [JsonIgnore]
+    public TimeSpan BattleCacheTtl => BattleCacheDays <= 0
+        ? TimeSpan.MaxValue
+        : TimeSpan.FromDays(BattleCacheDays);
 
     /// <summary>
     /// 配置是否足够开始工作。

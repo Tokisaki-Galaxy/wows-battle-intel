@@ -1604,11 +1604,24 @@ internal static class Program
             Console.WriteLine($"缓存库: {dbPath}");
         }
 
-        var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
+        var rawProvider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
             FetchClassStats = true,
         });
+
+        // live 是读取展示路径，与界面同口径：有本地库时套缓存装饰器，同一玩家
+        // 在 7 天有效期内重复出现直接命中本地，不再请求 WG。
+        IPlayerStatsProvider provider = repository is null
+            ? rawProvider
+            : new Stats.CachingPlayerStatsProvider(
+                rawProvider,
+                repository,
+                new Stats.PlayerStatsCacheOptions
+                {
+                    Enabled = true,
+                    Ttl = TimeSpan.FromDays(7),
+                });
 
         DateTime lastSeen = DateTime.MinValue;
         while (true)
@@ -1641,7 +1654,7 @@ internal static class Program
     private static async Task PrintLiveAsync(
         string path,
         GameServer server,
-        Stats.WgPublicStatsProvider provider,
+        IPlayerStatsProvider provider,
         Storage.SqliteBattleRepository? repository)
     {
         if (!ArenaInfoParser.TryRead(path, out var arena) || arena is null)

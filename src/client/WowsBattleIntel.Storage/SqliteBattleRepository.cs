@@ -15,7 +15,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache
+public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache, IPlayerStatsCache
 {
     private readonly string connectionString;
 
@@ -699,7 +699,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         GameServer server,
         CancellationToken cancellationToken = default)
     {
-        return await GetSnapshotAsync(accountId, server, shipId: null, cancellationToken)
+        return await GetSnapshotAsync(accountId, server, shipId: null, DateTimeOffset.MinValue, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -717,47 +717,78 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shipId);
-        return await GetSnapshotAsync(accountId, server, shipId, cancellationToken)
+        return await GetSnapshotAsync(accountId, server, shipId, DateTimeOffset.MinValue, cancellationToken)
             .ConfigureAwait(false);
     }
 
     /// <summary>
     /// 快照查询的公共实现。shipId 为空查账号级最新快照，否则查该船最新一条。
     /// </summary>
+    /// <remarks>
+    /// minCapturedAt 为时间下界，只返回该时刻之后采集的快照。取
+    /// <see cref="DateTimeOffset.MinValue"/> 时不设下界，取任意最新一条。
+    /// 缓存加速查询靠它实现 TTL 语义。
+    /// </remarks>
     private async Task<PlayerSnapshot?> GetSnapshotAsync(
         string accountId,
         GameServer server,
         string? shipId,
+        DateTimeOffset minCapturedAt,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
 
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
+
+        // 时间下界与 ship_id 两个条件排列组合，四段 SQL 内联，避免动态拼条件。
+        // captured_at 用毫秒整数比较，与写入口径一致。
+        bool hasLowerBound = minCapturedAt > DateTimeOffset.MinValue;
         if (string.IsNullOrEmpty(shipId))
         {
-            command.CommandText = """
-                SELECT * FROM player_snapshots
-                WHERE account_id = $accountId AND server = $server
-                ORDER BY captured_at DESC
-                LIMIT 1;
-                """;
+            command.CommandText = hasLowerBound
+                ? """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND captured_at >= $minCapturedAt
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """
+                : """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """;
         }
         else
         {
             // ship_battles >= 0 过滤掉 ship_id 为空或单船数据缺失的行。
-            command.CommandText = """
-                SELECT * FROM player_snapshots
-                WHERE account_id = $accountId AND server = $server
-                  AND ship_id = $shipId AND ship_battles >= 0
-                ORDER BY captured_at DESC
-                LIMIT 1;
-                """;
+            command.CommandText = hasLowerBound
+                ? """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND ship_id = $shipId AND ship_battles >= 0
+                    AND captured_at >= $minCapturedAt
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """
+                : """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND ship_id = $shipId AND ship_battles >= 0
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """;
             command.Parameters.AddWithValue("$shipId", shipId);
         }
 
         command.Parameters.AddWithValue("$accountId", accountId);
         command.Parameters.AddWithValue("$server", server.ToString());
+        if (hasLowerBound)
+        {
+            command.Parameters.AddWithValue("$minCapturedAt", minCapturedAt.ToUnixTimeMilliseconds());
+        }
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -768,6 +799,42 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
 
         return ReadSnapshot(reader);
     }
+
+    /// <inheritdoc />
+    public async Task<PlayerSnapshot?> GetAccountSnapshotAsync(
+        string accountId,
+        GameServer server,
+        TimeSpan maxAge,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetSnapshotAsync(accountId, server, shipId: null, ThresholdFrom(maxAge), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<PlayerSnapshot?> GetShipSnapshotAsync(
+        string accountId,
+        GameServer server,
+        string shipId,
+        TimeSpan maxAge,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(shipId);
+        return await GetSnapshotAsync(accountId, server, shipId, ThresholdFrom(maxAge), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 把缓存有效期换算成快照的时间下界。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TimeSpan.MaxValue"/> 或负值表示不设下界，返回
+    /// <see cref="DateTimeOffset.MinValue"/> 让查询取任意最新一条。
+    /// </remarks>
+    private static DateTimeOffset ThresholdFrom(TimeSpan maxAge) =>
+        maxAge == TimeSpan.MaxValue || maxAge < TimeSpan.Zero
+            ? DateTimeOffset.MinValue
+            : DateTimeOffset.UtcNow - maxAge;
 
     /// <inheritdoc />
     public async Task<PredictionResult?> GetPredictionAsync(

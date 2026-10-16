@@ -2,12 +2,14 @@ using System.IO;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
+using WowsBattleIntel.Stats;
 using WowsBattleIntel.Storage;
 
 namespace WowsBattleIntel.Client.Tests;
 
 /// <summary>
-/// 战绩缓存服务测试。锁住"拉到即落库、分块推进、取消不丢已完成块"这三条。
+/// 战绩统一入口与缓存装饰器的测试。锁住"拉到即落库、分块推进、取消不丢已完成块、
+/// 缓存命中跳过网络"这几条。
 /// </summary>
 public class PlayerStatsServiceTests : IDisposable
 {
@@ -58,6 +60,9 @@ public class PlayerStatsServiceTests : IDisposable
         /// <summary>第几次调用开始抛异常。0 表示从不抛。</summary>
         public int FailFromCall { get; set; }
 
+        /// <summary>是否给分舰种字段赋值。默认不赋值以保持最小数据。</summary>
+        public bool FillClassStats { get; set; }
+
         public int Calls { get; private set; }
 
         public Task<IReadOnlyList<PlayerRecord>> FetchStatsAsync(
@@ -82,17 +87,29 @@ public class PlayerStatsServiceTests : IDisposable
                 p.AccountWinrate = 0.55;
                 p.ShipBattles = 100;
                 p.ShipWinrate = 0.6;
+                if (FillClassStats)
+                {
+                    p.ClassStatsJson = "{\"CA\":{\"battles\":100,\"wins\":55,\"damage\":50000}}";
+                }
             }
 
             return Task.FromResult(players);
         }
     }
 
+    /// <summary>构造带缓存装饰器的统一入口，缓存默认开启。</summary>
+    private PlayerStatsService CreateService(IPlayerStatsProvider provider, bool cacheEnabled = true)
+    {
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = cacheEnabled });
+        return new PlayerStatsService(cached, repository, new LogService());
+    }
+
     [Fact]
     public async Task FetchAndCache_PersistsResolvedPlayers()
     {
         var provider = new FakeProvider();
-        var service = new PlayerStatsService(provider, repository, new LogService());
+        var service = CreateService(provider);
         var players = new List<PlayerRecord>
         {
             MakePlayer("Alpha", "-1"),
@@ -116,7 +133,7 @@ public class PlayerStatsServiceTests : IDisposable
     {
         // 每批 8 人，第 2 批开始失败。第 1 批的 8 人应已落库。
         var provider = new FakeProvider { FailFromCall = 2 };
-        var service = new PlayerStatsService(provider, repository, new LogService());
+        var service = CreateService(provider);
         var players = Enumerable.Range(0, 20)
             .Select(i => MakePlayer($"Player{i:00}", "-1"))
             .ToList();
@@ -135,7 +152,7 @@ public class PlayerStatsServiceTests : IDisposable
     public async Task FetchAndCache_SkipsBotsAndEmptyNames()
     {
         var provider = new FakeProvider();
-        var service = new PlayerStatsService(provider, repository, new LogService());
+        var service = CreateService(provider);
         var players = new List<PlayerRecord>
         {
             new() { AccountId = "-1", PlayerName = ":bot", IsBot = true },
@@ -147,19 +164,6 @@ public class PlayerStatsServiceTests : IDisposable
 
         Assert.Equal(1, outcome.Cached);
         Assert.Equal(1, provider.Calls);
-    }
-
-    [Fact]
-    public async Task Cache_WithoutFetch_PersistsAlreadyEnrichedPlayers()
-    {
-        var service = new PlayerStatsService(new FakeProvider(), repository, new LogService());
-        var player = MakePlayer("Cached", "2001");
-
-        int cached = await service.CacheAsync([player]);
-
-        Assert.Equal(1, cached);
-        var snapshot = await repository.GetLatestSnapshotAsync("2001", GameServer.Asia);
-        Assert.NotNull(snapshot);
     }
 
     [Fact]
@@ -185,7 +189,7 @@ public class PlayerStatsServiceTests : IDisposable
         });
 
         var provider = new FakeProvider();
-        var service = new PlayerStatsService(provider, repository, new LogService());
+        var service = CreateService(provider);
         var player = new PlayerRecord
         {
             AccountId = "-1",
@@ -198,6 +202,65 @@ public class PlayerStatsServiceTests : IDisposable
         Assert.Equal("2999", player.AccountId);
         var snapshot = await repository.GetLatestSnapshotAsync("2999", GameServer.Asia);
         Assert.NotNull(snapshot);
+    }
+
+    [Fact]
+    public async Task CachingProvider_SecondFetchHitsCacheWithoutNetwork()
+    {
+        // 首轮联网拉取并落库，分舰种齐备。次轮同玩家应直接命中缓存，
+        // 不再产生网络调用。
+        var provider = new FakeProvider { FillClassStats = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        var first = MakePlayer("Cached", "2001");
+        first.ClassStatsJson = string.Empty;
+        await cached.FetchStatsAsync([first]);
+        Assert.Equal(1, provider.Calls);
+
+        var second = MakePlayer("Cached", "2001");
+        second.ClassStatsJson = string.Empty;
+        await cached.FetchStatsAsync([second]);
+
+        // 账号胜率、单船、分舰种三项均由缓存灌回，提供商不再被调用。
+        Assert.Equal(1, provider.Calls);
+        Assert.Equal(0.55, second.AccountWinrate, 3);
+        Assert.Equal(100, second.ShipBattles, 3);
+        Assert.False(string.IsNullOrEmpty(second.ClassStatsJson));
+    }
+
+    [Fact]
+    public async Task CachingProvider_ExpiredTtl_FallsBackToNetwork()
+    {
+        // TTL 置零，任何缓存都视为过期，次轮必须重新联网。
+        var provider = new FakeProvider { FillClassStats = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions
+            {
+                Enabled = true,
+                Ttl = TimeSpan.Zero,
+            });
+
+        await cached.FetchStatsAsync([MakePlayer("Expired", "2002")]);
+        await cached.FetchStatsAsync([MakePlayer("Expired", "2002")]);
+
+        Assert.Equal(2, provider.Calls);
+    }
+
+    [Fact]
+    public async Task CachingProvider_Disabled_PassesThrough()
+    {
+        // 关缓存时纯透传，每次调用都走网络，且不落库。
+        var provider = new FakeProvider { FillClassStats = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = false });
+
+        await cached.FetchStatsAsync([MakePlayer("NoCache", "2003")]);
+        await cached.FetchStatsAsync([MakePlayer("NoCache", "2003")]);
+
+        Assert.Equal(2, provider.Calls);
+        var snapshot = await repository.GetLatestSnapshotAsync("2003", GameServer.Asia);
+        Assert.Null(snapshot);
     }
 
     [Fact]
