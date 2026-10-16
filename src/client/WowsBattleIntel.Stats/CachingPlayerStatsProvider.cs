@@ -15,6 +15,9 @@ namespace WowsBattleIntel.Stats;
 /// 胜率会让舰种与单船列永远留空。缓存有效期由 <see cref="PlayerStatsCacheOptions.Ttl"/>
 /// 控制，超期视为未命中重新联网，避免玩家当前战绩长期停留在旧值。
 ///
+/// 开关只控制"读缓存加速"，不控制"写快照"：快照是近期状态特征与训练的原料，
+/// 无论是否开启加速都必须持续累积，否则关掉加速会连带把训练数据断掉。
+///
 /// 缓存读写失败、缓存仓储缺失一律回落网络，不让加速通道拖垮战绩查询本身。
 /// </remarks>
 public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
@@ -55,8 +58,8 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
     {
         ArgumentNullException.ThrowIfNull(players);
 
-        // 关缓存或没有缓存仓储时纯透传，行为与直接持有 inner 完全一致。
-        if (!options.Enabled || cache is null)
+        // 没有缓存仓储时纯透传，行为与直接持有 inner 完全一致。
+        if (cache is null)
         {
             return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
         }
@@ -69,11 +72,18 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
             return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
         }
 
-        await ResolveFromLocalHistoryAsync(targets, cancellationToken).ConfigureAwait(false);
-        await HydrateFromCacheAsync(targets, cancellationToken).ConfigureAwait(false);
+        // 读缓存受开关控制：关闭时跳过命中，每次都联网取最新。写快照不受开关
+        // 影响，始终落库，否则关掉加速的同时会把训练数据的累积一起关掉。
+        if (options.Enabled)
+        {
+            await ResolveFromLocalHistoryAsync(targets, cancellationToken).ConfigureAwait(false);
+            await HydrateFromCacheAsync(targets, cancellationToken).ConfigureAwait(false);
+        }
 
         // 缓存已齐全的玩家不再联网。缺数据的才交回 inner。
-        var needNetwork = targets.Where(p => !IsFullyCovered(p)).ToList();
+        var needNetwork = options.Enabled
+            ? targets.Where(p => !IsFullyCovered(p)).ToList()
+            : targets;
         if (needNetwork.Count == 0)
         {
             return players;
@@ -252,7 +262,9 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
     /// 把已带统计的玩家写入缓存，异常静默。
     /// </summary>
     /// <remarks>
-    /// 无有效统计（隐藏战绩或查询失败）的玩家跳过，不写空快照。
+    /// 隐藏战绩或无统计的玩家原本跳过不写空快照。但军团标签是身份字段，
+    /// 隐藏战绩也查得到，且赛前 tempArenaInfo 不含标签，需要靠缓存跨局回填。
+    /// 因此带军团标签的记录即使没有统计也落一条，统计字段保持 -1 哨兵。
     /// </remarks>
     private async Task SafeSaveAsync(
         IReadOnlyList<PlayerRecord> players,
@@ -265,7 +277,9 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
 
         var capturedAt = DateTimeOffset.UtcNow;
         var snapshots = players
-            .Where(p => p.HasStats && p.AccountId != "-1" && p.AccountId.Length > 0)
+            .Where(p => (p.HasStats || !string.IsNullOrEmpty(p.ClanTag))
+                && p.AccountId != "-1"
+                && p.AccountId.Length > 0)
             .Select(p => PlayerSnapshot.FromPlayer(p, capturedAt))
             .ToList();
 
@@ -294,7 +308,9 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
 /// </summary>
 public sealed class PlayerStatsCacheOptions
 {
-    /// <summary>是否启用缓存。关闭时装饰器纯透传。</summary>
+    /// <summary>
+    /// 是否启用缓存加速查询。关闭时每次都联网取最新，但快照仍照常落库。
+    /// </summary>
     public bool Enabled { get; set; }
 
     /// <summary>

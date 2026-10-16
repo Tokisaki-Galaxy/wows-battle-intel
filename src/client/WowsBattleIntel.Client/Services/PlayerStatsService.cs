@@ -1,6 +1,5 @@
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
-using WowsBattleIntel.Storage;
 
 namespace WowsBattleIntel.Client.Services;
 
@@ -36,11 +35,9 @@ public sealed class PlayerStatsService
     /// </summary>
     public PlayerStatsService(
         IPlayerStatsProvider provider,
-        SqliteBattleRepository repository,
         LogService logs)
     {
         ArgumentNullException.ThrowIfNull(provider);
-        ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(logs);
 
         this.provider = provider;
@@ -109,10 +106,10 @@ public sealed class PlayerStatsService
 /// <summary>
 /// 一次战绩拉取的结果。
 /// </summary>
-/// <param name="Cached">成功处理的快照条数。</param>
+/// <param name="Processed">成功处理（拉取或命中缓存）的玩家数。</param>
 /// <param name="FailedBatches">失败的批次数。</param>
 /// <param name="TotalBatches">总批次数。</param>
-public sealed record StatsFetchOutcome(int Cached, int FailedBatches, int TotalBatches)
+public sealed record StatsFetchOutcome(int Processed, int FailedBatches, int TotalBatches)
 {
     /// <summary>是否全部批次都失败。用于连续失败判定与红色提醒。</summary>
     public bool AllFailed => TotalBatches > 0 && FailedBatches == TotalBatches;

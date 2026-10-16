@@ -390,4 +390,43 @@ public class SnapshotFeatureBuilderTests
         Assert.Equal(0.46, enemy.AvgAccountWinrate, precision: 6);
         Assert.True(ally.AvgAccountWinrate > enemy.AvgAccountWinrate);
     }
+
+    [Fact]
+    public void Enrich_FillsClanTagFromSnapshotWhenPlayerHasNone()
+    {
+        var battle = new BattleRecord
+        {
+            BattleId = "test",
+            Players = [MakePlayer("1001")],
+        };
+
+        var snapshot = MakeSnapshot("1001", 0.55);
+        snapshot.ClanTag = "[ABC]";
+        var snapshots = new Dictionary<string, PlayerSnapshot> { ["Asia:1001"] = snapshot };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
+
+        Assert.Equal("[ABC]", enriched.Players[0].ClanTag);
+    }
+
+    [Fact]
+    public void Enrich_KeepsReplayClanTagOverSnapshot()
+    {
+        // 回放已带回放文件里的军团标签，不应被快照值覆盖。
+        var player = MakePlayer("1001");
+        player.ClanTag = "[REPLAY]";
+        var battle = new BattleRecord { BattleId = "test", Players = [player] };
+
+        var snapshot = MakeSnapshot("1001", 0.55);
+        snapshot.ClanTag = "[SNAPSHOT]";
+        var snapshots = new Dictionary<string, PlayerSnapshot> { ["Asia:1001"] = snapshot };
+
+        var enriched = SnapshotFeatureBuilder.Enrich(
+            battle,
+            (id, server, _) => snapshots.GetValueOrDefault($"{server}:{id}"));
+
+        Assert.Equal("[REPLAY]", enriched.Players[0].ClanTag);
+    }
 }

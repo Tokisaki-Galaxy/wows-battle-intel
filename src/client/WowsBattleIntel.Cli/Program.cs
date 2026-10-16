@@ -370,6 +370,8 @@ internal static class Program
         var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+            // 回测只关心账号统计特征，不需要军团标签，省去额外请求。
+            FetchClanTags = false,
         });
         var predictor = new BaselinePredictor();
 
@@ -533,6 +535,9 @@ internal static class Program
 
             // 分舰种聚合与单船统计同 endpoint，一次请求两者都拿，默认开启。
             FetchClassStats = true,
+
+            // 采集只落统计快照，军团标签不是特征，省去额外请求。
+            FetchClanTags = false,
         });
 
         var capturedAt = DateTimeOffset.UtcNow;

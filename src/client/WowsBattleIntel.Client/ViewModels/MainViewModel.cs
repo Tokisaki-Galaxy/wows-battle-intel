@@ -806,9 +806,9 @@ public sealed class MainViewModel : ViewModelBase
             }
 
             var outcome = await fetchTask.ConfigureAwait(false);
-            LogSink.Info($"快照在线补拉完成，落库 {outcome.Cached} 条，失败批次 {outcome.FailedBatches}/{outcome.TotalBatches}");
+            LogSink.Info($"快照在线补拉完成，处理 {outcome.Processed} 条，失败批次 {outcome.FailedBatches}/{outcome.TotalBatches}");
 
-            if (outcome.Cached > 0)
+            if (outcome.Processed > 0)
             {
                 // 落库顺带按保留天数清一次旧快照，失败静默。
                 int deleted = await services.Repository

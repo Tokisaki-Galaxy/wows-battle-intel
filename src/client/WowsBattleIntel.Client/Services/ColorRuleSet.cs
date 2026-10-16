@@ -12,6 +12,7 @@ namespace WowsBattleIntel.Client.Services;
 /// 桌面程序，不需要更重的机制。
 ///
 /// 默认值为内置的紫色大佬与红色海猴两条规则，保证配置未加载时行色不缺失。
+/// 传入的规则会复制一份持有，调用方后续改动自己的列表不会影响全局。
 /// </remarks>
 public static class ColorRuleSet
 {
@@ -21,12 +22,21 @@ public static class ColorRuleSet
     public static IReadOnlyList<ColorRule> Rules => rules;
 
     /// <summary>
-    /// 替换当前规则。传空或全空键时回落默认规则。
+    /// 替换当前规则。传 null 或空列表时回落默认规则。
     /// </summary>
     public static void Set(IReadOnlyList<ColorRule>? value)
     {
         rules = value is null || value.Count == 0
             ? DefaultColorRules.Value
-            : value;
+            : value.Select(CloneRule).ToList();
     }
+
+    /// <summary>复制一条规则，切断与调用方列表的引用关系。</summary>
+    private static ColorRule CloneRule(ColorRule rule) => new()
+    {
+        Metric = rule.Metric,
+        Operator = rule.Operator,
+        Threshold = rule.Threshold,
+        RowBrushKey = rule.RowBrushKey,
+    };
 }

@@ -117,7 +117,6 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsHidden));
         OnPropertyChanged(nameof(IsBot));
         OnPropertyChanged(nameof(TierLabel));
-        OnPropertyChanged(nameof(TierBrushKey));
         OnPropertyChanged(nameof(RowBackgroundBrushKey));
         OnPropertyChanged(nameof(WinrateBrushKey));
         OnPropertyChanged(nameof(DamageText));
@@ -357,32 +356,11 @@ public sealed class PlayerRowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 水平分类的颜色资源键。
-    /// </summary>
-    /// <remarks>
-    /// 由用户配置的染色规则求值，默认紫大佬红色海猴，两条规则都未命中时用灰。
-    /// 具体色值由主题资源决定，这里只给语义键名，经 BrushKeyConverter 换成画刷。
-    /// </remarks>
-    public string TierBrushKey => ColorRuleEngine.Evaluate(
-        ColorRuleSet.Rules,
-        source?.AccountWinrate ?? -1,
-        source?.WeightedWinrate ?? -1,
-        source?.AccountBattles ?? -1,
-        source?.AccountAvgDamage ?? -1,
-        source?.ShipWinrate ?? -1,
-        source?.ShipAvgDamage ?? -1) switch
-    {
-        "RowUnicumBrush" => "UnicumBrush",
-        "RowApeBrush" => "ApeBrush",
-        _ => "HiddenBrush",
-    };
-
-    /// <summary>
     /// 整行底色的资源键。由染色规则直接给出，命中哪条用哪条的底色。
     /// </summary>
     /// <remarks>
-    /// 与 <see cref="TierBrushKey"/> 同源：规则命中紫则行底紫、文字也紫。
-    /// 空串表示不染色，行背景保持透明。
+    /// 空串表示不染色，行背景保持透明。文字色由 <see cref="WinrateBrushKey"/>
+    /// 单独控制，两者同源于胜率口径。
     /// </remarks>
     public string RowBackgroundBrushKey => ColorRuleEngine.Evaluate(
         ColorRuleSet.Rules,
@@ -645,7 +623,9 @@ public sealed class PlayerRowViewModel : ViewModelBase
 
         string clanTag = ClanTagText;
         string namePart = clanTag.Length == 0 ? PlayerName : $"{clanTag} {PlayerName}";
-        string shipName = ShipLineText.Length > 0 ? ShipLineText : ShipText;
+
+        // 模板里的 {ShipName} 指船名本身，不带舰种与等级前缀。
+        string shipName = ShipText.Length > 0 ? ShipText : ShipLineText;
 
         string battles = source.AccountBattles >= 0
             ? ((int)source.AccountBattles).ToString("N0")

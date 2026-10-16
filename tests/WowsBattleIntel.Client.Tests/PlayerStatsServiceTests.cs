@@ -63,6 +63,9 @@ public class PlayerStatsServiceTests : IDisposable
         /// <summary>是否给分舰种字段赋值。默认不赋值以保持最小数据。</summary>
         public bool FillClassStats { get; set; }
 
+        /// <summary>给玩家补的军团标签，空表示不补。</summary>
+        public string ClanTag { get; set; } = string.Empty;
+
         public int Calls { get; private set; }
 
         public Task<IReadOnlyList<PlayerRecord>> FetchStatsAsync(
@@ -91,6 +94,11 @@ public class PlayerStatsServiceTests : IDisposable
                 {
                     p.ClassStatsJson = "{\"CA\":{\"battles\":100,\"wins\":55,\"damage\":50000}}";
                 }
+
+                if (ClanTag.Length > 0 && p.ClanTag.Length == 0)
+                {
+                    p.ClanTag = ClanTag;
+                }
             }
 
             return Task.FromResult(players);
@@ -102,7 +110,7 @@ public class PlayerStatsServiceTests : IDisposable
     {
         var cached = new CachingPlayerStatsProvider(
             provider, repository, new PlayerStatsCacheOptions { Enabled = cacheEnabled });
-        return new PlayerStatsService(cached, repository, new LogService());
+        return new PlayerStatsService(cached, new LogService());
     }
 
     [Fact]
@@ -118,7 +126,7 @@ public class PlayerStatsServiceTests : IDisposable
 
         var outcome = await service.FetchAndCacheAsync(players);
 
-        Assert.Equal(2, outcome.Cached);
+        Assert.Equal(2, outcome.Processed);
         // 哨兵玩家解析出真账号后确实落库了，下次可直接命中缓存。
         foreach (var p in players)
         {
@@ -140,7 +148,7 @@ public class PlayerStatsServiceTests : IDisposable
 
         var outcome = await service.FetchAndCacheAsync(players);
 
-        Assert.Equal(8, outcome.Cached);
+        Assert.Equal(8, outcome.Processed);
         // 第 1 批的玩家命中缓存，后续批次的玩家没有。
         var first = await repository.GetLatestSnapshotAsync(players[0].AccountId, GameServer.Asia);
         Assert.NotNull(first);
@@ -162,7 +170,7 @@ public class PlayerStatsServiceTests : IDisposable
 
         var outcome = await service.FetchAndCacheAsync(players);
 
-        Assert.Equal(1, outcome.Cached);
+        Assert.Equal(1, outcome.Processed);
         Assert.Equal(1, provider.Calls);
     }
 
@@ -248,9 +256,10 @@ public class PlayerStatsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task CachingProvider_Disabled_PassesThrough()
+    public async Task CachingProvider_Disabled_SkipsCacheReadButStillPersists()
     {
-        // 关缓存时纯透传，每次调用都走网络，且不落库。
+        // 关缓存时每次都走网络，但快照仍应落库：快照是训练数据原料，
+        // 不随加速开关关闭。
         var provider = new FakeProvider { FillClassStats = true };
         var cached = new CachingPlayerStatsProvider(
             provider, repository, new PlayerStatsCacheOptions { Enabled = false });
@@ -260,7 +269,77 @@ public class PlayerStatsServiceTests : IDisposable
 
         Assert.Equal(2, provider.Calls);
         var snapshot = await repository.GetLatestSnapshotAsync("2003", GameServer.Asia);
-        Assert.Null(snapshot);
+        Assert.NotNull(snapshot);
+    }
+
+    [Fact]
+    public async Task CachingProvider_Disabled_DoesNotHydrateFromCache()
+    {
+        // 先落一条有效快照，再关闭加速，此时不应从缓存灌数据，必须联网。
+        var provider = new FakeProvider { FillClassStats = true };
+        var enabled = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+        await enabled.FetchStatsAsync([MakePlayer("Seeded", "2004")]);
+        Assert.Equal(1, provider.Calls);
+
+        var disabled = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = false });
+        var again = MakePlayer("Seeded", "2004");
+        again.ClassStatsJson = string.Empty;
+        await disabled.FetchStatsAsync([again]);
+
+        // 关闭时跳过命中，因此又走了一次网络。
+        Assert.Equal(2, provider.Calls);
+    }
+
+    [Fact]
+    public async Task CachingProvider_HydratesClanTagButKeepsReplayValue()
+    {
+        var provider = new FakeProvider { FillClassStats = true, ClanTag = "[CACHED]" };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        // 首轮联网，把带军团标签的快照落库。
+        await cached.FetchStatsAsync([MakePlayer("Clan1", "3001")]);
+
+        // 次轮带回放来源的标签，缓存命中灌数据时不得覆盖它。
+        var withReplayClan = MakePlayer("Clan1", "3001");
+        withReplayClan.ClanTag = "[REPLAY]";
+        withReplayClan.ClassStatsJson = string.Empty;
+        await cached.FetchStatsAsync([withReplayClan]);
+
+        Assert.Equal("[REPLAY]", withReplayClan.ClanTag);
+
+        // 次轮无标签时从缓存补上。
+        var noClan = MakePlayer("Clan1", "3001");
+        noClan.ClassStatsJson = string.Empty;
+        await cached.FetchStatsAsync([noClan]);
+
+        Assert.Equal("[CACHED]", noClan.ClanTag);
+    }
+
+    [Fact]
+    public async Task CachingProvider_PersistsClanTagForHiddenPlayer()
+    {
+        // 隐藏战绩玩家没有统计，但军团标签应落库，供后续跨局回填。
+        var provider = new FakeProvider { ClanTag = "[HID]" };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        var hidden = new PlayerRecord
+        {
+            AccountId = "3002",
+            PlayerName = "HiddenGuy",
+            Server = GameServer.Asia,
+            IsHidden = true,
+            ClanTag = string.Empty,
+        };
+
+        await cached.FetchStatsAsync([hidden]);
+
+        var snapshot = await repository.GetLatestSnapshotAsync("3002", GameServer.Asia);
+        Assert.NotNull(snapshot);
+        Assert.Equal("[HID]", snapshot!.ClanTag);
     }
 
     [Fact]
