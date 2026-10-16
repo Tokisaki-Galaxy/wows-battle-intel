@@ -186,7 +186,11 @@ public static class ArenaInfoParser
 
         return new PlayerRecord
         {
-            AccountId = vehicle.Id,
+            // vehicles.id 是会话临时 ID（如 537xxxxxx/671xxxxxx 段），不是
+            // WG 账号 ID，拿它查 API 会全部空手而归。置为 -1 哨兵让补拉
+            // 链路按昵称批量解析真实账号 ID。BattleId 在 ToBattleRecord 里
+            // 已生成完毕，此处重置不影响同局判重。
+            AccountId = "-1",
             PlayerName = vehicle.Name,
             // relation 0/1 为友方（含本方分队），2/3 为敌方。
             IsAlly = vehicle.Relation <= 1,
