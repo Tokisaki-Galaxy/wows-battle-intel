@@ -101,12 +101,14 @@ public static class SnapshotFeatureBuilder
             && !string.IsNullOrEmpty(shipSnapshot.ShipId)
             && string.Equals(shipSnapshot.ShipId, player.ShipId, StringComparison.Ordinal);
 
-        // 账号层取更新的一条：账号级快照与船级快照各自独立落库，最新一条
-        // 可能落在任一侧。只认账号级会用到比船级更旧的一行。
+        // 账号层取带统计且更新的一条：账号级快照与船级快照各自独立落库，
+        // 最新一条可能落在任一侧。负胜率说明那是一条只有军团标签的空快照，
+        // 不能拿它顶掉另一侧的真实统计。
         PlayerSnapshot account = shipSnapshot is not null
             && hasShipStats
-            && shipSnapshot.CapturedAt > accountSnapshot.CapturedAt
             && shipSnapshot.AccountWinrate >= 0
+            && (accountSnapshot.AccountWinrate < 0
+                || shipSnapshot.CapturedAt > accountSnapshot.CapturedAt)
                 ? shipSnapshot
                 : accountSnapshot;
 
@@ -130,8 +132,9 @@ public static class SnapshotFeatureBuilder
             ShipClass = player.ShipClass,
             DivisionSize = player.DivisionSize,
 
-            // 账号层特征，来自快照。
-            AccountBattles = account.AccountBattles,
+            // 账号层特征，来自快照。空快照没有统计，场次回落 -1 未知，
+            // 胜率本身已是 -1 哨兵，不会写成 0。
+            AccountBattles = account.AccountWinrate >= 0 ? account.AccountBattles : -1,
             AccountWinrate = account.AccountWinrate,
             AccountAvgDamage = account.AccountAvgDamage,
             AccountWinrateSolo = account.AccountWinrateSolo,

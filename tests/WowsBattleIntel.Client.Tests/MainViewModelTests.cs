@@ -694,7 +694,8 @@ public class MainViewModelTests
     [Fact]
     public void DescribeCoverage_TotalIncludesBots()
     {
-        // 分母用名单总人数，机器人也计入，界面上的 x/y 才不会看起来少一个。
+        // 分母用名单总人数，机器人也计入。机器人没有可查的战绩，不能
+        // 被数成已覆盖，更不能被数成隐藏。
         var battle = new BattleRecord
         {
             BattleId = "cov3",
@@ -718,6 +719,8 @@ public class MainViewModelTests
         Assert.Equal(1, covered);
         Assert.Equal(0, hidden);
         Assert.Equal(0, incomplete);
+        // covered 与 hidden 互不重叠，相加即已有着落的人数，其余是机器人。
+        Assert.Equal(total - humans, total - covered - hidden - incomplete);
     }
 
     [Fact]

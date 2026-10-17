@@ -892,9 +892,8 @@ public sealed class MainViewModel : ViewModelBase
             .Run(() => EnrichWithSnapshots(battle))
             .ConfigureAwait(false);
 
-        // 军团分档查询与本局玩家统计补拉并行推进，失败静默不影响名单展示。
-        await FetchClanGradesAsync(battle, version, token).ConfigureAwait(false);
-
+        // 军团分档已在开头与本方法并行查过，这里等它收尾即可，不重复请求。
+        await clanTask.ConfigureAwait(false);
         Post(() =>
         {
             if (!IsDetailsCurrent(version))
@@ -1258,6 +1257,8 @@ public sealed class MainViewModel : ViewModelBase
                 (int total, int humans, int covered, int hidden, int incomplete) = DescribeCoverage(battle);
 
                 // 分母用名单总人数：x/y 要和界面里看得到的人数对得上。
+                // covered 与 hidden 互不重叠，相加即已有着落的人数，与
+                // incomplete 互补，残差是还在等补拉的玩家。
                 string donePart = $"{covered + hidden}/{total}";
 
                 // 隐藏只在确认后才出现在文案里，缺数据的玩家不再被描述成隐藏。
@@ -1344,8 +1345,6 @@ public sealed class MainViewModel : ViewModelBase
     {
         var humans = battle.HumanPlayers.ToList();
         int hidden = humans.Count(p => p.IsHidden);
-        // covered 用与 incomplete 同一套齐全口径：账号、分舰种、单船都到齐。
-        // 若只数账号胜率，"已拉取 x/y"会在舰种与单船仍空时显示成满。
         int covered = humans.Count(p => !p.IsHidden && p.IsFullyCovered);
         int incomplete = humans.Count(p => !p.IsHidden && !p.IsFullyCovered);
         return (battle.Players.Count, humans.Count, covered, hidden, incomplete);
