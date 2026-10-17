@@ -384,7 +384,7 @@ public sealed class AppConfig
     /// <summary>
     /// 推断默认日志目录：优先仓库根 Logs，找不到仓库时退回用户目录。
     /// </summary>
-    private static string InferLogDirectory()
+    public static string InferLogDirectory()
     {
         string? repoRoot = FindRepoRoot();
         if (repoRoot is not null)

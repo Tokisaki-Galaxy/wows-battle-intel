@@ -37,7 +37,7 @@ public interface ILogFileWriter : IDisposable
     /// <summary>当前日志目录。</summary>
     string Directory { get; }
 
-    /// <summary>当日滚动文件路径，启动后固定。</summary>
+    /// <summary>当日滚动文件路径，跨天后指向新文件。</summary>
     string CurrentFile { get; }
 
     /// <summary>写一条日志。实现方不得抛异常。</summary>
@@ -46,11 +46,12 @@ public interface ILogFileWriter : IDisposable
     /// <summary>立即刷新缓冲，用于退出前落盘。</summary>
     void Flush();
 
-    /// <summary>按当前选项清理过期文件，含当日文件超限时的裁剪。</summary>
-    void Trim();
-
-    /// <summary>按指定选项清理一次，不改变写入器自身的选项。</summary>
-    void Trim(LogFileOptions overrideOptions);
+    /// <summary>按指定选项清理过期文件，含当日文件超限时的裁剪。</summary>
+    /// <remarks>
+    /// 只借口径，落盘目录始终以写入器自身为准，避免手改未保存的路径误删别处文件。
+    /// 实现方不得抛异常。
+    /// </remarks>
+    void Trim(LogFileOptions limits);
 
     /// <summary>当前使用的选项。</summary>
     LogFileOptions Options { get; }

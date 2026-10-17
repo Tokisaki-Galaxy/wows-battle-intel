@@ -359,6 +359,68 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task LogSettings_InferredDirectory_NotPersistedAsUserValue()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        // 原始的日志目录必须是空串，才代表"按推断值落盘"。
+        var config = MakeConfig(dbPath);
+        config.LogDirectory = string.Empty;
+        using var holder = await TestServices.CreateAsync(config);
+
+        // 模拟应用启动时的推断结果：配置里仍是空串。测试装配会把落盘目录改到
+        // 临时目录，这里把回显值换成真实的推断路径，等同于用户没动过这一项。
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+        vm.LogDirectory = AppConfig.InferLogDirectory();
+
+        // 界面回显的是推断出的绝对路径，保存时不该把它钉进配置。
+        Assert.False(string.IsNullOrWhiteSpace(vm.LogDirectory));
+
+        await vm.SaveAsync();
+
+        // 落盘目录本来就是推断值，存回配置的应是空串，表示"继续自动推断"。
+        Assert.Equal(string.Empty, vm.ToConfig().LogDirectory);
+    }
+
+    [Fact]
+    public async Task LogSettings_UserEditedDirectory_IsPersisted()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        string custom = Path.Combine(TestServices.TestTempRoot, $"wbi-custom-{Guid.NewGuid():N}");
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            LogDirectory = custom,
+        };
+
+        await vm.SaveAsync();
+
+        // 自定义目录与推断值不同，必须原样写盘。
+        Assert.Equal(custom, holder.Services.Config.LogOptions.Directory);
+        Assert.True(Directory.Exists(custom), "保存后应立即在新目录落盘");
+        Assert.Equal(custom, holder.Services.Logs.LogDirectory);
+    }
+
+    [Fact]
+    public async Task LogSettings_LogsStillFlowAfterReconfigure()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        var received = new List<string>();
+        holder.Services.Logs.EntryLogged += e => received.Add(e.Message);
+
+        vm.LogRetentionDays = 5;
+        await vm.SaveAsync();
+
+        // 内存日志实例不重建，只换写入器，订阅不失效。
+        string marker = "重配置后的日志";
+        holder.Services.Logs.Info(marker);
+
+        Assert.Contains(marker, received);
+        Assert.Equal(5, holder.Services.Config.LogRetentionDays);
+    }
+
+    [Fact]
     public async Task LogSettings_Validation()
     {
         using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));

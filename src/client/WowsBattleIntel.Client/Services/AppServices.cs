@@ -18,6 +18,10 @@ namespace WowsBattleIntel.Client.Services;
 public sealed class AppServices : IDisposable
 {
     private readonly object reconfigureLock = new();
+
+    // 当前日志落盘选项的副本。Config 会在重配置时被替换，另存一份才能与配置变更前的口径比较。
+    private LogFileOptions appliedLogOptions;
+
     private bool disposed;
 
     private AppServices(
@@ -31,6 +35,7 @@ public sealed class AppServices : IDisposable
         ReplayObserver observer)
     {
         Config = config;
+        appliedLogOptions = config.LogOptions;
         Repository = repository;
         StatsProvider = statsProvider;
         Logs = logs;
@@ -230,13 +235,13 @@ public sealed class AppServices : IDisposable
         // 赛前观测器常驻，只换配置，事件订阅保留。
         ArenaWatcher.Rebind(updated);
 
-        // 日志目录或保留口径变了才重建写入器。内存日志不重建，
-        // 界面侧已订阅的事件因此保持有效。
-        if (!SameLogOptions(Config.LogOptions, updated.LogOptions))
+        // 日志目录或保留口径变了才换写入器。LogService 实例只换绑定，不重建，
+        // 界面侧订阅的事件因此始终有效，日志页签不会在保存设置后冻结。
+        var newOptions = updated.LogOptions;
+        if (!SameLogOptions(appliedLogOptions, newOptions))
         {
-            Logs.Dispose();
-            Logs = new LogService(CreateLogWriter(updated));
-            Logs.TrimLogFiles(updated.LogOptions);
+            Logs.RebindWriter(CreateLogWriter(updated));
+            appliedLogOptions = newOptions;
             Logs.Info("日志落盘设置已更新");
         }
     }

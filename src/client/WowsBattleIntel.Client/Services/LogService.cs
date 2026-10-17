@@ -30,6 +30,8 @@ public sealed record LogEntry(DateTimeOffset Timestamp, LogLevel Level, string M
 ///
 /// 可选接入 <see cref="ILogFileWriter"/> 做落盘。落盘在缓冲之外独立处理，
 /// 写盘失败不影响内存日志与事件。未接写入器时行为与纯内存模式一致。
+///
+/// 实例本身常驻不重建，配置变更只换内部的写入器，界面侧订阅一次即可长期有效。
 /// </remarks>
 public sealed class LogService : IDisposable
 {
@@ -38,7 +40,13 @@ public sealed class LogService : IDisposable
 
     private readonly object bufferLock = new();
     private readonly Queue<LogEntry> buffer = new(Capacity);
-    private readonly ILogFileWriter? fileWriter;
+
+    /// <summary>当前写入器。读取时取快照，替换时只持有写锁。</summary>
+    private readonly object writerLock = new();
+    private ILogFileWriter? fileWriter;
+
+    // 本次进程启动后写入的条数，供界面区分本次运行与上一次运行留下的历史。
+    private long writtenThisRun;
 
     /// <summary>
     /// 构造日志服务。
@@ -53,10 +61,31 @@ public sealed class LogService : IDisposable
     public event Action<LogEntry>? EntryLogged;
 
     /// <summary>日志目录。未接落盘时为空串。</summary>
-    public string LogDirectory => fileWriter?.Directory ?? string.Empty;
+    public string LogDirectory
+    {
+        get
+        {
+            lock (writerLock)
+            {
+                return fileWriter?.Directory ?? string.Empty;
+            }
+        }
+    }
 
     /// <summary>是否已接入落盘。</summary>
-    public bool IsPersistent => fileWriter is not null;
+    public bool IsPersistent
+    {
+        get
+        {
+            lock (writerLock)
+            {
+                return fileWriter is not null;
+            }
+        }
+    }
+
+    /// <summary>本次进程启动以来写入的条数。</summary>
+    public long WrittenThisRun => Interlocked.Read(ref writtenThisRun);
 
     /// <summary>当前缓冲内条目数。</summary>
     public int Count
@@ -83,6 +112,7 @@ public sealed class LogService : IDisposable
     /// <remarks>
     /// 缓冲操作在锁内完成，事件在锁外触发，回调耗时不会拖住并发写入方。
     /// 落盘在事件之前，保证崩溃时磁盘上的记录不少于界面所见。
+    /// 任何订阅方回调抛异常都只影响它自己，不能沿着写日志的调用栈冒到业务线程。
     /// </remarks>
     public void Log(LogLevel level, string message)
     {
@@ -99,37 +129,85 @@ public sealed class LogService : IDisposable
             buffer.Enqueue(entry);
         }
 
-        // 写入器自身吞异常，这里不再包一层。
-        fileWriter?.Write(entry);
+        Interlocked.Increment(ref writtenThisRun);
 
-        EntryLogged?.Invoke(entry);
+        // 写入器自身吞异常，这里不再包一层。
+        lock (writerLock)
+        {
+            fileWriter?.Write(entry);
+        }
+
+        var handlers = EntryLogged;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList().Cast<Action<LogEntry>>())
+        {
+            try
+            {
+                handler(entry);
+            }
+            catch (Exception)
+            {
+                // 单个订阅方失败不能影响其余订阅方，也不能拖垮写日志的调用方。
+            }
+        }
     }
 
     /// <summary>
-    /// 读取最近的历史日志，用于启动时把上次运行的内容回填到界面。
+    /// 换绑落盘写入器。旧写入器刷盘后释放，内存缓冲与事件订阅不受影响。
+    /// </summary>
+    /// <param name="writer">新写入器，null 表示退化为只写内存。</param>
+    public void RebindWriter(ILogFileWriter? writer)
+    {
+        ILogFileWriter? old;
+        lock (writerLock)
+        {
+            old = fileWriter;
+            fileWriter = writer;
+        }
+
+        old?.Dispose();
+    }
+
+    /// <summary>
+    /// 读取最近一次运行留下的历史日志，用于启动时回填界面。
     /// </summary>
     /// <remarks>
-    /// 只取最近一个文件，最多 <paramref name="maxEntries"/> 条，从尾往前解析。
+    /// 只取最近一个文件里、本次进程启动之前写下的部分，最多
+    /// <paramref name="maxEntries"/> 条，从尾往前解析。跳过本次已写入的条目，
+    /// 否则每次启动都会把本次运行刚写的记录当成历史再显示一遍。
     /// 任何 IO 异常都按无历史处理。
     /// </remarks>
     public IReadOnlyList<LogEntry> LoadRecent(int maxEntries = Capacity)
     {
-        if (fileWriter is null || maxEntries <= 0)
+        if (maxEntries <= 0)
         {
             return [];
         }
 
         try
         {
-            fileWriter.Flush();
-            string path = fileWriter.CurrentFile;
-            if (!File.Exists(path))
+            ILogFileWriter? writer;
+            lock (writerLock)
+            {
+                writer = fileWriter;
+                writer?.Flush();
+            }
+
+            if (writer is null || !File.Exists(writer.CurrentFile))
             {
                 return [];
             }
 
             var lines = new Queue<string>(maxEntries);
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var stream = new FileStream(
+                writer.CurrentFile,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
             using (var reader = new StreamReader(stream))
             {
                 string? line;
@@ -149,9 +227,19 @@ public sealed class LogService : IDisposable
                 }
             }
 
-            var result = new List<LogEntry>(lines.Count);
+            // 文件中最后 writtenThisRun 行是本次进程写的，回填时排除。
+            long skipFromEnd = Math.Min(WrittenThisRun, lines.Count);
+            long keep = lines.Count - skipFromEnd;
+
+            var result = new List<LogEntry>((int)Math.Max(0, keep));
+            long index = 0;
             foreach (string line in lines)
             {
+                if (index++ >= keep)
+                {
+                    break;
+                }
+
                 if (LogLineParser.TryParse(line, out var entry))
                 {
                     result.Add(entry);
@@ -200,28 +288,9 @@ public sealed class LogService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (fileWriter is null)
+        lock (writerLock)
         {
-            return;
-        }
-
-        // 只借口径，落盘目录以写入器自身为准，避免设置页手改了未保存的路径
-        // 就把别处的文件误清掉。
-        var scoped = options with { Directory = fileWriter.Directory };
-        if (scoped == fileWriter.Options)
-        {
-            fileWriter.Trim();
-            return;
-        }
-
-        // 口径不同就临开一个只做清理的写入器，用完即关，不动正在写的流。
-        try
-        {
-            using var trimmer = new LogFileWriter(scoped);
-        }
-        catch (Exception)
-        {
-            // 清理失败不影响当前写入。
+            fileWriter?.Trim(options);
         }
     }
 
@@ -237,6 +306,13 @@ public sealed class LogService : IDisposable
     /// <summary>刷出未落盘的内容并释放写入器。</summary>
     public void Dispose()
     {
-        fileWriter?.Dispose();
+        ILogFileWriter? writer;
+        lock (writerLock)
+        {
+            writer = fileWriter;
+            fileWriter = null;
+        }
+
+        writer?.Dispose();
     }
 }

@@ -416,7 +416,9 @@ public sealed class SettingsViewModel : ViewModelBase
             BattleCacheDays = BattleCacheDays,
             ColorRules = ColorRules.Select(r => r.ToRule()).ToList(),
             Theme = ThemeConfigValue(ThemeIndex),
-            LogDirectory = LogDirectory.Trim(),
+            // 与推断值一致时存空串，让下次启动重新推断。否则仓库搬迁或从开发
+            // 环境切到发布包后，路径会一直钉在旧的仓库 Logs 上。
+            LogDirectory = PersistedLogDirectory(),
             LogRetentionDays = LogRetentionDays,
             LogMaxSizeMb = LogMaxSizeMb,
             LogRetentionMode = LogRetentionModeConfigValue(LogRetentionModeIndex),
@@ -557,6 +559,32 @@ public sealed class SettingsViewModel : ViewModelBase
         HasUnsavedChanges = true;
         StatusMessage = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    /// 计算要写进配置的日志目录。
+    /// </summary>
+    /// <remarks>
+    /// 界面回显的是推断后的绝对路径，直接存盘等于把默认值写死成用户配置。
+    /// 与当前默认推断值相同就存空串，保留"自动推断"的语义。
+    /// </remarks>
+    private string PersistedLogDirectory()
+    {
+        string typed = LogDirectory.Trim();
+        if (typed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // 回显到推断值就当作没改，存空串让下次启动重新推断。比较的是输入框里的
+        // 文字，而不是加载时配置的原值：装配层可能把落盘目录重定向到别处，
+        // 那种情况下界面显示的仍是推断值，也不能被钉死。
+        if (string.Equals(typed, AppConfig.InferLogDirectory(), StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return typed;
     }
 
     /// <summary>

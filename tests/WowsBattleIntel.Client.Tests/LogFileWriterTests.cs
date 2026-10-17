@@ -235,6 +235,34 @@ public class LogFileWriterTests : IDisposable
     }
 
     [Fact]
+    public void Write_运行期写入也会被体积上限约束()
+    {
+        var clock = new FakeClock();
+
+        // 上限 512KB，反复写到远超上限，只靠刷盘后的自动清理收敛。
+        // 下限 1KB 太贴近刷盘周期，测不出收敛，这里取一个远大于周期的值。
+        long limit = 512 * 1024;
+        var writer = new LogFileWriter(
+            new LogFileOptions(root, 0, limit, LogRetentionMode.Size),
+            clock);
+
+        string filler = new('x', 300);
+
+        // 7200 条约 2.5MB，足以跨过多个上限。
+        for (int i = 0; i < 7200; i++)
+        {
+            writer.Write(Entry(clock.Now, $"{i} {filler}"));
+        }
+
+        // 触发时可能已过一个刷盘周期，截断时取整行还可能再多让一行。
+        long allowed = limit + LogFileWriter.FlushThresholdBytes + 1024;
+        long total = LogFiles().Sum(f => new FileInfo(Path.Combine(root, f)).Length);
+
+        writer.Dispose();
+        Assert.True(total <= allowed, $"总占用 {total} 字节超过允许的 {allowed}");
+    }
+
+    [Fact]
     public void Trim_忽略非本应用命名的文件()
     {
         Directory.CreateDirectory(root);

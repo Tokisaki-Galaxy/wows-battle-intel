@@ -50,6 +50,9 @@ public sealed class LogFileWriter : ILogFileWriter
 
     private FileStream? stream;
     private FileStream? readStream;
+
+    // 当前追加流的长度，用于刷盘后低成本判断是否超过体积上限。
+    private long currentStreamLength;
     private long lastFlushAt;
     private bool degraded;
 
@@ -110,6 +113,9 @@ public sealed class LogFileWriter : ILogFileWriter
                 if (due)
                 {
                     FlushCore();
+
+                    // 体积判定紧跟刷盘：此时缓冲已清空，文件长度就是实际占用。
+                    TrimIfSizeBudgetExceeded();
                 }
             }
         }
@@ -118,6 +124,35 @@ public sealed class LogFileWriter : ILogFileWriter
             // 落盘失败只降级，不影响调用方。缓冲里未刷出的内容直接丢弃，
             // 内存日志仍由 LogService 持有。
             degraded = true;
+        }
+    }
+
+    /// <summary>
+    /// 每次刷盘后按体积上限做一次轻量判定，超限才真正列目录清理。
+    /// </summary>
+    /// <remarks>
+    /// 只在刷盘时机检查，避免每条日志都去枚举文件夹。刷盘由写满 64KB 或
+    /// 满 5 秒触发，因此占用超出上限的幅度不超过一个刷盘周期的写入量。
+    /// </remarks>
+    private void TrimIfSizeBudgetExceeded()
+    {
+        if (options.MaxBytes <= 0 || options.Mode == LogRetentionMode.Days)
+        {
+            return;
+        }
+
+        if (currentStreamLength <= options.MaxBytes)
+        {
+            return;
+        }
+
+        try
+        {
+            TrimCore(clock().DateTime);
+        }
+        catch (Exception)
+        {
+            // 清理失败不能连累正在进行的那次写入，留到下次刷盘再试。
         }
     }
 
@@ -160,15 +195,15 @@ public sealed class LogFileWriter : ILogFileWriter
     }
 
     /// <inheritdoc />
-    public void Trim(LogFileOptions overrideOptions)
+    public void Trim(LogFileOptions limits)
     {
-        ArgumentNullException.ThrowIfNull(overrideOptions);
+        ArgumentNullException.ThrowIfNull(limits);
 
         try
         {
             lock (writeLock)
             {
-                TrimCore(clock().DateTime, overrideOptions);
+                TrimCore(clock().DateTime, limits);
             }
         }
         catch (Exception)
@@ -262,18 +297,20 @@ public sealed class LogFileWriter : ILogFileWriter
             FileMode.Append,
             FileAccess.Write,
             FileShare.ReadWrite | FileShare.Delete);
+        currentStreamLength = stream.Length;
     }
 
     /// <summary>
-    /// 临时释放正在写的追加句柄，换成一个共享读句柄返回给调用方。
+    /// 临时释放正在写的追加句柄，换成一个共享读写句柄返回给调用方。
     /// </summary>
     /// <remarks>
     /// Windows 上带 Data 的追加句柄不允许另一个句柄改写同一文件，截断前必须先
-    /// 换掉。调用方用完读句柄并调用 <see cref="RestoreAppend"/> 即可接续写入；
+    /// 换掉。调用方用完该句柄后调用 <see cref="RestoreAppend"/> 接续写入；
     /// 即使替换读写句柄失败，追加流也会在 RestoreAppend 里重新打开。
     /// </remarks>
     private FileStream SwapToReadHandle()
     {
+        FlushCore();
         stream?.Dispose();
         stream = null;
 
@@ -314,6 +351,7 @@ public sealed class LogFileWriter : ILogFileWriter
         stream.Write(bytes, 0, bytes.Length);
         stream.Flush(flushToDisk: false);
         buffer.Clear();
+        currentStreamLength = stream.Length;
         lastFlushAt = Environment.TickCount64;
     }
 
@@ -452,27 +490,18 @@ public sealed class LogFileWriter : ILogFileWriter
             tail = tail[1..];
         }
 
-        // 读写句柄原地重写不可靠，关掉它并重开一个截断句柄整体重写。
+        // 读写句柄原地重写不可靠，改由一个新建的截断句柄整体重写。
         // 调用方随后调 RestoreAppend 恢复追加模式，文件位置自然回到末尾。
         string path = handle.Name;
         handle.Dispose();
 
-        byte[] original = null!;
-        try
+        using (var target = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
         {
-            using (var target = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
-            {
-                target.Write(tail, 0, tail.Length);
-                target.Flush(flushToDisk: true);
-            }
+            target.Write(tail, 0, tail.Length);
+            target.Flush(flushToDisk: true);
+        }
 
-            return tail.Length;
-        }
-        catch (Exception ex)
-        {
-            original = File.ReadAllBytes(path);
-            throw new IOException($"截断失败 path={path} length={length} start={start} tail={tail.Length} now={original.Length} head={BitConverter.ToString(original.Take(8).ToArray())}", ex);
-        }
+        return tail.Length;
     }
 
     /// <summary>找最后一行（不超过一行）的开始位置。</summary>
@@ -517,7 +546,15 @@ public sealed class LogFileWriter : ILogFileWriter
                 continue;
             }
 
-            result.Add(new LogFileInfo(file.FullName, date.Value, file.Length));
+            // 正在写的文件刚刷过盘，FileInfo 的长度可能还是旧缓存值，
+            // 这类文件直接向文件系统取实际大小。
+            long length = string.Equals(file.FullName, currentFile, StringComparison.OrdinalIgnoreCase)
+                ? new FileInfo(file.FullName).Length is var cached && cached > 0
+                    ? cached
+                    : currentStreamLength
+                : file.Length;
+
+            result.Add(new LogFileInfo(file.FullName, date.Value, length));
         }
 
         return result;
