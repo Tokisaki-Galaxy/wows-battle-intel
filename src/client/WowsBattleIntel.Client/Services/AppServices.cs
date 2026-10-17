@@ -138,10 +138,18 @@ public sealed class AppServices : IDisposable
             createResult.UsedFallback,
             createResult.FallbackReason);
 
-        var observer = new ReplayObserver(config);
+        // 启动场景：首次扫描补上应用没运行期间打完的场次。委托在调用时
+        // 读实例，观测器在构造之后才启动，那时 servicesRef 已赋值。
+        AppServices? servicesRef = null;
+        var observer = new ReplayObserver(
+            config,
+            (path, startedAt) => servicesRef is { } ready
+                ? ready.IsReplayKnownAsync(path, startedAt)
+                : Task.FromResult(true));
         var logs = new LogService(CreateLogWriter(config));
         var services = new AppServices(
             config, repository, statsProvider, clanCatalog, createResult.Predictor, info, logs, observer);
+        servicesRef = services;
 
         // 启动时按保留口径清一次旧日志。写入器内部已吞异常，不会阻断启动。
         logs.TrimLogFiles(config.LogOptions);
@@ -235,7 +243,12 @@ public sealed class AppServices : IDisposable
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         var createResult = PredictorFactory.Create(updated.ModelPath, updated.ModelVersion);
-        var observer = new ReplayObserver(updated);
+        // 换绑场景：首次扫描只登记不通知，避免设置页一保存就把目录里的
+        // 全部历史回放重新塞进解析队列。漏掉的场次由列表占位项按需补。
+        var observer = new ReplayObserver(
+            updated,
+            (path, startedAt) => IsReplayKnownAsync(path, startedAt),
+            reportOnFirstScan: false);
 
         lock (reconfigureLock)
         {

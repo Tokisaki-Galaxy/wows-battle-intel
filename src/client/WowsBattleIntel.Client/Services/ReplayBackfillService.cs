@@ -23,12 +23,13 @@ public sealed class ReplayBackfillService
     /// </summary>
     /// <remarks>
     /// 文件名写到秒，解析结果也截到秒，但不同解析器的取整方式可能有细微
-    /// 差别。留一分钟余量足以吸收这种偏差，又远小于正常对局间隔，不会把
-    /// 相邻两局吞成一场。
+    /// 差别。留一分钟余量足以吸收这种偏差，又远小于任何两局的开战间隔，
+    /// 不会把相邻两局吞成一场。
     /// </remarks>
-    private static readonly TimeSpan MatchTolerance = TimeSpan.FromMinutes(1);
+    public static readonly TimeSpan MatchTolerance = TimeSpan.FromMinutes(1);
 
     private readonly AppConfigAccessor config;
+    private readonly string? rootOverride;
     private readonly IBattleListProvider listProvider;
     private readonly BattleIngestionService ingestion;
     private readonly Func<Task<IReadOnlyList<DateTimeOffset>>>? knownTimesProvider;
@@ -47,12 +48,14 @@ public sealed class ReplayBackfillService
     /// 太慢，这里一次读进内存。
     /// </param>
     /// <param name="logs">运行日志。可为空。</param>
+    /// <param name="rootOverride">固定回放目录。为空时读配置，测试用。</param>
     public ReplayBackfillService(
         AppConfigAccessor config,
         IBattleListProvider listProvider,
         BattleIngestionService ingestion,
         Func<Task<IReadOnlyList<DateTimeOffset>>>? knownTimesProvider = null,
-        LogService? logs = null)
+        LogService? logs = null,
+        string? rootOverride = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(listProvider);
@@ -63,13 +66,14 @@ public sealed class ReplayBackfillService
         this.ingestion = ingestion;
         this.knownTimesProvider = knownTimesProvider;
         this.logs = logs;
+        this.rootOverride = rootOverride;
     }
 
     /// <summary>
-    /// 取当前配置的回放目录。
+    /// 当前使用的回放目录。
     /// </summary>
     /// <returns>回放目录，配置不可用时为空串。</returns>
-    public string CurrentReplayRoot => config().ReplayDirectory;
+    public string CurrentReplayRoot => rootOverride ?? config().ReplayDirectory;
 
     /// <summary>
     /// 建立一次列表快照：库里已有的条目，加上回放目录里还没有入库的占位项。
@@ -78,6 +82,9 @@ public sealed class ReplayBackfillService
     /// 库里的条目可能来自批量导入，硬盘上的回放已被游戏清掉，这类条目照常
     /// 列出；反过来硬盘上有、库里没有的，作为占位项一并返回。占位项只带
     /// 文件名里的开战时间，点开时才解析。
+    ///
+    /// 比对用全量开战时间而不是列表里的这一页：库里超过上限时，更早的
+    /// 回放仍留在硬盘上，按截断后的页比对会把它当成缺口反复列出来。
     /// </remarks>
     /// <param name="limit">库中条目上限。</param>
     /// <param name="cancellationToken">取消令牌。</param>
@@ -104,18 +111,19 @@ public sealed class ReplayBackfillService
                 .ConfigureAwait(false);
         }
 
+        string root = CurrentReplayRoot;
+
         // 回放扫描在后台线程做，目录大时也不卡界面。
         var replays = await Task.Run(
-            () => ReplayDirectoryScanner.Scan(
-                CurrentReplayRoot,
-                TimeSpan.FromSeconds(5),
-                cancellationToken),
+            () => ReplayDirectoryScanner.Scan(root, TimeSpan.FromSeconds(5), cancellationToken),
             cancellationToken).ConfigureAwait(false);
+
+        var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
 
         var pending = new List<ReplayFileInfo>();
         foreach (var replay in replays)
         {
-            if (!IsRepresented(replay, stored))
+            if (!MatchesAny(known, replay.StartedAt) && !IsRepresented(replay, stored))
             {
                 pending.Add(replay);
             }
@@ -132,7 +140,7 @@ public sealed class ReplayBackfillService
     public async Task<bool> IsKnownAsync(DateTimeOffset startedAt)
     {
         var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
-        return known.Any(t => (t - startedAt).Duration() <= MatchTolerance);
+        return MatchesAny(known, startedAt);
     }
 
     /// <summary>
@@ -152,18 +160,24 @@ public sealed class ReplayBackfillService
         if (result.Success && result.Battle is not null)
         {
             // 新入库的时间记进缓存，后续比对不必整表重读。
-            lock (knownTimesLock)
-            {
-                knownTimes?.Add(result.Battle.StartedAt);
-            }
+            Remember(result.Battle.StartedAt);
         }
 
         return result;
     }
 
+    /// <summary>把一条新入库的开战时间记进缓存。</summary>
+    private void Remember(DateTimeOffset startedAt)
+    {
+        lock (knownTimesLock)
+        {
+            knownTimes?.Add(startedAt);
+        }
+    }
+
     /// <summary>
     /// 加载并缓存库里全部开战时间。缓存活一个进程周期，期间新入库的对局
-    /// 由 <see cref="IngestAsync"/> 补记。
+    /// 由 <see cref="Remember"/> 补记。
     /// </summary>
     private async Task<List<DateTimeOffset>> EnsureKnownTimesAsync()
     {
@@ -181,18 +195,21 @@ public sealed class ReplayBackfillService
 
         lock (knownTimesLock)
         {
-            knownTimes = list;
+            knownTimes ??= list;
+            return knownTimes;
         }
-
-        return list;
     }
+
+    /// <summary>开战时间是否落在任一已知时间的容差内。</summary>
+    private static bool MatchesAny(List<DateTimeOffset> known, DateTimeOffset startedAt) =>
+        known.Any(t => (t - startedAt).Duration() <= MatchTolerance);
 
     /// <summary>
     /// 判断一份回放是否已有库记录代表。
     /// </summary>
     /// <remarks>
-    /// 按开战时间比对：库里存在容差内的条目即认为已录入。占位记录的地图为空、
-    /// 时间来自 tempArenaInfo，同样按时间匹配。
+    /// 已知时间集合读不到时（数据源缺失）退回按这一页比对。占位记录的地图
+    /// 为空、时间来自 tempArenaInfo，同样按时间匹配。
     /// </remarks>
     private static bool IsRepresented(ReplayFileInfo replay, IReadOnlyList<BattleListEntry> stored)
     {
@@ -211,8 +228,9 @@ public sealed class ReplayBackfillService
     /// 找出可以删除的赛前占位记录。
     /// </summary>
     /// <remarks>
-    /// 占位记录与正式记录必然开战时间相近。库里如果同一时间窗内同时存在
-    /// 占位记录与正式记录，占位记录就是多余的。只删占位记录，正式记录一条不动。
+    /// 占位记录必带 :pre 后缀，正式回放记录的标识不带。只有同时满足
+    /// 时间相近、地图一致（占位记录地图为空时不比地图）两个条件才删，
+    /// 避免把两局时间接近的不同战斗误删。正式记录一条不动。
     /// </remarks>
     private static List<string> FindPlaceholderMerges(IReadOnlyList<BattleListEntry> stored)
     {
@@ -221,7 +239,9 @@ public sealed class ReplayBackfillService
         foreach (var placeholder in stored.Where(e => e.IsPrebattle))
         {
             bool covered = formal.Any(e =>
-                (e.StartedAt - placeholder.StartedAt).Duration() <= MatchTolerance);
+                (e.StartedAt - placeholder.StartedAt).Duration() <= MatchTolerance
+                && (placeholder.MapId.Length == 0
+                    || string.Equals(e.MapId, placeholder.MapId, StringComparison.Ordinal)));
             if (covered)
             {
                 merges.Add(placeholder.BattleId);
