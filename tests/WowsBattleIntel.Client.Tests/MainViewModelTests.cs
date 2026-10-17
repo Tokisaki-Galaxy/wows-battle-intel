@@ -107,7 +107,7 @@ public class MainViewModelTests
         await vm.LoadRecentBattlesAsync();
 
         var item = Assert.Single(vm.RecentBattles);
-        Assert.Equal("battle-001", item.Battle.BattleId);
+        Assert.Equal("battle-001", item.BattleId);
         Assert.Equal(0.68, item.PredictedWinProbability);
         Assert.Equal("胜利", item.ResultLabel);
         Assert.Equal("预测 68% (36%)", item.PredictionText);
@@ -212,8 +212,8 @@ public class MainViewModelTests
 
         // 两局入库记录都进历史区。
         Assert.Equal(2, vm.HistoryBattles.Count);
-        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-live");
-        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-old");
+        Assert.Contains(vm.HistoryBattles, s => s.BattleId == "battle-live");
+        Assert.Contains(vm.HistoryBattles, s => s.BattleId == "battle-old");
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public class MainViewModelTests
         // 近 7 天筛选把 30 天前的记录排除。
         vm.HistoryDaysFilterIndex = 2;
         var history = Assert.Single(vm.HistoryBattles);
-        Assert.Equal("battle-fresh", history.Battle.BattleId);
+        Assert.Equal("battle-fresh", history.BattleId);
         Assert.Equal("WinBrush", history.ResultBrushKey);
     }
 
@@ -885,7 +885,7 @@ public class MainViewModelTests
         // 长名单先到：24 人。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 24));
         await WaitUntilAsync(
-            () => vm.LiveBattles.Count == 1 && vm.LiveBattles[0].Battle.Players.Count == 24,
+            () => vm.LiveBattles.Count == 1 && vm.LiveBattles[0].Battle!.Players.Count == 24,
             "长名单进入实时区");
 
         // 游戏重写文件时写出更短的名单，不得覆盖。
@@ -893,19 +893,19 @@ public class MainViewModelTests
         await Task.Delay(200);
 
         Assert.Single(vm.LiveBattles);
-        Assert.Equal(24, vm.LiveBattles[0].Battle.Players.Count);
+        Assert.Equal(24, vm.LiveBattles[0].Battle!.Players.Count);
 
         // 人数涨回长名单之上：正常刷新。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 30));
         await WaitUntilAsync(
-            () => vm.LiveBattles[0].Battle.Players.Count == 30,
+            () => vm.LiveBattles[0].Battle!.Players.Count == 30,
             "更长的名单刷新实时区");
 
         // 换局：BattleId 变了，人数更少也照常替换。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-2", 4));
         await WaitUntilAsync(
-            () => vm.LiveBattles[0].Battle.BattleId == "pre-2"
-                && vm.LiveBattles[0].Battle.Players.Count == 4,
+            () => vm.LiveBattles[0].BattleId == "pre-2"
+                && vm.LiveBattles[0].Battle!.Players.Count == 4,
             "新对局替换实时区");
     }
 
@@ -948,6 +948,6 @@ public class MainViewModelTests
             vm.HistoryTruncationHint);
 
         // 最新的一局留在最前，保证截断的是更早的记录。
-        Assert.Equal($"battle-{total - 1:0000}", vm.RecentBattles[0].Battle.BattleId);
+        Assert.Equal($"battle-{total - 1:0000}", vm.RecentBattles[0].BattleId);
     }
 }

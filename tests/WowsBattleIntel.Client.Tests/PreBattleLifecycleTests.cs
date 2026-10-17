@@ -97,7 +97,7 @@ public class PreBattleLifecycleTests : IDisposable
         await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
 
         var live = Assert.Single(vm.LiveBattles);
-        Assert.Equal("AllyPlayer", live.Battle.Allies.First().PlayerName);
+        Assert.Equal("AllyPlayer", live.Battle!.Allies.First().PlayerName);
         // 服务器从 clientrunner.log 探测，不是 Auto。
         Assert.Equal(GameServer.Asia, live.Battle.Server);
 
