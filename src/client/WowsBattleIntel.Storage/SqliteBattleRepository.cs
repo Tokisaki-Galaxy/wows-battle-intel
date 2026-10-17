@@ -18,7 +18,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache, IPlayerStatsCache
+public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvider, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache, IPlayerStatsCache
 {
     private readonly string connectionString;
 
@@ -35,6 +35,33 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             Mode = databasePath == ":memory:" ? SqliteOpenMode.Memory : SqliteOpenMode.ReadWriteCreate,
             Cache = databasePath == ":memory:" ? SqliteCacheMode.Shared : SqliteCacheMode.Default,
         }.ToString();
+    }
+
+    /// <summary>
+    /// 一次性取出库里全部对局的开战时间。
+    /// </summary>
+    /// <remarks>
+    /// 观测器首次扫描要逐份判断回放是否已入库。每份回放都走一次 SQL 会让
+    /// 几百份文件产生几百次往返，这里一次读进内存比对。单场对局一行。
+    /// </remarks>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>库里全部对局的开战时间。</returns>
+    public async Task<IReadOnlyList<DateTimeOffset>> GetStartedAtValuesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT started_at FROM battles;";
+
+        var values = new List<DateTimeOffset>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            values.Add(DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0)));
+        }
+
+        return values;
     }
 
     /// <summary>
@@ -429,6 +456,66 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 把同一局的赛前占位记录换成正式回放入库的记录。
+    /// </summary>
+    /// <remarks>
+    /// 占位记录来自 tempArenaInfo，只有名单与预测、没有战果，标识带 :pre
+    /// 后缀。正式回放入库命中它时，直接把主键改名为正式标识，参战者与预测
+    /// 记录一并跟随，再抹掉占位记录独有的空地图与未判定结果。这样同一局
+    /// 在库里只留一条完整记录，不会出现两条几乎相同的列表项。
+    ///
+    /// 已经不使用：改名会把占位记录上的旧预测一并搬过来，与正式记录重新
+    /// 生成的预测重复。保留仅为兼容外部调用，入库流程改为先写正式记录
+    /// 再删占位记录。
+    /// </remarks>
+    /// <param name="placeholderId">占位记录标识。</param>
+    /// <param name="battleId">正式回放记录标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task ReplacePrebattlePlaceholderAsync(
+        string placeholderId,
+        string battleId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(placeholderId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(battleId);
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // 子表先改名再改主表：两张子表都没有指向 battles 的外键约束，
+        // 顺序无所谓，但先改子表能让主键改名始终落在一张已存在的父记录上。
+        foreach (string table in new[] { "battle_players", "predictions" })
+        {
+            await using var rename = connection.CreateCommand();
+            rename.Transaction = (SqliteTransaction)transaction;
+            // 表名来自上面的字面量集合，不来自外部输入。
+            rename.CommandText = $"UPDATE {table} SET battle_id = $new WHERE battle_id = $old;";
+            rename.Parameters.AddWithValue("$new", battleId);
+            rename.Parameters.AddWithValue("$old", placeholderId);
+            await rename.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (var update = connection.CreateCommand())
+        {
+            update.Transaction = (SqliteTransaction)transaction;
+            update.CommandText = """
+                UPDATE battles SET
+                    battle_id     = $new,
+                    map_id        = CASE WHEN map_id = '' THEN $map ELSE map_id END,
+                    battle_type   = CASE WHEN battle_type = 'Unknown' THEN $type ELSE battle_type END
+                WHERE battle_id = $old;
+                """;
+            update.Parameters.AddWithValue("$new", battleId);
+            update.Parameters.AddWithValue("$old", placeholderId);
+            update.Parameters.AddWithValue("$map", string.Empty);
+            update.Parameters.AddWithValue("$type", BattleType.Unknown.ToStorageString());
+            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     public async Task<BattleRecord?> GetBattleAsync(
         string battleId,
@@ -631,6 +718,134 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         object? result = await command.ExecuteScalarAsync(cancellationToken)
             .ConfigureAwait(false);
         return result is long count ? (int)count : 0;
+    }
+
+    /// <summary>
+    /// 一次取出列表要展示的字段，左侧列表启动时只需要这么多。
+    /// </summary>
+    /// <remarks>
+    /// 单条 SQL 取完列表，避免旧实现那样逐局查预测再加名单：两千行就是
+    /// 四千次往返。等级走 battle_players 的聚合子查询，只取友方最大等级，
+    /// 不读明细行；预测取该局最新的一条，与详情区展示口径一致。
+    /// </remarks>
+    /// <param name="limit">最多返回多少局。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按开战时间倒序的列表项。</returns>
+    public async Task<IReadOnlyList<BattleListEntry>> GetBattleListAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH tier AS (
+                SELECT battle_id, MAX(ship_tier) AS ally_tier
+                FROM battle_players
+                WHERE team = 0
+                GROUP BY battle_id
+            ),
+            latest_prediction AS (
+                SELECT battle_id, ally_win_prob
+                FROM (
+                    SELECT battle_id, ally_win_prob,
+                           ROW_NUMBER() OVER (PARTITION BY battle_id ORDER BY predicted_at DESC) AS rn
+                    FROM predictions
+                )
+                WHERE rn = 1
+            )
+            SELECT b.battle_id, b.started_at, b.map_id, b.battle_type, b.server,
+                   b.result, b.duration_sec,
+                   COALESCE(t.ally_tier, 0) AS ally_tier,
+                   p.ally_win_prob,
+                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players
+            FROM battles b
+            LEFT JOIN tier t ON t.battle_id = b.battle_id
+            LEFT JOIN latest_prediction p ON p.battle_id = b.battle_id
+            ORDER BY b.started_at DESC
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var entries = new List<BattleListEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            entries.Add(ReadListEntry(reader));
+        }
+
+        return entries;
+    }
+
+    private static BattleListEntry ReadListEntry(SqliteDataReader reader)
+    {
+        string battleId = reader.GetString(0);
+        return new BattleListEntry(
+            battleId,
+            DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
+            reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+            Enum.TryParse<BattleType>(reader.GetString(3), out var bt) ? bt : BattleType.Unknown,
+            Enum.TryParse<GameServer>(reader.GetString(4), out var sv) ? sv : GameServer.Auto,
+            Enum.TryParse<BattleOutcome>(reader.GetString(5), out var oc) ? oc : BattleOutcome.Unknown,
+            reader.GetInt32(6),
+            reader.GetInt32(7),
+            reader.IsDBNull(8) ? null : reader.GetDouble(8),
+            battleId.EndsWith(":pre", StringComparison.Ordinal),
+            reader.GetInt64(9) != 0);
+    }
+
+    /// <summary>
+    /// 批量移除赛前占位记录，连同其参战者与预测。
+    /// </summary>
+    /// <remarks>
+    /// 同一局的占位记录（标识带 :pre 后缀）在正式回放记录已经存在时应当消失，
+    /// 否则列表会出现两条几乎相同的条目。只删占位记录，且调用方负责保证
+    /// 同局已有正式记录；这里不做等价判定，避免把两局不同战斗误删。
+    /// 返回被删除的占位记录数量。
+    /// </remarks>
+    /// <param name="placeholderIds">要删除的占位记录标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task<int> DeletePrebattlePlaceholdersAsync(
+        IReadOnlyCollection<string> placeholderIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(placeholderIds);
+        var ids = placeholderIds
+            .Where(id => id.EndsWith(":pre", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        int removed = 0;
+        foreach (string id in ids)
+        {
+            foreach (string table in new[] { "battle_players", "predictions", "battles" })
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = (SqliteTransaction)transaction;
+                // 表名来自上面的字面量集合，不来自外部输入。
+                command.CommandText = $"DELETE FROM {table} WHERE battle_id = $id;";
+                command.Parameters.AddWithValue("$id", id);
+                int affected = await command.ExecuteNonQueryAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                removed += table == "battles" ? affected : 0;
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return removed;
     }
 
     /// <summary>
