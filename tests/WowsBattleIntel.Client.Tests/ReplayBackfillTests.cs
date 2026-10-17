@@ -116,15 +116,19 @@ public class ReplayBackfillTests
         Assert.DoesNotContain(snapshot.Battles, e => e.IsPrebattle);
         Assert.Contains(snapshot.Battles, e => e.BattleId == "formal");
         Assert.Empty(snapshot.PendingReplays);
+
+        // 占位记录连同它的预测一并移走，库里不再有 :pre 记录。
+        Assert.Empty(await holder.Services.Repository.GetPrebattlePlaceholdersAsync());
     }
 
     [Fact]
-    public async Task BuildSnapshot_KeepsPlaceholderOnDifferentMap()
+    public async Task BuildSnapshot_ClearsPlaceholderEvenIfMapDiffers()
     {
         using var holder = await TestServices.CreateAsync();
         using var replays = new TempReplayDir();
 
-        // 两局时间只差十几秒但地图不同，不是同一局，占位记录不能被删。
+        // 占位记录带着另一张地图，正式记录也已入库。
+        // 赛前名单的地图口径与回放解析结果可能不一致，不能拿地图当校验。
         var startedAt = DaysAgo(1);
         var pre = new BattleRecord
         {
@@ -140,7 +144,7 @@ public class ReplayBackfillTests
         var backfill = CreateBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(100);
 
-        Assert.Contains(snapshot.Battles, e => e.BattleId == "other:pre");
+        Assert.DoesNotContain(snapshot.Battles, e => e.BattleId == "other:pre");
     }
 
     [Fact]
@@ -218,6 +222,74 @@ public class ReplayBackfillTests
         // 旧解析失败后不得改掉详情区，也不得把忙状态留在界面上。
         Assert.True(vm.SelectedBattle?.BattleId == "battle-stored");
         Assert.False(vm.IsBusy);
+    }
+    [Fact]
+    public async Task BuildSnapshot_ClearsPlaceholderBeyondListLimit()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        // 占位记录很老，不在列表页内；对应的正式记录与它同一时间，也不在页内。
+        // 清理必须覆盖全库，否则这条占位记录永远清不掉。
+        var startedAt = DaysAgo(400);
+        var pre = new BattleRecord
+        {
+            BattleId = "ancient:pre",
+            StartedAt = startedAt,
+            BattleType = BattleType.Random,
+            Outcome = BattleOutcome.Unknown,
+        };
+        await holder.Services.Repository.SaveBattleAsync(pre);
+        await SeedStoredBattleAsync(holder.Services, "ancient-formal", startedAt.AddSeconds(12));
+        await SeedStoredBattleAsync(holder.Services, "recent", DaysAgo(1));
+
+        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var snapshot = await backfill.BuildSnapshotAsync(limit: 1);
+
+        Assert.DoesNotContain(snapshot.Battles, e => e.BattleId == "ancient:pre");
+        Assert.Empty(await holder.Services.Repository.GetPrebattlePlaceholdersAsync());
+    }
+
+    [Fact]
+    public async Task Remember_AfterIngestion_HidesReplayFromPendingList()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        var startedAt = DaysAgo(1);
+        replays.Create(startedAt);
+
+        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var before = await backfill.BuildSnapshotAsync(100);
+        Assert.Single(before.PendingReplays);
+
+        // 观测器实时入库后记进已知时间，下次快照不该再把它列成占位项。
+        backfill.RememberIngested(startedAt);
+        var after = await backfill.BuildSnapshotAsync(100);
+        Assert.Empty(after.PendingReplays);
+    }
+    [Fact]
+    public async Task BuildSnapshot_KeepsPlaceholderWhenFormalRecordIsOlder()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        // 时间窗里有一条更早的记录，但它不可能是这条占位记录的正式版本。
+        var startedAt = DaysAgo(1);
+        var pre = new BattleRecord
+        {
+            BattleId = "later:pre",
+            StartedAt = startedAt,
+            BattleType = BattleType.Random,
+            Outcome = BattleOutcome.Unknown,
+        };
+        await holder.Services.Repository.SaveBattleAsync(pre);
+        await SeedStoredBattleAsync(holder.Services, "earlier", startedAt.AddMinutes(-3));
+
+        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var snapshot = await backfill.BuildSnapshotAsync(100);
+
+        Assert.Contains(snapshot.Battles, e => e.BattleId == "later:pre");
     }
     [Theory]
     [InlineData(@"20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]

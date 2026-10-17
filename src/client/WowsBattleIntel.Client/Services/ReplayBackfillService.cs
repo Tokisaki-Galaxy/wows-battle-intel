@@ -92,10 +92,13 @@ public sealed class ReplayBackfillService
         int limit,
         CancellationToken cancellationToken = default)
     {
-        var stored = await listProvider.GetBattleListAsync(limit, cancellationToken)
+        // 占位记录清理要覆盖全库：列表页被上限截断时，页外的占位记录
+        // 永远不在这一页里，只看本页会让它永久残留成一条赛前项。
+        var placeholders = await listProvider.GetPrebattlePlaceholdersAsync(cancellationToken)
             .ConfigureAwait(false);
+        var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
 
-        var merges = FindPlaceholderMerges(stored);
+        var merges = FindPlaceholderMerges(placeholders, known);
         if (merges.Count > 0)
         {
             // 同一局的赛前占位记录已能被正式记录代表，先从库里清掉再出快照。
@@ -106,10 +109,10 @@ public sealed class ReplayBackfillService
             {
                 logs?.Info($"清理赛前占位记录 {removed} 条，同局已有正式记录");
             }
-
-            stored = await listProvider.GetBattleListAsync(limit, cancellationToken)
-                .ConfigureAwait(false);
         }
+
+        var stored = await listProvider.GetBattleListAsync(limit, cancellationToken)
+            .ConfigureAwait(false);
 
         string root = CurrentReplayRoot;
 
@@ -118,12 +121,10 @@ public sealed class ReplayBackfillService
             () => ReplayDirectoryScanner.Scan(root, TimeSpan.FromSeconds(5), cancellationToken),
             cancellationToken).ConfigureAwait(false);
 
-        var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
-
         var pending = new List<ReplayFileInfo>();
         foreach (var replay in replays)
         {
-            if (!MatchesAny(known, replay.StartedAt) && !IsRepresented(replay, stored))
+            if (!MatchesAny(known, replay.StartedAt))
             {
                 pending.Add(replay);
             }
@@ -160,14 +161,21 @@ public sealed class ReplayBackfillService
         if (result.Success && result.Battle is not null)
         {
             // 新入库的时间记进缓存，后续比对不必整表重读。
-            Remember(result.Battle.StartedAt);
+            RememberIngested(result.Battle.StartedAt);
         }
 
         return result;
     }
 
-    /// <summary>把一条新入库的开战时间记进缓存。</summary>
-    private void Remember(DateTimeOffset startedAt)
+    /// <summary>
+    /// 记录一条刚入库的对局，避免同一进程内的列表快照把它列成占位项。
+    /// </summary>
+    /// <remarks>
+    /// 观测器实时入库的场次走这里。不记的话，补录的已知时间还停在启动时
+    /// 的快照上，下次列表刷新会把刚打完的一局又列成占位项。
+    /// </remarks>
+    /// <param name="startedAt">新入库对局的开战时间。</param>
+    public void RememberIngested(DateTimeOffset startedAt)
     {
         lock (knownTimesLock)
         {
@@ -177,7 +185,7 @@ public sealed class ReplayBackfillService
 
     /// <summary>
     /// 加载并缓存库里全部开战时间。缓存活一个进程周期，期间新入库的对局
-    /// 由 <see cref="Remember"/> 补记。
+    /// 由 <see cref="RememberIngested"/> 补记。
     /// </summary>
     private async Task<List<DateTimeOffset>> EnsureKnownTimesAsync()
     {
@@ -205,43 +213,29 @@ public sealed class ReplayBackfillService
         known.Any(t => (t - startedAt).Duration() <= MatchTolerance);
 
     /// <summary>
-    /// 判断一份回放是否已有库记录代表。
-    /// </summary>
-    /// <remarks>
-    /// 已知时间集合读不到时（数据源缺失）退回按这一页比对。占位记录的地图
-    /// 为空、时间来自 tempArenaInfo，同样按时间匹配。
-    /// </remarks>
-    private static bool IsRepresented(ReplayFileInfo replay, IReadOnlyList<BattleListEntry> stored)
-    {
-        foreach (var entry in stored)
-        {
-            if ((entry.StartedAt - replay.StartedAt).Duration() <= MatchTolerance)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
     /// 找出可以删除的赛前占位记录。
     /// </summary>
     /// <remarks>
-    /// 占位记录必带 :pre 后缀，正式回放记录的标识不带。只有同时满足
-    /// 时间相近、地图一致（占位记录地图为空时不比地图）两个条件才删，
-    /// 避免把两局时间接近的不同战斗误删。正式记录一条不动。
+    /// 判据：库里存在开战时间在容差内的正式记录，且开始时间不早于占位记录。
+    /// 占位记录来自 tempArenaInfo，与它的正式回放几乎同时开始；而同一时间
+    /// 窗口里更早的记录不可能是它的正式版本，不能拿来当依据。正式记录一条不动。
+    ///
+    /// 不再比地图：占位记录的地图来自赛前名单，口径与回放的解析结果不一定
+    /// 一致，拿它做校验反而会让占位记录永远清不掉。
     /// </remarks>
-    private static List<string> FindPlaceholderMerges(IReadOnlyList<BattleListEntry> stored)
+    /// <param name="placeholders">库里的全部占位记录。</param>
+    /// <param name="knownTimes">库里的全部开战时间。</param>
+    private static List<string> FindPlaceholderMerges(
+        IReadOnlyList<BattleListEntry> placeholders,
+        List<DateTimeOffset> knownTimes)
     {
-        var formal = stored.Where(e => !e.IsPrebattle).ToList();
         var merges = new List<string>();
-        foreach (var placeholder in stored.Where(e => e.IsPrebattle))
+        foreach (var placeholder in placeholders)
         {
-            bool covered = formal.Any(e =>
-                (e.StartedAt - placeholder.StartedAt).Duration() <= MatchTolerance
-                && (placeholder.MapId.Length == 0
-                    || string.Equals(e.MapId, placeholder.MapId, StringComparison.Ordinal)));
+            // 占位记录自己的开战时间也在集合里，必须排除它自己的那一条。
+            bool covered = knownTimes.Any(t =>
+                (t - placeholder.StartedAt).Duration() > TimeSpan.Zero
+                && (t - placeholder.StartedAt).Duration() <= MatchTolerance);
             if (covered)
             {
                 merges.Add(placeholder.BattleId);

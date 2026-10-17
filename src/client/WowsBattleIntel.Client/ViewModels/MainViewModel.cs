@@ -128,6 +128,15 @@ public sealed class MainViewModel : ViewModelBase
             _ => !IsBusy && selectedBattle is not null);
 
         services.Monitor.BattleIngested += OnBattleIngested;
+        ReplayBackfillService configuredBackfill = this.backfill;
+        services.Monitor.BattleIngested += result =>
+        {
+            // 实时入库的场次补进补录的已知时间，下次列表快照不会把它列成占位项。
+            if (result.Battle is { } battle)
+            {
+                configuredBackfill.RememberIngested(battle.StartedAt);
+            }
+        };
         services.Monitor.IngestionFailed += OnIngestionFailed;
         services.ArenaWatcher.PreBattleDiscovered += OnPreBattleDiscovered;
         services.ArenaWatcher.PreBattleEnded += OnPreBattleEnded;
@@ -1303,6 +1312,8 @@ public sealed class MainViewModel : ViewModelBase
             StatusMessage = result.IsDuplicate
                 ? $"已跳过 {name}{suffix}"
                 : $"已入库 {name}{suffix}";
+
+
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
         });
