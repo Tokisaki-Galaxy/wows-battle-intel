@@ -46,6 +46,16 @@ public class PlayerRowViewModelTests
     }
 
     [Fact]
+    public void FromPlayer_UnfetchedPlayer_ShowsDashNotHidden()
+    {
+        // 未拉到数据不是隐藏战绩，两列都显示占位符。
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", -1, -1));
+        Assert.Equal("-", vm.WinrateText);
+        Assert.Equal("-", vm.TierLabel);
+        Assert.False(vm.IsHidden);
+    }
+
+    [Fact]
     public void FromPlayer_HighWinrate_ClassifiedAsUnicum()
     {
         var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.62, 1000));
@@ -416,7 +426,8 @@ public class PlayerRowViewModelTests
         Assert.Equal("-", vm.BattlesText);
         Assert.Equal("-", vm.WeightedWinrateText);
         Assert.Equal("-", vm.ShipWinrateText);
-        Assert.Equal("隐藏", vm.TierLabel);
+        Assert.Equal("-", vm.TierLabel);
+        Assert.False(vm.IsHidden);
         Assert.Equal("HiddenBrush", vm.WinrateBrushKey);
         Assert.Equal("HiddenBrush", vm.WeightedWinrateBrushKey);
 

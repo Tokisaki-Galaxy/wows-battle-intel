@@ -22,6 +22,9 @@ public sealed class PlayerRowViewModel : ViewModelBase
     // 账号场次低于此值判定样本不稳，标提醒色。
     private const double LowBattlesThreshold = 1000;
 
+    /// <summary>隐藏战绩的展示标签。与未知占位符区分，只在确认隐藏时出现。</summary>
+    private const string HiddenLabel = "隐藏";
+
     private PlayerRecord? source;
 
     /// <summary>
@@ -151,9 +154,11 @@ public sealed class PlayerRowViewModel : ViewModelBase
             _ => string.Empty,
         };
 
+        // 未拉到数据与隐藏战绩是两件事：只有提供商确认隐藏才显示"隐藏"，
+        // 其余未知一律占位符，避免补拉前后两种状态在界面上混成一种。
         WinrateText = player.AccountWinrate >= 0
             ? player.AccountWinrate.ToString("P1")
-            : "隐藏";
+            : player.IsHidden ? HiddenLabel : "-";
 
         BattlesText = player.AccountBattles >= 0
             ? ((int)player.AccountBattles).ToString("N0")
@@ -341,7 +346,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         {
             if (source is null || !source.HasStats)
             {
-                return "隐藏";
+                return source is not null && source.IsHidden ? HiddenLabel : "-";
             }
 
             double wr = source.AccountWinrate;
