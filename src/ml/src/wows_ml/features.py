@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # 阈值为 ApeRadar 默认口径，作为兼容契约保持稳定。
@@ -176,82 +177,54 @@ class MatchFeatures:
         """展平成可用于训练的数值向量。
 
         使用双方差分而非绝对值，差分通常更有判别力且更稳定。
+        键顺序来自 FEATURE_SPECS，与 feature_names 同源，不会出现
+        一侧漏项导致运行时 KeyError。
         """
-        a, e = self.ally, self.enemy
-        return {
-            "winrate_diff": a.avg_account_winrate - e.avg_account_winrate,
-            "weighted_winrate_diff": a.avg_weighted_winrate - e.avg_weighted_winrate,
-            "recent_winrate_diff": a.avg_recent_winrate - e.avg_recent_winrate,
-            "battles_diff": a.avg_battles - e.avg_battles,
-            "unicum_diff": a.unicum_count - e.unicum_count,
-            "ape_diff": a.ape_count - e.ape_count,
-            "tier_diff": a.avg_tier - e.avg_tier,
-            "player_count_diff": a.player_count - e.player_count,
-            "ally_winrate": a.avg_account_winrate,
-            "enemy_winrate": e.avg_account_winrate,
-            "ally_weighted": a.avg_weighted_winrate,
-            "enemy_weighted": e.avg_weighted_winrate,
-            "ally_battles": a.avg_battles,
-            "enemy_battles": e.avg_battles,
-            "ally_top_winrate": a.top_winrate,
-            "enemy_top_winrate": e.top_winrate,
-            "ally_ape_count": float(a.ape_count),
-            "enemy_ape_count": float(e.ape_count),
-            "ally_unicum_count": float(a.unicum_count),
-            "enemy_unicum_count": float(e.unicum_count),
-            # 分舰种熟练度特征，v2 追加。
-            "ally_class_wr": a.avg_class_wr,
-            "enemy_class_wr": e.avg_class_wr,
-            "class_wr_diff": a.avg_class_wr - e.avg_class_wr,
-            "ally_dd_wr": a.dd_wr,
-            "enemy_dd_wr": e.dd_wr,
-            "dd_wr_diff": a.dd_wr - e.dd_wr,
-            "ally_cv_wr": a.cv_wr,
-            "enemy_cv_wr": e.cv_wr,
-            "cv_wr_diff": a.cv_wr - e.cv_wr,
-            "dd_count_diff": float(a.dd_count - e.dd_count),
-            "cv_count_diff": float(a.cv_count - e.cv_count),
-            "fresh_ship_diff": float(a.fresh_ship_count - e.fresh_ship_count),
-        }
+        return {name: getter(self) for name, getter in FEATURE_SPECS}
 
     @staticmethod
     def feature_names() -> list[str]:
         """特征列名的固定顺序，训练与推理必须一致。"""
-        return [
-            "winrate_diff",
-            "weighted_winrate_diff",
-            "recent_winrate_diff",
-            "battles_diff",
-            "unicum_diff",
-            "ape_diff",
-            "tier_diff",
-            "player_count_diff",
-            "ally_winrate",
-            "enemy_winrate",
-            "ally_weighted",
-            "enemy_weighted",
-            "ally_battles",
-            "enemy_battles",
-            "ally_top_winrate",
-            "enemy_top_winrate",
-            "ally_ape_count",
-            "enemy_ape_count",
-            "ally_unicum_count",
-            "enemy_unicum_count",
-            # 分舰种熟练度特征，v2 追加，旧 20 维顺序保持不变。
-            "ally_class_wr",
-            "enemy_class_wr",
-            "class_wr_diff",
-            "ally_dd_wr",
-            "enemy_dd_wr",
-            "dd_wr_diff",
-            "ally_cv_wr",
-            "enemy_cv_wr",
-            "cv_wr_diff",
-            "dd_count_diff",
-            "cv_count_diff",
-            "fresh_ship_diff",
-        ]
+        return [name for name, _ in FEATURE_SPECS]
+
+
+# 特征名与取值器的唯一定义。训练、导出与推理都从这里派生列顺序，
+# 改名或调整顺序只需要改这一处。
+FEATURE_SPECS: tuple[tuple[str, Callable[[MatchFeatures], float]], ...] = (
+    ("winrate_diff", lambda m: m.ally.avg_account_winrate - m.enemy.avg_account_winrate),
+    ("weighted_winrate_diff", lambda m: m.ally.avg_weighted_winrate - m.enemy.avg_weighted_winrate),
+    ("recent_winrate_diff", lambda m: m.ally.avg_recent_winrate - m.enemy.avg_recent_winrate),
+    ("battles_diff", lambda m: m.ally.avg_battles - m.enemy.avg_battles),
+    ("unicum_diff", lambda m: m.ally.unicum_count - m.enemy.unicum_count),
+    ("ape_diff", lambda m: m.ally.ape_count - m.enemy.ape_count),
+    ("tier_diff", lambda m: m.ally.avg_tier - m.enemy.avg_tier),
+    ("player_count_diff", lambda m: m.ally.player_count - m.enemy.player_count),
+    ("ally_winrate", lambda m: m.ally.avg_account_winrate),
+    ("enemy_winrate", lambda m: m.enemy.avg_account_winrate),
+    ("ally_weighted", lambda m: m.ally.avg_weighted_winrate),
+    ("enemy_weighted", lambda m: m.enemy.avg_weighted_winrate),
+    ("ally_battles", lambda m: m.ally.avg_battles),
+    ("enemy_battles", lambda m: m.enemy.avg_battles),
+    ("ally_top_winrate", lambda m: m.ally.top_winrate),
+    ("enemy_top_winrate", lambda m: m.enemy.top_winrate),
+    ("ally_ape_count", lambda m: float(m.ally.ape_count)),
+    ("enemy_ape_count", lambda m: float(m.enemy.ape_count)),
+    ("ally_unicum_count", lambda m: float(m.ally.unicum_count)),
+    ("enemy_unicum_count", lambda m: float(m.enemy.unicum_count)),
+    # 分舰种熟练度特征，v2 追加，旧 20 维顺序保持不变。
+    ("ally_class_wr", lambda m: m.ally.avg_class_wr),
+    ("enemy_class_wr", lambda m: m.enemy.avg_class_wr),
+    ("class_wr_diff", lambda m: m.ally.avg_class_wr - m.enemy.avg_class_wr),
+    ("ally_dd_wr", lambda m: m.ally.dd_wr),
+    ("enemy_dd_wr", lambda m: m.enemy.dd_wr),
+    ("dd_wr_diff", lambda m: m.ally.dd_wr - m.enemy.dd_wr),
+    ("ally_cv_wr", lambda m: m.ally.cv_wr),
+    ("enemy_cv_wr", lambda m: m.enemy.cv_wr),
+    ("cv_wr_diff", lambda m: m.ally.cv_wr - m.enemy.cv_wr),
+    ("dd_count_diff", lambda m: float(m.ally.dd_count - m.enemy.dd_count)),
+    ("cv_count_diff", lambda m: float(m.ally.cv_count - m.enemy.cv_count)),
+    ("fresh_ship_diff", lambda m: float(m.ally.fresh_ship_count - m.enemy.fresh_ship_count)),
+)
 
 
 def aggregate_team(players: list[PlayerFeatures]) -> TeamFeatures:

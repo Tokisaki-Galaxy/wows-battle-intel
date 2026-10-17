@@ -306,13 +306,14 @@ def _apply_class_stats(player: PlayerFeatures, raw: object) -> None:
 
 
 def _num(value: object, default: float) -> float:
-    """把可能为 None 的数值转成 float。"""
-    if value is None:
+    """把可能为 None 的数值转成 float。
+
+    sqlite3 取出的数值只可能是 int、float 或 None，显式收窄类型后
+    float() 调用无需再压制类型检查。
+    """
+    if not isinstance(value, (int, float)):
         return default
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return default
+    return float(value)
 
 
 # 近期状态的最小历史样本数，与 C# 端 RecentFormCalculator.MinimumSamples 一致。

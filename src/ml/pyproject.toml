@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "wows-battle-intel 的模型训练与特征工程管线"
 requires-python = ">=3.11"
 dependencies = [
-    "pandas>=2.2",
     "numpy>=1.26",
     "scikit-learn>=1.5",
     "lightgbm>=4.5",
