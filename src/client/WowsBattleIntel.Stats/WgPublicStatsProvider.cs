@@ -563,17 +563,14 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     }
 
     /// <summary>
-    /// WG 舰种字符串转稳定存储键，与 ShipClassExtensions.Parse 的输入兼容。
+    /// WG 舰种字符串转稳定存储键，与 <see cref="ShipClassExtensions.Parse"/> 的输入兼容。
+    /// 映射表本身只养在 <see cref="ShipClassExtensions"/> 一处，这里只做“未知返回 null”的适配。
     /// </summary>
-    internal static string? ToClassKey(string wgType) => wgType.Trim().ToUpperInvariant() switch
+    internal static string? ToClassKey(string wgType)
     {
-        "DESTROYER" => "DD",
-        "CRUISER" => "CA",
-        "BATTLESHIP" => "BB",
-        "AIR_CARRIER" or "AIRCARRIER" or "CARRIER" => "CV",
-        "SUBMARINE" => "SS",
-        _ => null,
-    };
+        ShipClass shipClass = ShipClassExtensions.Parse(wgType);
+        return shipClass == ShipClass.Unknown ? null : shipClass.ToStorageKey();
+    }
 
     private async Task<string> GetStringAsync(string url, CancellationToken cancellationToken)
     {

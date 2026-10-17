@@ -565,15 +565,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         return avgDamage < DamageUnicumThreshold ? "OkBrush" : "UnicumBrush";
     }
 
-    private static string ShipClassLabel(ShipClass shipClass) => shipClass switch
-    {
-        ShipClass.Destroyer => "DD",
-        ShipClass.Cruiser => "CA",
-        ShipClass.Battleship => "BB",
-        ShipClass.Carrier => "CV",
-        ShipClass.Submarine => "SS",
-        _ => "??",
-    };
+    private static string ShipClassLabel(ShipClass shipClass) => shipClass.ToDisplayCode();
 
     /// <summary>
     /// 名单排序用的舰种次序：航母、战列、巡洋、驱逐、潜艇，未知垫底。

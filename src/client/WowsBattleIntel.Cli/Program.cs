@@ -1724,15 +1724,7 @@ internal static class Program
         Console.WriteLine($"覆盖 {covered}/{humans}，隐藏 {battle.HumanPlayers.Count(p => p.IsHidden)}");
     }
 
-    private static string ShipClassLabel(ShipClass shipClass) => shipClass switch
-    {
-        ShipClass.Destroyer => "DD",
-        ShipClass.Cruiser => "CA",
-        ShipClass.Battleship => "BB",
-        ShipClass.Carrier => "CV",
-        ShipClass.Submarine => "SS",
-        _ => "??",
-    };
+    private static string ShipClassLabel(ShipClass shipClass) => shipClass.ToDisplayCode();
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
