@@ -88,7 +88,7 @@
     },
     "3256858064": {
       "name_en-us": "Orlov",
-      "name_zh-cn": "奥尔洛夫上将",
+      "name_zh-cn": "奥尔洛夫",
       "nation": "ussr",
       "tier": 10,
       "type": "AirCarrier"
@@ -1313,7 +1313,7 @@
     },
     "3541972688": {
       "name_en-us": "AL Yukikaze",
-      "name_zh-cn": "AL 雪风",
+      "name_zh-cn": "AL雪风",
       "nation": "japan",
       "tier": 8,
       "type": "Destroyer"
@@ -1369,7 +1369,7 @@
     },
     "3542005744": {
       "name_en-us": "AL Montpelier",
-      "name_zh-cn": "AL 蒙彼利埃",
+      "name_zh-cn": "AL蒙彼利埃",
       "nation": "usa",
       "tier": 8,
       "type": "Cruiser"
@@ -1509,7 +1509,7 @@
     },
     "3545183952": {
       "name_en-us": "HSF Hiei",
-      "name_zh-cn": "HSF 比叡",
+      "name_zh-cn": "HSF比叡",
       "nation": "japan",
       "tier": 5,
       "type": "Battleship"
@@ -1817,7 +1817,7 @@
     },
     "3551475152": {
       "name_en-us": "AL Sov. Rossiya",
-      "name_zh-cn": "AL 苏维埃罗西亚",
+      "name_zh-cn": "AL苏维埃罗西亚",
       "nation": "ussr",
       "tier": 9,
       "type": "Battleship"
@@ -1852,7 +1852,7 @@
     },
     "3552458448": {
       "name_en-us": "HSF Harekaze",
-      "name_zh-cn": "HSF 晴风",
+      "name_zh-cn": "HSF晴风",
       "nation": "japan",
       "tier": 8,
       "type": "Destroyer"
@@ -1922,7 +1922,7 @@
     },
     "3552524016": {
       "name_en-us": "AL Littorio",
-      "name_zh-cn": "AL 利托里奥",
+      "name_zh-cn": "AL利托里奥",
       "nation": "italy",
       "tier": 8,
       "type": "Battleship"
@@ -1943,7 +1943,7 @@
     },
     "3552524272": {
       "name_en-us": "Alabama ST",
-      "name_zh-cn": "阿拉巴马 ST",
+      "name_zh-cn": "阿拉巴马ST",
       "nation": "usa",
       "tier": 8,
       "type": "Battleship"
@@ -2013,7 +2013,7 @@
     },
     "3554588464": {
       "name_en-us": "HSF Graf Spee",
-      "name_zh-cn": "HSF 海军上将施佩伯爵",
+      "name_zh-cn": "HSF海军上将施佩伯爵",
       "nation": "germany",
       "tier": 6,
       "type": "Cruiser"
@@ -2167,112 +2167,112 @@
     },
     "3666786288": {
       "name_en-us": "Alaska B",
-      "name_zh-cn": "阿拉斯加 B",
+      "name_zh-cn": "阿拉斯加B",
       "nation": "usa",
       "tier": 9,
       "type": "Cruiser"
     },
     "3666818864": {
       "name_en-us": "Pommern B",
-      "name_zh-cn": "波美拉尼亚 B",
+      "name_zh-cn": "波美拉尼亚B",
       "nation": "germany",
       "tier": 9,
       "type": "Battleship"
     },
     "3666818896": {
       "name_en-us": "Jean Bart B",
-      "name_zh-cn": "让·巴尔 B",
+      "name_zh-cn": "让·巴尔B",
       "nation": "france",
       "tier": 9,
       "type": "Battleship"
     },
     "3666819056": {
       "name_en-us": "Kearsarge B",
-      "name_zh-cn": "奇尔沙治 B",
+      "name_zh-cn": "奇尔沙治B",
       "nation": "usa",
       "tier": 9,
       "type": "Battleship"
     },
     "3667801296": {
       "name_en-us": "Loyang B",
-      "name_zh-cn": "洛阳 B",
+      "name_zh-cn": "洛阳B",
       "nation": "pan_asia",
       "tier": 8,
       "type": "Destroyer"
     },
     "3667801808": {
       "name_en-us": "Asashio B",
-      "name_zh-cn": "朝潮 B",
+      "name_zh-cn": "朝潮B",
       "nation": "japan",
       "tier": 8,
       "type": "Destroyer"
     },
     "3667802064": {
       "name_en-us": "Cossack B",
-      "name_zh-cn": "哥萨克人 B",
+      "name_zh-cn": "哥萨克人B",
       "nation": "uk",
       "tier": 8,
       "type": "Destroyer"
     },
     "3667834576": {
       "name_en-us": "Atago B",
-      "name_zh-cn": "爱宕 B",
+      "name_zh-cn": "爱宕B",
       "nation": "japan",
       "tier": 8,
       "type": "Cruiser"
     },
     "3667834672": {
       "name_en-us": "Mainz B",
-      "name_zh-cn": "美因茨 B",
+      "name_zh-cn": "美因茨B",
       "nation": "germany",
       "tier": 8,
       "type": "Cruiser"
     },
     "3667867440": {
       "name_en-us": "Tirpitz B",
-      "name_zh-cn": "提尔皮茨 B",
+      "name_zh-cn": "提尔皮茨B",
       "nation": "germany",
       "tier": 8,
       "type": "Battleship"
     },
     "3667867632": {
       "name_en-us": "Massachusetts B",
-      "name_zh-cn": "马萨诸塞 B",
+      "name_zh-cn": "马萨诸塞B",
       "nation": "usa",
       "tier": 8,
       "type": "Battleship"
     },
     "3667899856": {
       "name_en-us": "Chkalov B",
-      "name_zh-cn": "契卡洛夫 B",
+      "name_zh-cn": "契卡洛夫B",
       "nation": "ussr",
       "tier": 8,
       "type": "AirCarrier"
     },
     "3667900112": {
       "name_en-us": "Kaga B",
-      "name_zh-cn": "加贺 B",
+      "name_zh-cn": "加贺B",
       "nation": "japan",
       "tier": 8,
       "type": "AirCarrier"
     },
     "3667900208": {
       "name_en-us": "Graf Zeppelin B",
-      "name_zh-cn": "齐柏林伯爵 B",
+      "name_zh-cn": "齐柏林伯爵B",
       "nation": "germany",
       "tier": 8,
       "type": "AirCarrier"
     },
     "3667900400": {
       "name_en-us": "Saipan B",
-      "name_zh-cn": "塞班 B",
+      "name_zh-cn": "塞班B",
       "nation": "usa",
       "tier": 8,
       "type": "AirCarrier"
     },
     "3668850672": {
       "name_en-us": "Sims B",
-      "name_zh-cn": "西姆斯 B",
+      "name_zh-cn": "西姆斯B",
       "nation": "usa",
       "tier": 7,
       "type": "Destroyer"
@@ -2286,42 +2286,42 @@
     },
     "3668916016": {
       "name_en-us": "Scharnhorst B",
-      "name_zh-cn": "沙恩霍斯特 B",
+      "name_zh-cn": "沙恩霍斯特B",
       "nation": "germany",
       "tier": 7,
       "type": "Battleship"
     },
     "3669898960": {
       "name_en-us": "Shinonome B",
-      "name_zh-cn": "东云 B",
+      "name_zh-cn": "东云B",
       "nation": "japan",
       "tier": 6,
       "type": "Destroyer"
     },
     "3669964624": {
       "name_en-us": "Dunkerque B",
-      "name_zh-cn": "敦刻尔克 B",
+      "name_zh-cn": "敦刻尔克B",
       "nation": "france",
       "tier": 6,
       "type": "Battleship"
     },
     "3676223184": {
       "name_en-us": "Yoshino B",
-      "name_zh-cn": "吉野 B",
+      "name_zh-cn": "吉野B",
       "nation": "japan",
       "tier": 10,
       "type": "Cruiser"
     },
     "3676223216": {
       "name_en-us": "Napoli B",
-      "name_zh-cn": "那不勒斯 B",
+      "name_zh-cn": "那不勒斯B",
       "nation": "italy",
       "tier": 10,
       "type": "Cruiser"
     },
     "3679369200": {
       "name_en-us": "Atlanta B",
-      "name_zh-cn": "亚特兰大 B",
+      "name_zh-cn": "亚特兰大B",
       "nation": "usa",
       "tier": 7,
       "type": "Cruiser"
@@ -2531,7 +2531,7 @@
     },
     "3741202128": {
       "name_en-us": "HSF Harekaze II",
-      "name_zh-cn": "HSF 晴风 II",
+      "name_zh-cn": "HSF晴风II",
       "nation": "japan",
       "tier": 8,
       "type": "Destroyer"
@@ -2587,7 +2587,7 @@
     },
     "3741267952": {
       "name_en-us": "Alabama VL",
-      "name_zh-cn": "阿拉巴马 VL",
+      "name_zh-cn": "阿拉巴马VL",
       "nation": "usa",
       "tier": 8,
       "type": "Battleship"
@@ -2650,7 +2650,7 @@
     },
     "3746477520": {
       "name_en-us": "AL Avrora",
-      "name_zh-cn": "AL 阿芙乐尔",
+      "name_zh-cn": "AL阿芙乐尔",
       "nation": "ussr",
       "tier": 3,
       "type": "Cruiser"
@@ -2692,7 +2692,7 @@
     },
     "3750672080": {
       "name_en-us": "AL Azuma",
-      "name_zh-cn": "AL 吾妻",
+      "name_zh-cn": "AL吾妻",
       "nation": "japan",
       "tier": 9,
       "type": "Cruiser"
@@ -3210,7 +3210,7 @@
     },
     "3761157584": {
       "name_en-us": "Kronshtadt",
-      "name_zh-cn": "喀朗施塔得",
+      "name_zh-cn": "喀琅施塔得",
       "nation": "ussr",
       "tier": 9,
       "type": "Cruiser"
@@ -3273,7 +3273,7 @@
     },
     "3761190640": {
       "name_en-us": "Marco Polo",
-      "name_zh-cn": "马可·波罗",
+      "name_zh-cn": "马可波罗",
       "nation": "italy",
       "tier": 9,
       "type": "Battleship"
@@ -3455,7 +3455,7 @@
     },
     "3762239440": {
       "name_en-us": "Vanguard",
-      "name_zh-cn": "前卫",
+      "name_zh-cn": "先锋",
       "nation": "uk",
       "tier": 8,
       "type": "Battleship"
@@ -3728,7 +3728,7 @@
     },
     "3764336432": {
       "name_en-us": "P. E. Friedrich",
-      "name_zh-cn": "埃特尔·弗雷德里希亲王",
+      "name_zh-cn": "艾特尔·弗里德里希亲王",
       "nation": "germany",
       "tier": 6,
       "type": "Battleship"
@@ -3805,7 +3805,7 @@
     },
     "3765352432": {
       "name_en-us": "Rattlehead",
-      "name_zh-cn": "Rattlehead",
+      "name_zh-cn": "受害骷髅",
       "nation": "usa",
       "tier": 5,
       "type": "Cruiser"
@@ -4064,7 +4064,7 @@
     },
     "4074682320": {
       "name_en-us": "Goliath",
-      "name_zh-cn": "歌利亚",
+      "name_zh-cn": "哥利亚",
       "nation": "uk",
       "tier": 10,
       "type": "Cruiser"
@@ -4099,7 +4099,7 @@
     },
     "4074715120": {
       "name_en-us": "Louisiana",
-      "name_zh-cn": "路易斯安纳",
+      "name_zh-cn": "路易斯安那",
       "nation": "usa",
       "tier": 10,
       "type": "Battleship"
@@ -4470,7 +4470,7 @@
     },
     "4079957808": {
       "name_en-us": "Derfflinger",
-      "name_zh-cn": "德芙林格尔",
+      "name_zh-cn": "德弗林格尔",
       "nation": "germany",
       "tier": 5,
       "type": "Battleship"
@@ -4603,7 +4603,7 @@
     },
     "4178523600": {
       "name_en-us": "Ushakov",
-      "name_zh-cn": "乌沙科夫上将",
+      "name_zh-cn": "乌沙科夫",
       "nation": "ussr",
       "tier": 11,
       "type": "Battleship"
@@ -4680,7 +4680,7 @@
     },
     "4179015632": {
       "name_en-us": "Thrasher",
-      "name_zh-cn": "长尾鲨",
+      "name_zh-cn": "连枷",
       "nation": "uk",
       "tier": 10,
       "type": "Submarine"
@@ -4841,7 +4841,7 @@
     },
     "4179604944": {
       "name_en-us": "Nakhimov",
-      "name_zh-cn": "纳希莫夫海军上将",
+      "name_zh-cn": "纳希莫夫",
       "nation": "ussr",
       "tier": 10,
       "type": "AirCarrier"
@@ -4967,7 +4967,7 @@
     },
     "4180588496": {
       "name_en-us": "Neptune",
-      "name_zh-cn": "海王星",
+      "name_zh-cn": "涅普顿",
       "nation": "uk",
       "tier": 9,
       "type": "Cruiser"
@@ -5254,7 +5254,7 @@
     },
     "4182652368": {
       "name_en-us": "Udaloi",
-      "name_zh-cn": "无畏",
+      "name_zh-cn": "乌达洛伊",
       "nation": "ussr",
       "tier": 9,
       "type": "Destroyer"
@@ -5275,7 +5275,7 @@
     },
     "4182652720": {
       "name_en-us": "Maass",
-      "name_zh-cn": "莱伯勒希特-马斯",
+      "name_zh-cn": "莱伯勒希特·马斯",
       "nation": "germany",
       "tier": 7,
       "type": "Destroyer"
@@ -5450,7 +5450,7 @@
     },
     "4183701296": {
       "name_en-us": "Gaede",
-      "name_zh-cn": "恩斯特-盖德",
+      "name_zh-cn": "恩斯特·盖德",
       "nation": "germany",
       "tier": 6,
       "type": "Destroyer"
@@ -5653,7 +5653,7 @@
     },
     "4184750032": {
       "name_en-us": "Acasta",
-      "name_zh-cn": "阿卡司塔",
+      "name_zh-cn": "阿卡斯塔",
       "nation": "uk",
       "tier": 5,
       "type": "Destroyer"
@@ -5681,7 +5681,7 @@
     },
     "4184782576": {
       "name_en-us": "Montecuccoli",
-      "name_zh-cn": "莱蒙多·蒙德库克利",
+      "name_zh-cn": "莱蒙多•蒙德库克利",
       "nation": "italy",
       "tier": 5,
       "type": "Cruiser"
@@ -5884,7 +5884,7 @@
     },
     "4185864144": {
       "name_en-us": "Orion",
-      "name_zh-cn": "猎户座",
+      "name_zh-cn": "俄里翁",
       "nation": "uk",
       "tier": 4,
       "type": "Battleship"
@@ -6213,7 +6213,7 @@
     },
     "4247697392": {
       "name_en-us": "Marblehead L",
-      "name_zh-cn": "马布尔黑德 L",
+      "name_zh-cn": "马布尔黑德L",
       "nation": "usa",
       "tier": 5,
       "type": "Cruiser"
@@ -6311,14 +6311,14 @@
     },
     "4267587280": {
       "name_en-us": "Kamikaze R",
-      "name_zh-cn": "神风 R",
+      "name_zh-cn": "神风R",
       "nation": "japan",
       "tier": 5,
       "type": "Destroyer"
     },
     "4267620048": {
       "name_en-us": "Iwaki A",
-      "name_zh-cn": "岩城 Alpha",
+      "name_zh-cn": "岩城Alpha",
       "nation": "japan",
       "tier": 4,
       "type": "Cruiser"
@@ -6682,7 +6682,7 @@
     },
     "4280170192": {
       "name_en-us": "Tachibana L",
-      "name_zh-cn": "橘 Lima",
+      "name_zh-cn": "橘Lima",
       "nation": "japan",
       "tier": 2,
       "type": "Destroyer"
@@ -6752,7 +6752,7 @@
     },
     "4281284592": {
       "name_en-us": "Arkansas B",
-      "name_zh-cn": "阿肯色 B",
+      "name_zh-cn": "阿肯色B",
       "nation": "usa",
       "tier": 4,
       "type": "Battleship"
@@ -6836,7 +6836,7 @@
     },
     "4284397008": {
       "name_en-us": "Diana L",
-      "name_zh-cn": "狄安娜 L",
+      "name_zh-cn": "狄安娜L",
       "nation": "ussr",
       "tier": 2,
       "type": "Cruiser"
@@ -7102,7 +7102,7 @@
     },
     "4293834192": {
       "name_en-us": "Aurora",
-      "name_zh-cn": "阿芙乐尔",
+      "name_zh-cn": "极光",
       "nation": "ussr",
       "tier": 3,
       "type": "Cruiser"

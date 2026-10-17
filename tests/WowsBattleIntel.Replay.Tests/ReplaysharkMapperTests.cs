@@ -497,6 +497,7 @@ public class ReplaysharkMapperTests
         var enemy = battle.Players.First(p => p.AccountId == "2002");
 
         // display_name 缺失时退回内部名；内部名同样是英文，翻译层照常生效。
-        Assert.Equal(["殉爆"], enemy.Achievements);
+        // 成就表已切到亚服口径，Detonation 在 zh_sg 里是「爆破手」。
+        Assert.Equal(["爆破手"], enemy.Achievements);
     }
 }

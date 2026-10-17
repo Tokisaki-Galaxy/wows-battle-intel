@@ -592,9 +592,9 @@ public class PlayerRowViewModelTests
         Assert.Equal(2, vm.AchievementCount);
         Assert.Equal("★2", vm.AchievementBadgeText);
 
-        // 成就名统一中文口径，数量后缀保留。
-        Assert.Contains("无畏者", vm.AchievementsText);
-        Assert.Contains("同盟 ×2", vm.AchievementsText);
+        // 成就名统一亚服中文口径，数量后缀保留。
+        Assert.Contains("无人能挡", vm.AchievementsText);
+        Assert.Contains("支援 ×2", vm.AchievementsText);
     }
 
     [Fact]
@@ -609,6 +609,31 @@ public class PlayerRowViewModelTests
     public void AchievementNames_CountSuffixPreserved()
     {
         Assert.Equal("第一滴血 ×3", AchievementNames.ToChinese("First Blood ×3"));
+    }
+
+    [Theory]
+    [InlineData("Kraken Unleashed", "海怪出没！")]
+    [InlineData("Kraken Unleashed!", "海怪出没！")]
+    [InlineData("It's Just a Flesh Wound", "轻伤不下火线！")]
+    [InlineData("It's Just a Flesh Wound!", "轻伤不下火线！")]
+    [InlineData("Brothers in Arms", "兄弟连")]
+    [InlineData("Brothers-in-Arms", "兄弟连")]
+    public void AchievementNames_ToleratesPunctuationVariants(string input, string expected)
+    {
+        // 回放与游戏内文本常差一个叹号、撇号或连字符，归一化后必须命中同一条。
+        Assert.Equal(expected, AchievementNames.ToChinese(input));
+    }
+
+    [Theory]
+    [InlineData("Dreadnought", "无人能挡")]
+    [InlineData("High Caliber", "重创")]
+    [InlineData("Confederate", "支援")]
+    [InlineData("Witherer", "天灾人祸")]
+    [InlineData("Devastating Strike", "毁灭打击")]
+    public void AchievementNames_UsesAsiaServerWording(string input, string expected)
+    {
+        // 译名以世界服简中（zh_sg）为准，不是国服口径。
+        Assert.Equal(expected, AchievementNames.ToChinese(input));
     }
 
     [Fact]
