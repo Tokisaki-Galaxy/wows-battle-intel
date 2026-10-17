@@ -125,7 +125,17 @@ try {
         ForEach-Object { Copy-Item $_.FullName $stage }
 
     if (-not $SkipCli) {
+        # CLI 单独出一个包。它与客户端各自内嵌一份 onnxruntime 与 SQLite，
+        # 合在一个包里等于把 11 MB 的 ONNX 库存两遍，普通用户用不到 CLI，
+        # 分开分发能让主包小一半。
         Write-Host "[publish] 发布 CLI..."
+        $cliStage = Join-Path $OutputDir "wows-intel-$Version-win-x64"
+        $cliZip = Join-Path $OutputDir "wows-intel-$Version-win-x64.zip"
+
+        if (Test-Path $cliStage) { Remove-Item $cliStage -Recurse -Force }
+        if (Test-Path $cliZip) { Remove-Item $cliZip -Force }
+        New-Item $cliStage -ItemType Directory -Force | Out-Null
+
         dotnet publish src/client/WowsBattleIntel.Cli/WowsBattleIntel.Cli.csproj `
             -c Release -r win-x64 `
             -p:PublishSingleFile=true `
@@ -135,8 +145,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "CLI 发布失败，退出码 $LASTEXITCODE" }
 
         $cliOut = Join-Path $OutputDir "cli-tmp"
-        Copy-Item (Join-Path $cliOut "wows-intel.exe") $stage
+        Copy-Item (Join-Path $cliOut "wows-intel.exe") $cliStage
+        Copy-Item (Join-Path $repoRoot "tools/publish/CLI-README.txt") $cliStage
         Remove-Item $cliOut -Recurse -Force
+
+        Compress-Archive -Path "$cliStage/*" -DestinationPath $cliZip -CompressionLevel Optimal
+        $cliZipMb = [math]::Round((Get-Item $cliZip).Length / 1MB, 1)
+        Write-Host "[publish] CLI 包: $cliZip ($cliZipMb MB)"
     }
 
     # ONNX 模型随包分发，客户端默认探测 包目录/models/baseline.onnx。
@@ -171,18 +186,25 @@ try {
     # 残缺包：能双击启动，一碰数据库就崩。15 MB 是含 onnxruntime 后的下限。
     $required = @(
         "WowsBattleIntel.Client.exe",
-        "wows-intel.exe",
         "models/baseline.onnx"
     )
     $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
     if ($missing.Count -gt 0) {
-        throw "发布包缺少关键文件: $($missing -join ', ')。"
+        throw "客户端包缺少关键文件: $($missing -join ', ')。"
     }
 
     $clientExeMb = (Get-Item (Join-Path $stage "WowsBattleIntel.Client.exe")).Length / 1MB
     if ($clientExeMb -lt 10) {
         throw ("客户端 exe 只有 {0:N1} MB，明显没含 onnxruntime 与 e_sqlite3。" +
             "请确认 publish 带了 -p:IncludeNativeLibrariesForSelfExtract=true。") -f $clientExeMb
+    }
+
+    # CLI 单独成包，同样要过体积检查。
+    if (-not $SkipCli -and (Get-Variable -Name cliStage -Scope 0 -ErrorAction SilentlyContinue)) {
+        $cliExeMb = (Get-Item (Join-Path $cliStage "wows-intel.exe")).Length / 1MB
+        if ($cliExeMb -lt 10) {
+            throw ("CLI exe 只有 {0:N1} MB，明显没含原生库。") -f $cliExeMb
+        }
     }
     Write-Host ("[publish] 关键文件自检通过（客户端 exe {0:N1} MB）" -f $clientExeMb)
 

@@ -26,18 +26,18 @@ wows-battle-intel 解压即用绿色包
 - 回放解析直接读取游戏安装目录，包里不再附带游戏数据。
   因此需要本机装着战舰世界本体，卸载游戏后历史回放将无法解析。
 
-四、附带工具
+四、命令行工具
 
-wows-intel.exe 为命令行工具，供高级用户离线补采与校验，
-执行 wows-intel.exe --help 查看用法。
+wows-intel 为离线分析工具，供高级用户批量导入与回测，
+单独打包在 wows-intel-<版本>-win-x64.zip 中，日常使用不需要下载。
 
 五、目录结构
 
 WowsBattleIntel.Client.exe  主程序（已含全部依赖库）
-wows-intel.exe              命令行工具（已含全部依赖库）
 models\baseline.onnx        默认预测模型
 tools\replayshark.exe       回放解析器（直接从游戏目录读数据）
 config.sample.json          配置模板
 
 程序首次启动时会把内置的原生库解压到 %TEMP%\.net 下，
 这是 .NET 单文件发布的正常行为，不影响使用。
+命令行工具 wows-intel 单独打包，不在本目录内。
