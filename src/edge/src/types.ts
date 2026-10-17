@@ -40,9 +40,7 @@ export interface BattleUpload {
   enemyScore: number;
   durationSec: number;
   players: PlayerUpload[];
-}
-
-/** 玩家上报条目。 */
+}/** 玩家上报条目。 */
 export interface PlayerUpload {
   accountId: string;
   server: string;

@@ -37,6 +37,24 @@ public static class TeamAggregator
     }
 
     /// <summary>
+    /// 按账号胜率与场次判定玩家档位。
+    /// </summary>
+    /// <remarks>
+    /// 名单文案与胜率列着色共用这一处判定，避免界面里再硬编码阈值后与
+    /// 聚合口径分叉。场次门槛只对海王生效，避免小样本误判。
+    /// </remarks>
+    public static PlayerTier ClassifyPlayer(double accountWinrate, double accountBattles)
+    {
+        if (accountWinrate > DefaultUnicumWinrateThreshold
+            && accountBattles >= DefaultUnicumBattlesThreshold)
+        {
+            return PlayerTier.Unicum;
+        }
+
+        return accountWinrate <= DefaultApeWinrateThreshold ? PlayerTier.Ape : PlayerTier.Normal;
+    }
+
+    /// <summary>
     /// 聚合一个队伍的特征。
     /// </summary>
     /// <param name="players">队伍成员。</param>

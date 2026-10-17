@@ -115,6 +115,25 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void PredictionText_ClampsExtremeProbabilityLikeDetail()
+    {
+        // 列表小字与详情区必须同口径：逻辑回归外推出的极端值在展示层夹取，
+        // 否则同一局会同时出现 100% 与 95.0% 两个读数。
+        var battle = new BattleRecord
+        {
+            BattleId = "battle-extreme",
+            StartedAt = DateTimeOffset.UtcNow,
+            Outcome = BattleOutcome.Win,
+        };
+
+        var high = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.997);
+        var low = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.0004);
+
+        Assert.Equal("预测 95%", high.PredictionText);
+        Assert.Equal("预测 5%", low.PredictionText);
+    }
+
+    [Fact]
     public async Task SelectBattle_LoadsRosterAndPrediction()
     {
         using var holder = await TestServices.CreateAsync();

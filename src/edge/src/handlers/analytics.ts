@@ -1,5 +1,26 @@
 import type { Env } from "../types.js";
-import { json } from "../index.js";
+import { RESULT_LOSS, RESULT_WIN } from "../constants.js";
+import { json } from "../http.js";
+
+/** server_baselines 表的一行。 */
+interface BaselineRow {
+  server: string;
+  computed_at: number;
+  winrate_p25: number;
+  winrate_p50: number;
+  winrate_p75: number;
+  winrate_mean: number;
+  winrate_std: number;
+  sample_size: number;
+}
+
+/** battles 表的规模聚合一行的结果。 */
+interface CalibrationTotals {
+  total_battles: number;
+  wins: number;
+  losses: number;
+  contributors: number;
+}
 
 /**
  * 返回各服务器的水平分布基准。
@@ -13,7 +34,7 @@ export async function handleGetBaselines(env: Env): Promise<Response> {
             winrate_mean, winrate_std, sample_size
      FROM server_baselines
      ORDER BY server`,
-  ).all();
+  ).all<BaselineRow>();
 
   return json({
     ok: true,
@@ -41,20 +62,17 @@ export async function handleGetBaselines(env: Env): Promise<Response> {
  * 样本量增长后应改为定时预计算并写入单独的汇总表。
  */
 export async function handleGetCalibration(env: Env): Promise<Response> {
-  // 按对局统计规模与胜负分布。
+  // 按对局统计规模与胜负分布。结果取值用参数绑定，避免 SQL 里再写一遍字面量。
   const totals = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total_battles,
-       SUM(CASE WHEN result = 'Win' THEN 1 ELSE 0 END) AS wins,
-       SUM(CASE WHEN result = 'Loss' THEN 1 ELSE 0 END) AS losses,
+       SUM(CASE WHEN result = ?1 THEN 1 ELSE 0 END) AS wins,
+       SUM(CASE WHEN result = ?2 THEN 1 ELSE 0 END) AS losses,
        COUNT(DISTINCT contributor_hash) AS contributors
      FROM battles`,
-  ).first<{
-    total_battles: number;
-    wins: number;
-    losses: number;
-    contributors: number;
-  }>();
+  )
+    .bind(RESULT_WIN, RESULT_LOSS)
+    .first<CalibrationTotals>();
 
   const totalBattles = totals?.total_battles ?? 0;
 

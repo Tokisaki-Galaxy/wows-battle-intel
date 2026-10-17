@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,7 +94,7 @@ def save_baselines(db_path: str | Path, baselines: list[ServerBaseline]) -> None
     """把基线写入数据库。"""
     conn = sqlite3.connect(str(db_path))
     try:
-        now = int(__import__("time").time() * 1000)
+        now = int(time.time() * 1000)
         for b in baselines:
             conn.execute(
                 """

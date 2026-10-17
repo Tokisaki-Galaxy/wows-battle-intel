@@ -162,46 +162,17 @@ public static class ReplaysharkMapper
     /// <summary>
     /// 映射对局类型。
     /// </summary>
-    /// <remarks>
-    /// game_type 是首选依据，取值形如 RandomBattle、CooperativeBattle。
-    /// 不同版本与模式的拼写不完全一致，因此同时认几种等价写法，无法识别时
-    /// 再退回 match_group 判断。match_group 更粗但更稳定，作为兜底。
-    /// </remarks>
-    public static BattleType MapBattleType(string gameType, string matchGroup)
-    {
-        string key = (gameType ?? string.Empty).Trim().ToUpperInvariant();
-        return key switch
-        {
-            "RANDOMBATTLE" => BattleType.Random,
-            "RANKEDBATTLE" => BattleType.Ranked,
-            // 实际回放写的是 CooperativeBattle，CoopBattle/PVEBattle 是历史拼写。
-            "COOPERATIVEBATTLE" or "COOPBATTLE" or "PVEBATTLE" => BattleType.Coop,
-            "CLANBATTLE" => BattleType.Clan,
-            "TRAININGBATTLE" or "PRIVATEBATTLE" => BattleType.Training,
-            _ => BattleTypeExtensions.FromMatchGroup(matchGroup),
-        };
-    }
+    /// <summary>
+    /// 映射对局类型。实现收口在 <see cref="BattleTypeExtensions.FromGameType"/>。
+    /// </summary>
+    public static BattleType MapBattleType(string gameType, string matchGroup) =>
+        BattleTypeExtensions.FromGameType(gameType, matchGroup);
 
     /// <summary>
-    /// 映射服务器。
+    /// 映射服务器。实现收口在 <see cref="GameServerExtensions.ParseRealm"/>，
+    /// 这里保留薄封装以维持既有调用契约。
     /// </summary>
-    public static GameServer MapServer(string? realm)
-    {
-        if (string.IsNullOrWhiteSpace(realm))
-        {
-            return GameServer.Auto;
-        }
-
-        return realm.Trim().ToUpperInvariant() switch
-        {
-            "RU" => GameServer.Ru,
-            "EU" => GameServer.Eu,
-            "NA" => GameServer.Na,
-            "ASIA" => GameServer.Asia,
-            "CN" => GameServer.Cn,
-            _ => GameServer.Auto,
-        };
-    }
+    public static GameServer MapServer(string? realm) => GameServerExtensions.ParseRealm(realm);
 
     /// <summary>
     /// 映射舰种。

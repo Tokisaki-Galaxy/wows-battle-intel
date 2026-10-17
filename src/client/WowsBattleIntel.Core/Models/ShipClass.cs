@@ -63,4 +63,23 @@ public static class ShipClassExtensions
 
     /// <summary>转成稳定的存储字符串。</summary>
     public static string ToStorageString(this ShipClass shipClass) => shipClass.ToString();
+
+    /// <summary>
+    /// 转成分舰种聚合 JSON 的稳定键，形如 "BB"。
+    /// 写入端聚合与读取端特征解析必须共用这一个实现，否则键漂移会静默丢特征。
+    /// 未知舰种返回空串，调用方据此判定“无本舰种数据”。
+    /// </summary>
+    public static string ToStorageKey(this ShipClass shipClass) => shipClass switch
+    {
+        ShipClass.Destroyer => "DD",
+        ShipClass.Cruiser => "CA",
+        ShipClass.Battleship => "BB",
+        ShipClass.Carrier => "CV",
+        ShipClass.Submarine => "SS",
+        _ => string.Empty,
+    };
+
+    /// <summary>转成界面与命令行展示用的两字母代号，未知舰种显示 "??"。</summary>
+    public static string ToDisplayCode(this ShipClass shipClass) =>
+        shipClass == ShipClass.Unknown ? "??" : shipClass.ToStorageKey();
 }

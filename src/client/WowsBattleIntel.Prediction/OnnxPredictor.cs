@@ -143,24 +143,3 @@ public sealed class OnnxPredictor : IPredictor, IDisposable
     }
 }
 
-/// <summary>
-/// 把二维数组展平为一维的内部辅助。
-/// </summary>
-internal static class TensorExtensions
-{
-    public static float[] ToFlatArray(this float[,] matrix)
-    {
-        int rows = matrix.GetLength(0);
-        int cols = matrix.GetLength(1);
-        var flat = new float[rows * cols];
-        for (int i = 0; i < rows; i++)
-        {
-            for (int j = 0; j < cols; j++)
-            {
-                flat[i * cols + j] = matrix[i, j];
-            }
-        }
-
-        return flat;
-    }
-}

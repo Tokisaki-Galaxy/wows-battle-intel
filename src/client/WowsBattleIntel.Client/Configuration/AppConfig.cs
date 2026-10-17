@@ -102,10 +102,8 @@ public sealed class AppConfig
     /// 测试可通过 <see cref="ConfigPathOverride"/> 重定向，避免测试写盘污染真实配置。
     /// </remarks>
     [JsonIgnore]
-    public static string ConfigPath => ConfigPathOverride ?? Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "wows-battle-intel",
-        "config.json");
+    public static string ConfigPath =>
+        ConfigPathOverride ?? AppPaths.CombineAppData("config.json");
 
     /// <summary>测试专用的配置路径覆盖。设置后 Load 与 Save 都指向该路径。</summary>
     [JsonIgnore]
@@ -326,10 +324,7 @@ public sealed class AppConfig
             return Path.Combine(repoDataDir, "battles.db");
         }
 
-        string appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "wows-battle-intel");
-        return Path.Combine(appData, "battles.db");
+        return AppPaths.CombineAppData("battles.db");
     }
 
     /// <summary>
@@ -392,10 +387,7 @@ public sealed class AppConfig
             return Path.Combine(repoRoot, "Logs");
         }
 
-        string appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "wows-battle-intel");
-        return Path.Combine(appData, "Logs");
+        return AppPaths.CombineAppData("Logs");
     }
 
     /// <summary>

@@ -100,25 +100,14 @@ public static class ArenaInfoParser
         var battle = new BattleRecord
         {
             StartedAt = arenaInfo.StartedAt,
-            Server = MapServer(arenaInfo.Realm),
+            Server = GameServerExtensions.ParseRealm(arenaInfo.Realm),
             Outcome = BattleOutcome.Unknown,
             Players = players,
         };
 
         // gameType 比 matchGroup 更具体（RandomBattle 对 pvp），非空时优先。
-        // 映射键与 ReplaysharkMapper.MapBattleType 保持同一套（Core 不引用
-        // Replay，就地维护，双侧同步改）。
-        battle.BattleType = string.IsNullOrEmpty(arenaInfo.GameType)
-            ? BattleTypeExtensions.FromMatchGroup(arenaInfo.MatchGroup)
-            : arenaInfo.GameType.Trim().ToUpperInvariant() switch
-            {
-                "RANDOMBATTLE" => BattleType.Random,
-                "RANKEDBATTLE" => BattleType.Ranked,
-                "COOPERATIVEBATTLE" or "COOPBATTLE" or "PVEBATTLE" => BattleType.Coop,
-                "CLANBATTLE" => BattleType.Clan,
-                "TRAININGBATTLE" or "PRIVATEBATTLE" => BattleType.Training,
-                _ => BattleTypeExtensions.FromMatchGroup(arenaInfo.MatchGroup),
-            };
+        // 映射实现在 BattleTypeExtensions.FromGameType，与回放链路共用一张表。
+        battle.BattleType = BattleTypeExtensions.FromGameType(arenaInfo.GameType, arenaInfo.MatchGroup);
 
         battle.BattleId = ToBattleId(battle);
         return battle;
@@ -261,30 +250,5 @@ public static class ArenaInfoParser
         }
 
         throw new InvalidDataException("tempArenaInfo 既非明文 JSON 也非已知的打包格式。");
-    }
-
-    /// <summary>
-    /// 映射服务器缩写。
-    /// </summary>
-    /// <remarks>
-    /// 与 ReplaysharkMapper.MapServer 保持同一映射表。Core 不能反向引用 Replay
-    /// 项目，这里就地复制一份，改动任一侧时必须同步另一侧。
-    /// </remarks>
-    private static GameServer MapServer(string? realm)
-    {
-        if (string.IsNullOrWhiteSpace(realm))
-        {
-            return GameServer.Auto;
-        }
-
-        return realm.Trim().ToUpperInvariant() switch
-        {
-            "RU" => GameServer.Ru,
-            "EU" => GameServer.Eu,
-            "NA" => GameServer.Na,
-            "ASIA" => GameServer.Asia,
-            "CN" => GameServer.Cn,
-            _ => GameServer.Auto,
-        };
     }
 }

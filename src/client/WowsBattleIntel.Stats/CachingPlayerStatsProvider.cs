@@ -64,6 +64,8 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
             return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
         }
 
+        // 隐藏战绩玩家也要交给 inner：他们没有统计，但军团标签仍要落库，
+        // 供后续跨局回填。是否缺数据由 IsFullyCovered 判定，隐藏者恒缺。
         var targets = players
             .Where(p => !p.IsBot && !string.IsNullOrEmpty(p.PlayerName))
             .ToList();
@@ -82,7 +84,7 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
 
         // 缓存已齐全的玩家不再联网。缺数据的才交回 inner。
         var needNetwork = options.Enabled
-            ? targets.Where(p => !IsFullyCovered(p)).ToList()
+            ? targets.Where(p => !p.IsFullyCovered).ToList()
             : targets;
         if (needNetwork.Count == 0)
         {
@@ -106,20 +108,6 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
         // 命中缓存的记录已在上一步灌好，整体返回即可。
         return players;
     }
-
-    /// <summary>
-    /// 账号、分舰种与单船三项是否都已到位。
-    /// </summary>
-    /// <remarks>
-    /// 判据用原始记录字段：提供商把分舰种数据写进 ClassStatsJson，单船层落
-    /// ShipBattles，账号层落 AccountWinrate。ClassStatsJson 为空串或 "{}" 都
-    /// 表示没有分舰种数据。隐藏战绩玩家没有快照，恒为 false，由 inner 侧跳过。
-    /// </remarks>
-    private static bool IsFullyCovered(PlayerRecord player) =>
-        player.AccountWinrate >= 0
-        && player.ShipBattles >= 0
-        && !string.IsNullOrEmpty(player.ClassStatsJson)
-        && player.ClassStatsJson.Length > 2;
 
     /// <summary>
     /// 用本地历史把 -1 哨兵玩家的账号 ID 补上。

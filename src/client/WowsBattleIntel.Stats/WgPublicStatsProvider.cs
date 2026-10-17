@@ -1,4 +1,3 @@
-using System.Net;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
@@ -38,12 +37,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
         this.options = options;
-        this.httpClient = httpClient ?? new HttpClient
-        {
-            // 批量查询 20 人加分舰种聚合是两段串行请求，WG API 高峰期偶发
-            // 10 秒级慢响应，20 秒会在正常批次上误杀，放宽到 60 秒。
-            Timeout = TimeSpan.FromSeconds(60),
-        };
+        this.httpClient = httpClient ?? WgHttp.CreateClient(TimeSpan.FromSeconds(60));
     }
 
     /// <inheritdoc />
@@ -563,33 +557,32 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     }
 
     /// <summary>
-    /// WG 舰种字符串转稳定存储键，与 ShipClassExtensions.Parse 的输入兼容。
+    /// WG 舰种字符串转稳定存储键，与 <see cref="ShipClassExtensions.Parse"/> 的输入兼容。
     /// </summary>
-    internal static string? ToClassKey(string wgType) => wgType.Trim().ToUpperInvariant() switch
+    /// <remarks>
+    /// 映射表本身只养在 <see cref="ShipClassExtensions"/> 一处，这里只做适配。
+    /// 有意收窄输入面：encyclopedia/ships 返回的是 Destroyer、AirCarrier 这类
+    /// 完整类型名，不认 DD/CA/CL 这类缩写。若直接放行缩写，“CL”会被当年的
+    /// 巡洋并入 CA 键，分舰种聚合就多算了一类。
+    /// </remarks>
+    internal static string? ToClassKey(string wgType)
     {
-        "DESTROYER" => "DD",
-        "CRUISER" => "CA",
-        "BATTLESHIP" => "BB",
-        "AIR_CARRIER" or "AIRCARRIER" or "CARRIER" => "CV",
-        "SUBMARINE" => "SS",
-        _ => null,
-    };
-
-    private async Task<string> GetStringAsync(string url, CancellationToken cancellationToken)
-    {
-        using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        string normalized = wgType.Trim().ToUpperInvariant();
+        bool isKnownWgType = normalized is
+            "DESTROYER" or "CRUISER" or "BATTLESHIP"
+            or "AIR_CARRIER" or "AIRCARRIER" or "CARRIER"
+            or "SUBMARINE";
+        if (!isKnownWgType)
         {
-            // 限流时退避后重试一次。
-            await Task.Delay(options.RateLimitBackoff, cancellationToken).ConfigureAwait(false);
-            using var retry = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            retry.EnsureSuccessStatusCode();
-            return await retry.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return null;
         }
 
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        ShipClass shipClass = ShipClassExtensions.Parse(wgType);
+        return shipClass == ShipClass.Unknown ? null : shipClass.ToStorageKey();
     }
+
+    private Task<string> GetStringAsync(string url, CancellationToken cancellationToken) =>
+        WgHttp.GetStringAsync(httpClient, url, options.RateLimitBackoff, cancellationToken);
 }
 
 /// <summary>

@@ -24,3 +24,34 @@ public enum GameServer
     /// <summary>国服 wowsgame.cn。</summary>
     Cn = 5,
 }
+
+/// <summary>
+/// 服务器的字符串解析。
+/// </summary>
+public static class GameServerExtensions
+{
+    /// <summary>
+    /// 把回放与 tempArenaInfo 的 realm 缩写转成服务器枚举。
+    /// </summary>
+    /// <remarks>
+    /// Core 的赛前解析与 Replay 的回放解析共用这一张表。无法识别时返回
+    /// <see cref="GameServer.Auto"/>，交由日志探测决定。
+    /// </remarks>
+    public static GameServer ParseRealm(string? realm)
+    {
+        if (string.IsNullOrWhiteSpace(realm))
+        {
+            return GameServer.Auto;
+        }
+
+        return realm.Trim().ToUpperInvariant() switch
+        {
+            "RU" => GameServer.Ru,
+            "EU" => GameServer.Eu,
+            "NA" => GameServer.Na,
+            "ASIA" => GameServer.Asia,
+            "CN" => GameServer.Cn,
+            _ => GameServer.Auto,
+        };
+    }
+}

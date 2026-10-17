@@ -33,6 +33,30 @@ public enum BattleType
 public static class BattleTypeExtensions
 {
     /// <summary>
+    /// 把回放与 tempArenaInfo 的 game_type 字符串转成枚举。
+    /// </summary>
+    /// <remarks>
+    /// game_type 是首选依据，取值形如 RandomBattle、CooperativeBattle。不同版本
+    /// 与模式的拼写不完全一致，因此同时认几种等价写法；无法识别时退回
+    /// <paramref name="matchGroup"/> 判断，match_group 更粗但更稳定。
+    /// Core 与 Replay 两条解析链路共用这一个实现。
+    /// </remarks>
+    public static BattleType FromGameType(string? gameType, string? matchGroup)
+    {
+        string key = (gameType ?? string.Empty).Trim().ToUpperInvariant();
+        return key switch
+        {
+            "RANDOMBATTLE" => BattleType.Random,
+            "RANKEDBATTLE" => BattleType.Ranked,
+            // 实际回放写的是 CooperativeBattle，CoopBattle/PVEBattle 是历史拼写。
+            "COOPERATIVEBATTLE" or "COOPBATTLE" or "PVEBATTLE" => BattleType.Coop,
+            "CLANBATTLE" => BattleType.Clan,
+            "TRAININGBATTLE" or "PRIVATEBATTLE" => BattleType.Training,
+            _ => FromMatchGroup(matchGroup),
+        };
+    }
+
+    /// <summary>
     /// 把游戏写出的 matchGroup 字符串转成枚举。
     /// 无法识别时返回 <see cref="BattleType.Unknown"/>，不抛异常。
     /// </summary>
