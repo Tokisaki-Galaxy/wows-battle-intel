@@ -222,6 +222,9 @@ public sealed class MainViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(BattleTitle));
                 OnPropertyChanged(nameof(BattleSubtitle));
+                // 倒计时只在详情区显示当前赛前对局时可见，切换选中要重算。
+                OnPropertyChanged(nameof(CountdownText));
+                OnPropertyChanged(nameof(CountdownBrushKey));
                 _ = LoadBattleDetailsAsync(value);
             }
         }
@@ -340,11 +343,34 @@ public sealed class MainViewModel : ViewModelBase
         ? "-"
         : $"{Math.Abs(currentPrediction.AllyWinProbability - 0.5) * 2:P0}";
 
-    /// <summary>赛前数据刷新倒计时，空串表示当前没有更新循环在跑。</summary>
-    public string CountdownText
+    /// <summary>
+    /// 赛前数据刷新倒计时，空串表示当前没有更新循环在跑。
+    /// </summary>
+    /// <remarks>
+    /// 原始文案由赛前收敛循环写进 countdownText。对外只在详情区正显示这一局
+    /// 赛前对局时才给出，切到历史回放时返回空串，避免把赛前的"补拉受阻"之类
+    /// 提示挂在无关的历史对局上。
+    /// </remarks>
+    public string CountdownText => IsViewingPreBattle ? countdownText : string.Empty;
+
+    /// <summary>详情区当前显示的是否就是正在观测的赛前对局。</summary>
+    private bool IsViewingPreBattle =>
+        currentBattle is not null && ReferenceEquals(selectedBattle, currentBattle.Battle);
+
+    /// <summary>
+    /// 写入倒计时原始文案并通知对外属性。
+    /// </summary>
+    /// <remarks>
+    /// 对外 CountdownText 会按当前选中过滤，这里只更新底层字段，通知由
+    /// 属性名固定触发，界面据此重新求值过滤结果。
+    /// </remarks>
+    private void SetCountdownText(string value)
     {
-        get => countdownText;
-        private set => SetField(ref countdownText, value);
+        if (SetField(ref countdownText, value, nameof(CountdownText)))
+        {
+            // 过滤结果与原始值都随本属性变化，颜色键一并刷新。
+            OnPropertyChanged(nameof(CountdownBrushKey));
+        }
     }
 
     /// <summary>
@@ -420,8 +446,7 @@ public sealed class MainViewModel : ViewModelBase
 
         currentBattle = null;
         preBattleKey = null;
-        CountdownText = string.Empty;
-        OnPropertyChanged(nameof(CountdownBrushKey));
+        SetCountdownText(string.Empty);
         OnPropertyChanged(nameof(LiveBattles));
         OnPropertyChanged(nameof(HasLiveBattles));
     }
@@ -430,6 +455,18 @@ public sealed class MainViewModel : ViewModelBase
     /// 刷新观测状态显示。待处理数量由后台协程更新，界面需要主动拉取。
     /// </summary>
     public void RefreshObservationStatus() => OnPropertyChanged(nameof(ObservationStatusText));
+
+    /// <summary>
+    /// 切回对局情报页时调用：按当前选中重刷一次详情。
+    /// </summary>
+    /// <remarks>
+    /// 收敛循环在后台独立推进，切到运行日志或设置页期间它照跑，但界面被盖住
+    /// 期间用户看不到变化。切回来时按最新状态重建一次详情，名单、倒计时与队伍
+    /// 汇总都对齐到后台的最新进度，不停留在切走前的旧文字。
+    ///
+    /// 选中为空时不做事；赛前对局在重建时用收敛循环持有的预测，不会被清空。
+    /// </remarks>
+    public Task RefreshIntelViewAsync() => LoadBattleDetailsAsync(selectedBattle);
 
     /// <summary>
     /// 从本地库读取最近对局并填充列表。
@@ -1135,7 +1172,7 @@ public sealed class MainViewModel : ViewModelBase
         preBattleCts = new CancellationTokenSource();
         preBattlePrediction = null;
         preBattleFailed = false;
-        CountdownText = string.Empty;
+        SetCountdownText(string.Empty);
 
         // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
         // 渐进补拉链路。Outcome 保持 Unknown，对照徽章自然显示"待对照"。
@@ -1270,9 +1307,7 @@ public sealed class MainViewModel : ViewModelBase
                 if (incomplete == 0)
                 {
                     preBattleFailed = false;
-                    CountdownText = $"预测就绪 · {preBattleProgressText}";
-                    OnPropertyChanged(nameof(CountdownBrushKey));
-                    OnPropertyChanged(nameof(CountdownText));
+                    SetCountdownText($"预测就绪 · {preBattleProgressText}");
                     return;
                 }
 
@@ -1281,9 +1316,7 @@ public sealed class MainViewModel : ViewModelBase
                 if (consecutiveMisses >= PreBattleMaxConsecutiveMisses)
                 {
                     preBattleFailed = true;
-                    CountdownText = $"补拉受阻 · 已停止 · {preBattleProgressText}";
-                    OnPropertyChanged(nameof(CountdownBrushKey));
-                    OnPropertyChanged(nameof(CountdownText));
+                    SetCountdownText($"补拉受阻 · 已停止 · {preBattleProgressText}");
                     LogSink.Warn($"赛前补拉连续 {consecutiveMisses} 轮无进展，停止收敛");
                     return;
                 }
@@ -1291,8 +1324,7 @@ public sealed class MainViewModel : ViewModelBase
                 // 3 秒倒计时给用户"正在更新"的感知，期间后台补拉持续推进。
                 for (int remain = 3; remain > 0 && !token.IsCancellationRequested; remain--)
                 {
-                    CountdownText = $"{remain}s 后更新预测 · 第 {round} 轮 · {preBattleProgressText}";
-                    OnPropertyChanged(nameof(CountdownText));
+                    SetCountdownText($"{remain}s 后更新预测 · 第 {round} 轮 · {preBattleProgressText}");
                     await Task.Delay(1000, token).ConfigureAwait(true);
                 }
             }
@@ -1304,9 +1336,7 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             preBattleFailed = true;
-            CountdownText = $"预测失败: {ex.Message}";
-            OnPropertyChanged(nameof(CountdownBrushKey));
-            OnPropertyChanged(nameof(CountdownText));
+            SetCountdownText($"预测失败: {ex.Message}");
             LogSink.Warn($"赛前预测失败: {ex.Message}");
         }
     }

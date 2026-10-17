@@ -223,4 +223,53 @@ public class PreBattleLifecycleTests : IDisposable
 
         Assert.Contains("已停止", vm.CountdownText);
     }
+
+    [Fact]
+    public async Task CurrentBattle_CountdownHiddenWhenViewingHistory()
+    {
+        // 赛前补拉提示只属于当前对局。切到历史回放后，详情区不应再挂着
+        // "补拉受阻"之类赛前文案。
+        WriteArena();
+        using var holder = await TestServices.CreateAsync(CreateConfig());
+
+        await holder.Services.Repository.SaveBattleAsync(new BattleRecord
+        {
+            BattleId = "hist-countdown",
+            StartedAt = DateTimeOffset.UtcNow.AddHours(-1),
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1001", PlayerName = "HistAlly", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+            ],
+        });
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        holder.Services.ArenaWatcher.ScanOnce();
+        await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
+
+        // 等倒计时文案先落定，确保确实有一段赛前状态在展示。
+        await WaitUntilAsync(
+            () => vm.CountdownText.Length > 0,
+            "赛前倒计时出现",
+            timeoutSeconds: 30);
+
+        var live = vm.LiveBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "历史对局详情加载");
+
+        Assert.Equal(string.Empty, vm.CountdownText);
+
+        // 切回当前对局，赛前文案恢复。
+        vm.SelectedLiveBattle = live;
+        await WaitUntilAsync(() => vm.CountdownText.Length > 0, "切回后赛前文案恢复");
+    }
 }

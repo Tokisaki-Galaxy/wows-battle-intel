@@ -64,7 +64,7 @@
     </Grid.RowDefinitions>
 
     <!-- 主标签页 -->
-    <TabControl Grid.Row="0">
+    <TabControl Grid.Row="0" x:Name="MainTabs" SelectionChanged="OnMainTabSelectionChanged">
       <!-- 对局情报 -->
       <TabItem Header="对局情报">
         <Grid Margin="0,12,0,0">
