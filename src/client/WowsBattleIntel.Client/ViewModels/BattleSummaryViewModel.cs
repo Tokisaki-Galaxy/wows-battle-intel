@@ -54,9 +54,15 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(Battle.Server)} · "
         + $"{DisplayLabels.Duration(Battle.DurationSeconds)}";
 
-    /// <summary>预测概率小字，无预测时提示未预测。</summary>
+    /// <summary>
+    /// 预测概率小字，无预测时提示未预测。
+    /// </summary>
+    /// <remarks>
+    /// 与详情区同口径走展示夹取：模型外推出的 100% 与 0% 会误导，
+    /// 同一局在列表与详情必须显示同一个读数。
+    /// </remarks>
     public string PredictionText => PredictedWinProbability is { } p
-        ? $"预测 {p:P0}"
+        ? $"预测 {DisplayCalibration.ClampForDisplay(p):P0}"
         : "未预测";
 
     /// <summary>对局类型标签。</summary>
