@@ -63,4 +63,38 @@ public class MainWindowSmokeTests
             window.Close();
         });
     }
+
+    [Fact]
+    public void MainWindow_SwitchToLogTab_DoesNotThrowWithManyEntries()
+    {
+        WpfApplicationFixture.Run(_ =>
+        {
+            ThemeService.ApplyTheme(ThemeMode.Dark);
+
+            using var holder = TestServices.CreateAsync().GetAwaiter().GetResult();
+            var viewModel = new MainViewModel(holder.Services);
+            var window = new MainWindow(viewModel);
+            window.Measure(new Size(1280, 800));
+            window.Arrange(new Rect(0, 0, 1280, 800));
+            window.UpdateLayout();
+
+            // 攒够一屏以上的日志，切页时会实例化日志页签并触发一次滚底。
+            for (int i = 0; i < 200; i++)
+            {
+                holder.Services.Logs.Info($"滚动验证 {i}");
+            }
+
+            var tabs = (System.Windows.Controls.TabControl)window.FindName("MainTabs")!;
+            tabs.SelectedIndex = 1;
+            window.UpdateLayout();
+
+            // 切换后的自动滚动是异步的，这里同步推进一次，确认调度本身不出错。
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                new Action(() => { }),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+            Assert.Equal(1, tabs.SelectedIndex);
+            window.Close();
+        });
+    }
 }

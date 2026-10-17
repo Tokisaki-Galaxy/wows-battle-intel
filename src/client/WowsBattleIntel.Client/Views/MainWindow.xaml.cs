@@ -14,6 +14,12 @@ public partial class MainWindow : Window
     private DispatcherTimer? pendingTimer;
     private bool logAutoScrollEnabled = true;
 
+    /// <summary>运行日志页签在主标签页里的下标。</summary>
+    private const int LogTabIndex = 1;
+
+    /// <summary>运行日志列表，供测试在页签实例化后取到控件。</summary>
+    internal System.Windows.Controls.ListBox LogEntriesListForTest => LogEntriesList;
+
     /// <summary>首次加载完成前忽略页签切换，避免与 OnLoaded 的首次加载重复。</summary>
     private bool initialLoadCompleted;
 
@@ -68,7 +74,31 @@ public partial class MainWindow : Window
     private async void OnMainTabSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // 事件会从内部控件冒泡上来，只处理主标签页自身的选择变化。
-        if (!ReferenceEquals(e.OriginalSource, MainTabs) || !initialLoadCompleted)
+        if (!ReferenceEquals(e.OriginalSource, MainTabs))
+        {
+            return;
+        }
+
+        if (MainTabs.SelectedIndex == LogTabIndex)
+        {
+            // 切到运行日志时直接停在最新的那一条，而不是上次停留的位置。
+            logAutoScrollEnabled = true;
+
+            // 页签的内容模板在切换后的布局阶段才实例化，此刻列表可能还不存在，
+            // 因此延后一帧再滚。延迟到 Loaded 之后，不能与同优先级的布局任务
+            // 抢先后，否则可能先于内容生成执行。
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.ContextIdle,
+                new Action(() =>
+                {
+                    ScrollLogsToBottom();
+                    LogEntriesList?.UpdateLayout();
+                    ScrollLogsToBottom();
+                }));
+            return;
+        }
+
+        if (!initialLoadCompleted)
         {
             return;
         }
@@ -87,18 +117,49 @@ public partial class MainWindow : Window
     /// <summary>
     /// 新日志到达时滚到底部。用户上滚后暂停自动滚动，重新滚到底再恢复。
     /// </summary>
+    /// <remarks>
+    /// 新条目刚入列时容器还没生成，直接 ScrollIntoView 有时停在倒数第二条。
+    /// 推迟到布局完成后再滚一次最稳妥。
+    /// </remarks>
     private void OnLogEntriesAppended()
     {
-        var list = LogEntriesList;
-        if (list is null)
+        if (!logAutoScrollEnabled)
         {
             return;
         }
 
-        if (logAutoScrollEnabled && list.Items.Count > 0)
+        ScrollLogsToBottom();
+    }
+
+    /// <summary>
+    /// 在当前界面上滚到日志末尾。
+    /// </summary>
+    /// <remarks>
+    /// 窗口尚未显示或列表为空时直接跳过，避免无谓的调度。
+    /// </remarks>
+    private void ScrollLogsToBottom()
+    {
+        var list = LogEntriesList;
+        if (list is null || list.Items.Count == 0)
         {
-            list.ScrollIntoView(list.Items[^1]);
+            return;
         }
+
+        object lastItem = list.Items[^1];
+
+        // 立即滚一次，保证响应及时。
+        list.ScrollIntoView(lastItem);
+
+        // 再在布局完成后补一次，覆盖新容器尚未生成、滚动距离未定稿的情况。
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            new Action(() =>
+            {
+                if (LogEntriesList is { Items.Count: > 0 } current)
+                {
+                    current.ScrollIntoView(current.Items[^1]);
+                }
+            }));
     }
 
     /// <summary>
