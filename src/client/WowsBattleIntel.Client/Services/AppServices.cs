@@ -18,6 +18,10 @@ namespace WowsBattleIntel.Client.Services;
 public sealed class AppServices : IDisposable
 {
     private readonly object reconfigureLock = new();
+
+    // 当前日志落盘选项的副本。Config 会在重配置时被替换，另存一份才能与配置变更前的口径比较。
+    private LogFileOptions appliedLogOptions;
+
     private bool disposed;
 
     private AppServices(
@@ -27,12 +31,14 @@ public sealed class AppServices : IDisposable
         ClanCatalogService clanCatalog,
         IPredictor predictor,
         PredictionFallbackInfo predictionInfo,
+        LogService logs,
         ReplayObserver observer)
     {
         Config = config;
+        appliedLogOptions = config.LogOptions;
         Repository = repository;
         StatsProvider = statsProvider;
-        Logs = new LogService();
+        Logs = logs;
         Stats = new PlayerStatsService(statsProvider, Logs);
         ClanCatalog = clanCatalog;
         // 名单染色规则是全局共享的，装配时同步一次，配置变更时再更新。
@@ -76,8 +82,8 @@ public sealed class AppServices : IDisposable
     /// <summary>预测器装配信息，含是否降级及原因。</summary>
     public PredictionFallbackInfo PredictionInfo { get; private set; }
 
-    /// <summary>运行日志服务。进程级共享，重配置不重建，日志跨配置版本保留。</summary>
-    public LogService Logs { get; }
+    /// <summary>运行日志服务。进程级共享，重配置时换绑落盘写入器，日志跨配置版本保留。</summary>
+    public LogService Logs { get; private set; }
 
     /// <summary>回放解析服务。</summary>
     public ReplayService ReplayParser { get; private set; }
@@ -120,8 +126,12 @@ public sealed class AppServices : IDisposable
             createResult.FallbackReason);
 
         var observer = new ReplayObserver(config);
+        var logs = new LogService(CreateLogWriter(config));
         var services = new AppServices(
-            config, repository, statsProvider, clanCatalog, createResult.Predictor, info, observer);
+            config, repository, statsProvider, clanCatalog, createResult.Predictor, info, logs, observer);
+
+        // 启动时按保留口径清一次旧日志。写入器内部已吞异常，不会阻断启动。
+        logs.TrimLogFiles(config.LogOptions);
 
         // 启动时按保留天数清一次旧快照。fire and forget，失败记日志即可，
         // 不阻塞启动。
@@ -224,7 +234,42 @@ public sealed class AppServices : IDisposable
 
         // 赛前观测器常驻，只换配置，事件订阅保留。
         ArenaWatcher.Rebind(updated);
+
+        // 日志目录或保留口径变了才换写入器。LogService 实例只换绑定，不重建，
+        // 界面侧订阅的事件因此始终有效，日志页签不会在保存设置后冻结。
+        var newOptions = updated.LogOptions;
+        if (!SameLogOptions(appliedLogOptions, newOptions))
+        {
+            Logs.RebindWriter(CreateLogWriter(updated));
+            appliedLogOptions = newOptions;
+            Logs.Info("日志落盘设置已更新");
+        }
     }
+
+    /// <summary>
+    /// 创建日志写入器。目录不可用时返回 null，退化为只写内存。
+    /// </summary>
+    private static ILogFileWriter? CreateLogWriter(AppConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        try
+        {
+            return new LogFileWriter(config.LogOptions);
+        }
+        catch (Exception)
+        {
+            // 落盘初始化失败不该阻断启动，内存日志照常可用。
+            return null;
+        }
+    }
+
+    /// <summary>比较两份落盘选项是否等价。</summary>
+    private static bool SameLogOptions(LogFileOptions a, LogFileOptions b) =>
+        string.Equals(a.Directory, b.Directory, StringComparison.OrdinalIgnoreCase)
+        && a.RetentionDays == b.RetentionDays
+        && a.MaxBytes == b.MaxBytes
+        && a.Mode == b.Mode;
 
     private static IPlayerStatsProvider CreateStatsProvider(AppConfig config, IPlayerStatsCache? cache)
     {
@@ -270,6 +315,7 @@ public sealed class AppServices : IDisposable
         ArenaWatcher.Dispose();
         (Predictor as IDisposable)?.Dispose();
         Logs.Info("应用退出");
+        Logs.Dispose();
     }
 }
 

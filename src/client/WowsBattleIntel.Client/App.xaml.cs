@@ -56,6 +56,9 @@ public partial class App : Application
             var config = AppConfig.Load();
             Services = await AppServices.CreateAsync(config).ConfigureAwait(true);
 
+            // 把上次运行留下的日志回填进内存缓冲，界面日志页签能看到崩溃前的现场。
+            Services.Logs.ReplaceHistory(Services.Logs.LoadRecent());
+
             // 按配置应用主题，默认跟随系统。
             ThemeService.ApplyTheme(ThemeService.ParseMode(config.Theme));
 
@@ -68,6 +71,8 @@ public partial class App : Application
 
             // 延迟后台检查新版本，节流与确认见 UpdateService。
             UpdateService.CheckOnStartup(config);
+
+            Services.Logs.Info($"应用启动，日志目录 {Services.Logs.LogDirectory}");
         }
         catch (Exception ex)
         {

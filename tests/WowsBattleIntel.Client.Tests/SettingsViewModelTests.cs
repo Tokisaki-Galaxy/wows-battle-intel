@@ -279,6 +279,220 @@ public class SettingsViewModelTests
         TryDelete(newDb);
     }
 
+    // 日志设置的测试：默认口径、校验、往返、打开目录与立即清理。
+
+    /// <summary>记录被打开目录的替身启动器。</summary>
+    private sealed class FakeFolderLauncher : IFolderLauncher
+    {
+        public string? OpenedPath { get; private set; }
+
+        public bool Result { get; set; } = true;
+
+        public bool Open(string path)
+        {
+            OpenedPath = path;
+            return Result;
+        }
+    }
+
+    [Fact]
+    public async Task LogSettings_DefaultToThreeDaysAndTenMb()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        Assert.Equal(3, vm.LogRetentionDays);
+        Assert.Equal(10, vm.LogMaxSizeMb);
+        Assert.Equal(0, vm.LogRetentionModeIndex);
+        Assert.False(string.IsNullOrWhiteSpace(vm.LogDirectory));
+        Assert.Contains("3 天", vm.LogRetentionSummary);
+        Assert.Contains("10 MB", vm.LogRetentionSummary);
+    }
+
+    [Fact]
+    public async Task LogSettings_OpenFolder_UsesLauncher()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var launcher = new FakeFolderLauncher();
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker(), launcher)
+        {
+            LogDirectory = @"Z:\some\logs",
+        };
+
+        vm.OpenLogFolderCommand.Execute(null);
+
+        Assert.Equal(@"Z:\some\logs", launcher.OpenedPath);
+        Assert.Contains("已打开", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task LogSettings_OpenFolder_FailureReportsStatus()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var launcher = new FakeFolderLauncher { Result = false };
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker(), launcher);
+
+        vm.OpenLogFolderCommand.Execute(null);
+
+        Assert.Contains("无法打开", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task LogSettings_RoundTripsThroughConfig()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            LogRetentionDays = 5,
+            LogMaxSizeMb = 20,
+            LogRetentionModeIndex = 2,
+        };
+
+        await vm.SaveAsync();
+
+        Assert.Equal(5, holder.Services.Config.LogRetentionDays);
+        Assert.Equal(20, holder.Services.Config.LogMaxSizeMb);
+        Assert.Equal("size", holder.Services.Config.LogRetentionMode);
+        Assert.Equal(LogRetentionMode.Size, holder.Services.Config.LogOptions.Mode);
+        Assert.Equal(20 * 1024L * 1024L, holder.Services.Config.LogOptions.MaxBytes);
+    }
+
+    [Fact]
+    public async Task LogSettings_InferredDirectory_NotPersistedAsUserValue()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        // 原始的日志目录必须是空串，才代表"按推断值落盘"。
+        var config = MakeConfig(dbPath);
+        config.LogDirectory = string.Empty;
+        using var holder = await TestServices.CreateAsync(config);
+
+        // 模拟应用启动时的推断结果：配置里仍是空串。测试装配会把落盘目录改到
+        // 临时目录，这里把回显值换成真实的推断路径，等同于用户没动过这一项。
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+        vm.LogDirectory = AppConfig.InferLogDirectory();
+
+        // 界面回显的是推断出的绝对路径，保存时不该把它钉进配置。
+        Assert.False(string.IsNullOrWhiteSpace(vm.LogDirectory));
+
+        await vm.SaveAsync();
+
+        // 落盘目录本来就是推断值，存回配置的应是空串，表示"继续自动推断"。
+        Assert.Equal(string.Empty, vm.ToConfig().LogDirectory);
+    }
+
+    [Fact]
+    public async Task LogSettings_UserEditedDirectory_IsPersisted()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        string custom = Path.Combine(TestServices.TestTempRoot, $"wbi-custom-{Guid.NewGuid():N}");
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            LogDirectory = custom,
+        };
+
+        await vm.SaveAsync();
+
+        // 自定义目录与推断值不同，必须原样写盘。
+        Assert.Equal(custom, holder.Services.Config.LogOptions.Directory);
+        Assert.True(Directory.Exists(custom), "保存后应立即在新目录落盘");
+        Assert.Equal(custom, holder.Services.Logs.LogDirectory);
+    }
+
+    [Fact]
+    public async Task LogSettings_LogsStillFlowAfterReconfigure()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        var received = new List<string>();
+        holder.Services.Logs.EntryLogged += e => received.Add(e.Message);
+
+        vm.LogRetentionDays = 5;
+        await vm.SaveAsync();
+
+        // 内存日志实例不重建，只换写入器，订阅不失效。
+        string marker = "重配置后的日志";
+        holder.Services.Logs.Info(marker);
+
+        Assert.Contains(marker, received);
+        Assert.Equal(5, holder.Services.Config.LogRetentionDays);
+    }
+
+    [Fact]
+    public async Task LogSettings_Validation()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+
+        var empty = new SettingsViewModel(holder.Services, new FakePathPicker()) { LogDirectory = " " };
+        Assert.Contains("日志目录不能为空", empty.Validate());
+
+        var negativeDays = new SettingsViewModel(holder.Services, new FakePathPicker()) { LogRetentionDays = -1 };
+        Assert.Contains("日志保留天数不能为负", negativeDays.Validate());
+
+        var negativeMb = new SettingsViewModel(holder.Services, new FakePathPicker()) { LogMaxSizeMb = -1 };
+        Assert.Contains("日志体积上限不能为负", negativeMb.Validate());
+
+        var unlimited = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            LogRetentionDays = 0,
+            LogMaxSizeMb = 0,
+        };
+        Assert.Contains("不能同时不限", unlimited.Validate());
+
+        // 只按天数时不限体积是合法组合。
+        var daysOnly = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            LogRetentionDays = 3,
+            LogMaxSizeMb = 0,
+        };
+        Assert.Null(daysOnly.Validate());
+    }
+
+    [Fact]
+    public async Task LogSettings_Trim_UsesPersistentWriter()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+
+        // 测试装配默认带落盘，立即清理应给出成功提示。
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        vm.TrimLogsCommand.Execute(null);
+
+        Assert.Contains("已按当前设置清理", vm.StatusMessage);
+    }
+
+    /// <summary>
+    /// 测试装配下的日志目录必须落到临时目录，不能污染仓库 Logs。
+    /// </summary>
+    [Fact]
+    public async Task AppServices_WritesLogsIntoConfiguredDirectory()
+    {
+        string logDir = Path.Combine(TestServices.TestTempRoot, $"wbi-logs-{Guid.NewGuid():N}");
+        var config = MakeConfig(TestServices.NewDatabasePath());
+        config.LogDirectory = logDir;
+
+        using (var holder = await TestServices.CreateAsync(config))
+        {
+            holder.Services.Logs.Info("装配测试");
+            holder.Services.Logs.Dispose();
+
+            var files = Directory.GetFiles(logDir, "app-*.log");
+            Assert.Single(files);
+            Assert.Contains("装配测试", File.ReadAllText(files[0]));
+        }
+
+        try
+        {
+            Directory.Delete(logDir, recursive: true);
+        }
+        catch
+        {
+            // 清理失败不影响结论。
+        }
+    }
+
     private static void TryDelete(string path)
     {
         foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })

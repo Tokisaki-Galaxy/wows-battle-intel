@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Scoring;
 
 namespace WowsBattleIntel.Client.Configuration;
@@ -71,6 +72,22 @@ public sealed class AppConfig
 
     /// <summary>主题：system 跟随系统、light 浅色、dark 深色。默认跟随系统。</summary>
     public string Theme { get; set; } = "system";
+
+    /// <summary>
+    /// 日志目录。为空时按仓库 Logs 目录推断，发布包场景退回用户目录。
+    /// </summary>
+    public string LogDirectory { get; set; } = string.Empty;
+
+    /// <summary>日志保留天数，默认 3。0 表示不限天数。</summary>
+    public int LogRetentionDays { get; set; } = 3;
+
+    /// <summary>日志总量上限 MB，默认 10。0 表示不限体积。</summary>
+    public int LogMaxSizeMb { get; set; } = 10;
+
+    /// <summary>
+    /// 清理口径：both 天数与体积同时生效、days 只看天数、size 只看体积。默认 both。
+    /// </summary>
+    public string LogRetentionMode { get; set; } = "both";
 
     /// <summary>自动更新开关。默认开启，关闭后启动不再检查新版本。</summary>
     public bool AutoUpdate { get; set; } = true;
@@ -149,6 +166,7 @@ public sealed class AppConfig
         ReplaysharkPath = ResolveReplaysharkPath(ReplaysharkPath);
         ExtractedDataPath = ResolveExtractedDataPath(ExtractedDataPath);
         ConstantsRootPath = ResolveConstantsRootPath(ConstantsRootPath);
+        LogDirectory = ResolveLogDirectory(LogDirectory);
 
         // 旧配置无染色规则字段，反序列化后为 null，补默认；显式存过 null
         // 也按缺失处理，避免名单着色被清空。
@@ -348,6 +366,58 @@ public sealed class AppConfig
     }
 
     /// <summary>
+    /// 解析日志目录。空值时优先用仓库根下的 Logs，发布包场景退回用户目录。
+    /// </summary>
+    /// <remarks>
+    /// 目录允许暂时不存在，写入器会按需创建，因此这里不做存在性校验。
+    /// </remarks>
+    private static string ResolveLogDirectory(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return ToAbsolutePath(value);
+        }
+
+        return InferLogDirectory();
+    }
+
+    /// <summary>
+    /// 推断默认日志目录：优先仓库根 Logs，找不到仓库时退回用户目录。
+    /// </summary>
+    public static string InferLogDirectory()
+    {
+        string? repoRoot = FindRepoRoot();
+        if (repoRoot is not null)
+        {
+            return Path.Combine(repoRoot, "Logs");
+        }
+
+        string appData = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "wows-battle-intel");
+        return Path.Combine(appData, "Logs");
+    }
+
+    /// <summary>
+    /// 从应用基目录向上查找仓库根目录，找不到返回 null。
+    /// </summary>
+    private static string? FindRepoRoot()
+    {
+        string? dir = AppContext.BaseDirectory;
+        for (int i = 0; dir is not null && i < 10; i++)
+        {
+            if (File.Exists(Path.Combine(dir, "WowsBattleIntel.slnx")))
+            {
+                return dir;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// 相对路径按当前工作目录绝对化，绝对路径原样返回。
     /// </summary>
     private static string ToAbsolutePath(string value) =>
@@ -388,6 +458,7 @@ public sealed class AppConfig
             GamePath = ResolveGamePath(string.Empty),
             DatabasePath = ResolveDatabasePath(string.Empty),
             ModelPath = ResolveModelPath(string.Empty),
+            LogDirectory = InferLogDirectory(),
         };
 
         return config;
@@ -419,6 +490,41 @@ public sealed class AppConfig
 
         File.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, SerializerOptions));
     }
+
+    /// <summary>
+    /// 配置字符串转清理口径。未知值按同时生效处理。
+    /// </summary>
+    public static LogRetentionMode ParseRetentionMode(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "days" => Configuration.LogRetentionMode.Days,
+            "size" => Configuration.LogRetentionMode.Size,
+            _ => Configuration.LogRetentionMode.Both,
+        };
+
+    /// <summary>
+    /// 清理口径转配置字符串。
+    /// </summary>
+    public static string RetentionModeValue(LogRetentionMode mode) =>
+        mode switch
+        {
+            Configuration.LogRetentionMode.Days => "days",
+            Configuration.LogRetentionMode.Size => "size",
+            _ => "both",
+        };
+
+    /// <summary>
+    /// 按当前配置生成日志写入选项。
+    /// </summary>
+    /// <remarks>
+    /// 负数的天数与体积按 0 处理，0 表示该维度不限，避免写入器拿到无意义的负值。
+    /// </remarks>
+    [JsonIgnore]
+    public LogFileOptions LogOptions => new(
+        LogDirectory,
+        Math.Max(0, LogRetentionDays),
+        Math.Max(0, LogMaxSizeMb) * 1024L * 1024L,
+        ParseRetentionMode(LogRetentionMode));
 
     /// <summary>
     /// 回放目录。

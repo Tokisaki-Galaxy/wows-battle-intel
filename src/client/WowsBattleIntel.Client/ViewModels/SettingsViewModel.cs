@@ -18,6 +18,7 @@ public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly AppServices services;
     private readonly IPathPicker picker;
+    private readonly IFolderLauncher folderLauncher;
 
     private string gamePath = string.Empty;
     private string databasePath = string.Empty;
@@ -28,6 +29,10 @@ public sealed class SettingsViewModel : ViewModelBase
     private int snapshotRetentionDays = 14;
     private bool enableBattleCache;
     private int battleCacheDays = 7;
+    private string logDirectory = string.Empty;
+    private int logRetentionDays = 3;
+    private int logMaxSizeMb = 10;
+    private int logRetentionModeIndex;
     private int themeIndex;
     private string statusMessage = string.Empty;
     private bool isBusy;
@@ -36,13 +41,14 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>
     /// 构造视图模型，字段初值取自当前配置。
     /// </summary>
-    public SettingsViewModel(AppServices services, IPathPicker picker)
+    public SettingsViewModel(AppServices services, IPathPicker picker, IFolderLauncher? folderLauncher = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(picker);
 
         this.services = services;
         this.picker = picker;
+        this.folderLauncher = folderLauncher ?? new ExplorerFolderLauncher();
 
         LoadFrom(services.Config);
 
@@ -55,6 +61,8 @@ public sealed class SettingsViewModel : ViewModelBase
         BrowseModelPathCommand = SyncCommand(_ => BrowseFile(
             "选择 ONNX 模型", "ONNX 模型 (*.onnx)|*.onnx|所有文件 (*.*)|*.*", ModelPath,
             p => ModelPath = p));
+        OpenLogFolderCommand = SyncCommand(_ => OpenLogFolder());
+        TrimLogsCommand = SyncCommand(_ => TrimLogs());
 
         SaveCommand = new RelayCommand(
             async _ => await SaveAsync().ConfigureAwait(true),
@@ -174,6 +182,79 @@ public sealed class SettingsViewModel : ViewModelBase
     /// </remarks>
     public ObservableCollection<ColorRuleViewModel> ColorRules { get; } = [];
 
+    /// <summary>运行日志落盘目录。</summary>
+    public string LogDirectory
+    {
+        get => logDirectory;
+        set => SetFieldAndMarkDirty(ref logDirectory, value);
+    }
+
+    /// <summary>日志保留天数。0 表示不限天数。</summary>
+    public int LogRetentionDays
+    {
+        get => logRetentionDays;
+        set
+        {
+            if (SetFieldAndMarkDirty(ref logRetentionDays, value))
+            {
+                OnPropertyChanged(nameof(LogRetentionSummary));
+            }
+        }
+    }
+
+    /// <summary>日志总量上限 MB。0 表示不限体积。</summary>
+    public int LogMaxSizeMb
+    {
+        get => logMaxSizeMb;
+        set
+        {
+            if (SetFieldAndMarkDirty(ref logMaxSizeMb, value))
+            {
+                OnPropertyChanged(nameof(LogRetentionSummary));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 日志清理口径下标：0 天数与体积同时生效、1 只看天数、2 只看体积。
+    /// </summary>
+    public int LogRetentionModeIndex
+    {
+        get => logRetentionModeIndex;
+        set
+        {
+            if (SetFieldAndMarkDirty(ref logRetentionModeIndex, value))
+            {
+                OnPropertyChanged(nameof(LogRetentionSummary));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 当前日志保留口径的一句话摘要，用于设置页说明。
+    /// </summary>
+    public string LogRetentionSummary
+    {
+        get
+        {
+            string days = LogRetentionDays > 0 ? $"{LogRetentionDays} 天" : string.Empty;
+            string size = LogMaxSizeMb > 0 ? $"{LogMaxSizeMb} MB" : string.Empty;
+            string combined = days.Length == 0
+                ? size
+                : size.Length == 0 ? days : $"{days} 与 {size}";
+
+            return LogRetentionModeIndex switch
+            {
+                1 when days.Length > 0 => $"只保存最近 {days}，不看体积",
+                1 => "目前不限天数，日志会一直保留",
+                2 when size.Length > 0 => $"总量控制在 {size} 以内，不看天数",
+                2 => "目前不限体积，磁盘占用可能持续增长",
+                _ when combined.Length > 0 => $"只保存最近 {combined} 以内，任一超出即清理",
+                _ => "目前不限天数也不限体积，日志会持续累积",
+            };
+        }
+    }
+
     /// <summary>
     /// 状态提示。
     /// </summary>
@@ -208,6 +289,12 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>选择模型文件命令。</summary>
     public System.Windows.Input.ICommand BrowseModelPathCommand { get; }
+
+    /// <summary>打开日志目录命令。</summary>
+    public System.Windows.Input.ICommand OpenLogFolderCommand { get; }
+
+    /// <summary>按当前口径立即清理日志文件命令。</summary>
+    public System.Windows.Input.ICommand TrimLogsCommand { get; }
 
     /// <summary>保存并应用命令。</summary>
     public System.Windows.Input.ICommand SaveCommand { get; }
@@ -275,6 +362,26 @@ public sealed class SettingsViewModel : ViewModelBase
             return "战绩缓存天数不能为负，0 表示不过期。";
         }
 
+        if (string.IsNullOrWhiteSpace(LogDirectory))
+        {
+            return "日志目录不能为空。";
+        }
+
+        if (LogRetentionDays < 0)
+        {
+            return "日志保留天数不能为负，0 表示不限天数。";
+        }
+
+        if (LogMaxSizeMb < 0)
+        {
+            return "日志体积上限不能为负，0 表示不限体积。";
+        }
+
+        if (LogRetentionDays == 0 && LogMaxSizeMb == 0 && LogRetentionModeIndex == 0)
+        {
+            return "日志天数与体积不能同时不限。";
+        }
+
         foreach (var rule in ColorRules)
         {
             if (rule.Threshold < 0)
@@ -309,6 +416,12 @@ public sealed class SettingsViewModel : ViewModelBase
             BattleCacheDays = BattleCacheDays,
             ColorRules = ColorRules.Select(r => r.ToRule()).ToList(),
             Theme = ThemeConfigValue(ThemeIndex),
+            // 与推断值一致时存空串，让下次启动重新推断。否则仓库搬迁或从开发
+            // 环境切到发布包后，路径会一直钉在旧的仓库 Logs 上。
+            LogDirectory = PersistedLogDirectory(),
+            LogRetentionDays = LogRetentionDays,
+            LogMaxSizeMb = LogMaxSizeMb,
+            LogRetentionMode = LogRetentionModeConfigValue(LogRetentionModeIndex),
         };
     }
 
@@ -371,6 +484,10 @@ public sealed class SettingsViewModel : ViewModelBase
         snapshotRetentionDays = config.SnapshotRetentionDays;
         enableBattleCache = config.EnableBattleCache;
         battleCacheDays = config.BattleCacheDays;
+        logDirectory = config.LogOptions.Directory;
+        logRetentionDays = Math.Max(0, config.LogRetentionDays);
+        logMaxSizeMb = Math.Max(0, config.LogMaxSizeMb);
+        logRetentionModeIndex = LogRetentionModeIndexFromConfig(config.LogRetentionMode);
         themeIndex = ThemeIndexFromConfig(config.Theme);
         hasUnsavedChanges = false;
 
@@ -384,6 +501,11 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(EnableBattleCache));
         OnPropertyChanged(nameof(BattleCacheDays));
         OnPropertyChanged(nameof(ThemeIndex));
+        OnPropertyChanged(nameof(LogDirectory));
+        OnPropertyChanged(nameof(LogRetentionDays));
+        OnPropertyChanged(nameof(LogMaxSizeMb));
+        OnPropertyChanged(nameof(LogRetentionModeIndex));
+        OnPropertyChanged(nameof(LogRetentionSummary));
         OnPropertyChanged(nameof(HasUnsavedChanges));
 
         LoadColorRules(config.ColorRules);
@@ -423,13 +545,91 @@ public sealed class SettingsViewModel : ViewModelBase
         }
     }
 
-    private void SetFieldAndMarkDirty<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
+    /// <summary>
+    /// 设置字段并在变化时标记脏、清空状态提示。
+    /// </summary>
+    /// <returns>值确实变化返回 true。</returns>
+    private bool SetFieldAndMarkDirty<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
     {
-        if (SetField(ref field, value, propertyName))
+        if (!SetField(ref field, value, propertyName))
         {
-            HasUnsavedChanges = true;
-            StatusMessage = string.Empty;
+            return false;
         }
+
+        HasUnsavedChanges = true;
+        StatusMessage = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// 计算要写进配置的日志目录。
+    /// </summary>
+    /// <remarks>
+    /// 界面回显的是推断后的绝对路径，直接存盘等于把默认值写死成用户配置。
+    /// 与当前默认推断值相同就存空串，保留"自动推断"的语义。
+    /// </remarks>
+    private string PersistedLogDirectory()
+    {
+        string typed = LogDirectory.Trim();
+        if (typed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // 回显到推断值就当作没改，存空串让下次启动重新推断。比较的是输入框里的
+        // 文字，而不是加载时配置的原值：装配层可能把落盘目录重定向到别处，
+        // 那种情况下界面显示的仍是推断值，也不能被钉死。
+        if (string.Equals(typed, AppConfig.InferLogDirectory(), StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return typed;
+    }
+
+    /// <summary>
+    /// 打开日志目录。目录不存在时由启动器创建。
+    /// </summary>
+    private void OpenLogFolder()
+    {
+        string directory = string.IsNullOrWhiteSpace(LogDirectory)
+            ? services.Logs.LogDirectory
+            : LogDirectory.Trim();
+
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            StatusMessage = "日志目录尚未确定。";
+            return;
+        }
+
+        StatusMessage = folderLauncher.Open(directory)
+            ? $"已打开 {directory}"
+            : $"无法打开日志目录: {directory}";
+    }
+
+    /// <summary>
+    /// 按当前输入的天数与体积立即清理一次，不必先保存。
+    /// </summary>
+    /// <remarks>
+    /// 用编辑中的天数、体积与口径临时组一份选项交给写入器清理，不替换正在写的
+    /// 目录，用户改完口径能立刻看到效果，不必先保存。
+    /// </remarks>
+    private void TrimLogs()
+    {
+        if (!services.Logs.IsPersistent)
+        {
+            StatusMessage = "日志尚未落盘，没有可清理的文件。";
+            return;
+        }
+
+        var options = new LogFileOptions(
+            services.Logs.LogDirectory,
+            Math.Max(0, LogRetentionDays),
+            Math.Max(0, LogMaxSizeMb) * 1024L * 1024L,
+            LogRetentionModeValue(LogRetentionModeIndex));
+
+        services.Logs.TrimLogFiles(options);
+        StatusMessage = $"已按当前设置清理 {options.Directory}。";
     }
 
     /// <summary>
@@ -500,6 +700,34 @@ public sealed class SettingsViewModel : ViewModelBase
             1 => ThemeMode.Light,
             2 => ThemeMode.Dark,
             _ => ThemeMode.System,
+        };
+
+    /// <summary>
+    /// 下标转日志清理口径。未知下标按同时生效处理。
+    /// </summary>
+    private static LogRetentionMode LogRetentionModeValue(int index) =>
+        index switch
+        {
+            1 => LogRetentionMode.Days,
+            2 => LogRetentionMode.Size,
+            _ => LogRetentionMode.Both,
+        };
+
+    /// <summary>
+    /// 下标转配置字符串。
+    /// </summary>
+    private static string LogRetentionModeConfigValue(int index) =>
+        AppConfig.RetentionModeValue(LogRetentionModeValue(index));
+
+    /// <summary>
+    /// 配置字符串转下标。
+    /// </summary>
+    private static int LogRetentionModeIndexFromConfig(string? mode) =>
+        AppConfig.ParseRetentionMode(mode) switch
+        {
+            LogRetentionMode.Days => 1,
+            LogRetentionMode.Size => 2,
+            _ => 0,
         };
 
     /// <summary>
