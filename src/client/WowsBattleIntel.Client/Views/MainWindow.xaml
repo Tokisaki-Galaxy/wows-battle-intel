@@ -64,7 +64,7 @@
     </Grid.RowDefinitions>
 
     <!-- 主标签页 -->
-    <TabControl Grid.Row="0">
+    <TabControl Grid.Row="0" x:Name="MainTabs" SelectionChanged="OnMainTabSelectionChanged">
       <!-- 对局情报 -->
       <TabItem Header="对局情报">
         <Grid Margin="0,12,0,0">
@@ -281,11 +281,21 @@
                     </Grid>
                     <DataGrid ItemsSource="{Binding Allies}" HorizontalScrollBarVisibility="Disabled" AutoGenerateColumns="False">
                       <DataGrid.RowStyle>
-                        <!-- 行背景按水平分档：海王紫底、猴子红底，普通透明。
+                        <!-- 行背景按染色规则：命中紫规则紫底、红规则红底，普通透明。
                              直接挂 RowStyle 而非资源字典隐式样式，挂载点明确，避免优先级歧义 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
+                          <Setter Property="ContextMenu">
+                            <!-- 右键菜单只有一个动作：一键复制本行战绩文本。
+                                 ContextMenu 独立于可视化树，需借 PlacementTarget 取到行的数据上下文 -->
+                            <Setter.Value>
+                              <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem Header="一键复制战绩"
+                                          Command="{Binding CopyBattleRecordCommand}" />
+                              </ContextMenu>
+                            </Setter.Value>
+                          </Setter>
                           <Style.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                               <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
@@ -455,10 +465,19 @@
                     </Grid>
                     <DataGrid ItemsSource="{Binding Enemies}" HorizontalScrollBarVisibility="Disabled" AutoGenerateColumns="False">
                       <DataGrid.RowStyle>
-                        <!-- 行背景按水平分档：与友方同一套样式 -->
+                        <!-- 行背景按染色规则：与友方同一套样式 -->
                         <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
+                          <Setter Property="ContextMenu">
+                            <!-- 右键菜单只有一个动作：一键复制本行战绩文本 -->
+                            <Setter.Value>
+                              <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem Header="一键复制战绩"
+                                          Command="{Binding CopyBattleRecordCommand}" />
+                              </ContextMenu>
+                            </Setter.Value>
+                          </Setter>
                           <Style.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                               <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
@@ -899,6 +918,82 @@
                     <ComboBoxItem Content="深色" />
                   </ComboBox>
                 </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="战绩缓存" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="开启后同一玩家在有效期内重复出现在名单里，直接读本地缓存，不再请求 WG API，加快查询。缓存数据可能有滞后，追求最新请关闭。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="缓存对局战绩"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <CheckBox Grid.Row="0" Grid.Column="1" Content="加速查询"
+                            IsChecked="{Binding EnableBattleCache, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="缓存时长（天）"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <TextBox Grid.Row="1" Grid.Column="1" MaxWidth="120" HorizontalAlignment="Left"
+                           IsEnabled="{Binding EnableBattleCache}"
+                           Text="{Binding BattleCacheDays, UpdateSourceTrigger=PropertyChanged}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="名单染色规则" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="自定义名单整行染色的条件。第一条命中即生效，紫色规则在前。胜率类阈值填百分数，如 58 表示 58%。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <ItemsControl ItemsSource="{Binding ColorRules}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="若玩家" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <ComboBox Width="120" VerticalAlignment="Center"
+                                  SelectedIndex="{Binding MetricIndex, UpdateSourceTrigger=PropertyChanged}">
+                          <ComboBoxItem Content="胜率" />
+                          <ComboBoxItem Content="加权胜率" />
+                          <ComboBoxItem Content="场次" />
+                          <ComboBoxItem Content="场均伤害" />
+                          <ComboBoxItem Content="单船胜率" />
+                          <ComboBoxItem Content="单船场均" />
+                        </ComboBox>
+                        <ComboBox Width="100" Margin="6,0,0,0" VerticalAlignment="Center"
+                                  SelectedIndex="{Binding OperatorIndex, UpdateSourceTrigger=PropertyChanged}">
+                          <ComboBoxItem Content="大于" />
+                          <ComboBoxItem Content="大于等于" />
+                          <ComboBoxItem Content="小于" />
+                          <ComboBoxItem Content="小于等于" />
+                        </ComboBox>
+                        <TextBox Width="100" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding Threshold, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="则整行染色为" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" Margin="6,0,6,0" />
+                        <TextBlock Text="{Binding ColorLabel}" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" FontWeight="SemiBold" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </Border>
 

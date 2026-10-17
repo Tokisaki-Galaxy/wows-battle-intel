@@ -370,6 +370,8 @@ internal static class Program
         var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
+            // 回测只关心账号统计特征，不需要军团标签，省去额外请求。
+            FetchClanTags = false,
         });
         var predictor = new BaselinePredictor();
 
@@ -533,6 +535,9 @@ internal static class Program
 
             // 分舰种聚合与单船统计同 endpoint，一次请求两者都拿，默认开启。
             FetchClassStats = true,
+
+            // 采集只落统计快照，军团标签不是特征，省去额外请求。
+            FetchClanTags = false,
         });
 
         var capturedAt = DateTimeOffset.UtcNow;
@@ -1604,11 +1609,24 @@ internal static class Program
             Console.WriteLine($"缓存库: {dbPath}");
         }
 
-        var provider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
+        var rawProvider = new Stats.WgPublicStatsProvider(new Stats.WgPublicOptions
         {
             DelayBetweenRequests = TimeSpan.FromMilliseconds(delayMs),
             FetchClassStats = true,
         });
+
+        // live 是读取展示路径，与界面同口径：有本地库时套缓存装饰器，同一玩家
+        // 在 7 天有效期内重复出现直接命中本地，不再请求 WG。
+        IPlayerStatsProvider provider = repository is null
+            ? rawProvider
+            : new Stats.CachingPlayerStatsProvider(
+                rawProvider,
+                repository,
+                new Stats.PlayerStatsCacheOptions
+                {
+                    Enabled = true,
+                    Ttl = TimeSpan.FromDays(7),
+                });
 
         DateTime lastSeen = DateTime.MinValue;
         while (true)
@@ -1641,7 +1659,7 @@ internal static class Program
     private static async Task PrintLiveAsync(
         string path,
         GameServer server,
-        Stats.WgPublicStatsProvider provider,
+        IPlayerStatsProvider provider,
         Storage.SqliteBattleRepository? repository)
     {
         if (!ArenaInfoParser.TryRead(path, out var arena) || arena is null)
@@ -1719,7 +1737,10 @@ internal static class Program
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
 
-    /// <summary>递归找修改时间最新的 tempArenaInfo.json。</summary>
+    /// <summary>
+    /// 递归找修改时间最新的 tempArenaInfo.json。修改时间超过窗口的视为崩溃
+    /// 残留，忽略，避免 live 命令把两个月前的旧对局当成当前对局。
+    /// </summary>
     private static string? FindLatestArenaInfo(string replayRoot)
     {
         if (!Directory.Exists(replayRoot))
@@ -1727,6 +1748,7 @@ internal static class Program
             return null;
         }
 
+        DateTime staleBefore = DateTime.UtcNow.AddHours(-1);
         string? best = null;
         DateTime bestTime = DateTime.MinValue;
         foreach (string file in Directory.EnumerateFiles(replayRoot, "tempArenaInfo.json", SearchOption.AllDirectories))
@@ -1737,6 +1759,11 @@ internal static class Program
                 wrote = File.GetLastWriteTimeUtc(file);
             }
             catch (IOException)
+            {
+                continue;
+            }
+
+            if (wrote <= staleBefore)
             {
                 continue;
             }

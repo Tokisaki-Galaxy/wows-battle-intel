@@ -84,6 +84,9 @@ public static class SnapshotFeatureBuilder
         string classStatsJson = accountSnapshot.ClassStatsJson ?? string.Empty;
         var parsedClass = ParseClassStats(player, classStatsJson);
 
+        // 快照里的军团标签。旧快照无此字段时为空串，回填不生效。
+        string snapshotClanTag = accountSnapshot.ClanTag ?? string.Empty;
+
         // 单船层来自按船命中的快照，该快照的 ship_id 与本局船必然一致。
         bool hasShipStats = shipSnapshot is not null
             && !string.IsNullOrEmpty(shipSnapshot.ShipId)
@@ -95,7 +98,8 @@ public static class SnapshotFeatureBuilder
             AccountId = player.AccountId,
             PlayerName = player.PlayerName,
             Server = player.Server,
-            ClanTag = player.ClanTag,
+            // 军团标签：回放自带时保留，缺失时用快照里的补上。
+            ClanTag = string.IsNullOrEmpty(player.ClanTag) ? snapshotClanTag : player.ClanTag,
             IsAlly = player.IsAlly,
             IsBot = player.IsBot,
             IsHidden = player.IsHidden,

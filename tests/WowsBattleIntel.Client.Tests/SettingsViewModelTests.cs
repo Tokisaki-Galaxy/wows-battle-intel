@@ -135,6 +135,84 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Validate_NegativeBattleCacheDays_Fails()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            BattleCacheDays = -1,
+        };
+
+        Assert.Contains("战绩缓存天数不能为负", vm.Validate());
+    }
+
+    [Fact]
+    public async Task BattleCache_RoundTripsThroughConfig()
+    {
+        // 缓存开关与时长应能写盘再读回，0 天在配置里换算成"不过期"。
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+            EnableBattleCache = true,
+            BattleCacheDays = 3,
+        };
+
+        await vm.SaveAsync();
+
+        Assert.True(holder.Services.Config.EnableBattleCache);
+        Assert.Equal(3, holder.Services.Config.BattleCacheDays);
+        Assert.Equal(TimeSpan.FromDays(3), holder.Services.Config.BattleCacheTtl);
+
+        holder.Services.Config.BattleCacheDays = 0;
+        Assert.Equal(TimeSpan.MaxValue, holder.Services.Config.BattleCacheTtl);
+    }
+
+    [Fact]
+    public async Task ColorRules_DefaultTwoRulesWithExpectedThresholds()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        // 固定两条：紫在前红在后，阈值按界面百分数展示。
+        Assert.Equal(2, vm.ColorRules.Count);
+        Assert.Equal("紫色", vm.ColorRules[0].ColorLabel);
+        Assert.Equal("红色", vm.ColorRules[1].ColorLabel);
+        Assert.Equal("RowUnicumBrush", vm.ColorRules[0].RowBrushKey);
+        Assert.Equal("RowApeBrush", vm.ColorRules[1].RowBrushKey);
+        Assert.Equal(58, vm.ColorRules[0].Threshold, 3);
+        Assert.Equal(47, vm.ColorRules[1].Threshold, 3);
+    }
+
+    [Fact]
+    public async Task ColorRules_EditRoundTripsAsFraction()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        // 界面按百分数改成 60，落盘应是 0.6 的小数。
+        vm.ColorRules[0].Threshold = 60;
+        Assert.True(vm.HasUnsavedChanges);
+
+        await vm.SaveAsync();
+
+        Assert.Equal(0.6, holder.Services.Config.ColorRules[0].Threshold, 3);
+    }
+
+    [Fact]
+    public async Task Validate_ColorRuleOver100Percent_Fails()
+    {
+        using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker())
+        {
+        };
+        vm.ColorRules[0].Threshold = 120;
+
+        Assert.Contains("胜率阈值应在 0 到 100 之间", vm.Validate());
+    }
+
+    [Fact]
     public async Task SaveAsync_InvalidSettings_DoesNotApply()
     {
         using var holder = await TestServices.CreateAsync(MakeConfig(TestServices.NewDatabasePath()));

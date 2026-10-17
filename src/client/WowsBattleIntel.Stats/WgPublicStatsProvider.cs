@@ -111,6 +111,18 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         // --- 步骤二：账号统计 ---
         await FetchAccountStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
 
+        // --- 步骤二点五：军团标签 ---
+        // 军团是独立于统计的身份字段，隐藏战绩的玩家也查得到。回放链路已带
+        // 标签的保留原值，只补齐缺失的，避免无谓请求。
+        if (options.FetchClanTags)
+        {
+            var needClan = resolved.Where(p => string.IsNullOrEmpty(p.ClanTag)).ToList();
+            if (needClan.Count > 0)
+            {
+                await FetchPlayerClansAsync(needClan, host, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         // --- 步骤三：单船统计，逐玩家。可按需跳过以提速。 ---
         if (!options.SkipShipStats)
         {
@@ -263,6 +275,65 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             player.AccountBattlesDiv3 = stats.BattlesDiv3;
             player.AccountWinrateDiv3 = stats.WinrateDiv3;
             player.WeightedWinrate = WeightedWinrate.Compute(player);
+        }
+    }
+
+    /// <summary>
+    /// 批量拉取玩家的军团标签，写回缺失的记录。
+    /// </summary>
+    /// <remarks>
+    /// clans/accountinfo 按 account_id 批量返回，一次最多 100 个账号。标签
+    /// 存进 ClanTag 并补方括号，与回放链路的口径一致。军团字段独立于统计，
+    /// 隐藏战绩的玩家同样能查到。单批失败只影响这批，跳过继续。
+    /// </remarks>
+    private async Task FetchPlayerClansAsync(
+        List<PlayerRecord> group,
+        string host,
+        CancellationToken cancellationToken)
+    {
+        var accountIds = group
+            .Select(p => p.AccountId)
+            .Where(id => id != "-1" && !string.IsNullOrEmpty(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        const int batchSize = 100;
+        const string fields = "clan_id%2Cclan.tag";
+
+        for (int offset = 0; offset < accountIds.Count; offset += batchSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batch = accountIds.Skip(offset).Take(batchSize).ToList();
+            string url = $"https://{host}/wows/clans/accountinfo/"
+                + $"?application_id={options.ApplicationId}&extra=clan&fields={fields}"
+                + $"&account_id={string.Join("%2C", batch)}";
+
+            string json;
+            try
+            {
+                json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 单批失败不影响其他批与整体统计。
+                continue;
+            }
+
+            var tagsById = WgApiParser.ParsePlayerClans(json);
+            foreach (var player in group)
+            {
+                if (string.IsNullOrEmpty(player.ClanTag)
+                    && tagsById.TryGetValue(player.AccountId, out string? tag))
+                {
+                    player.ClanTag = $"[{tag}]";
+                }
+            }
+
+            if (offset + batchSize < accountIds.Count)
+            {
+                await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -558,6 +629,15 @@ public sealed class WgPublicOptions
 
     /// <summary>舰船目录缓存的时长。</summary>
     public TimeSpan ClassCatalogCacheDuration { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// 拉取玩家军团标签。
+    /// </summary>
+    /// <remarks>
+    /// 回放链路自带回放里的标签，赛前 tempArenaInfo 不含标签，需要按账号补查。
+    /// clans/accountinfo 按账号批量返回，一批一次请求，代价小，默认开启。
+    /// </remarks>
+    public bool FetchClanTags { get; set; } = true;
 
     /// <summary>校验必要配置。</summary>
     public void Validate()

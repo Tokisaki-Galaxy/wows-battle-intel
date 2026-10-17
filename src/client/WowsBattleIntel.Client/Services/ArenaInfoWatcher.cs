@@ -11,8 +11,12 @@ namespace WowsBattleIntel.Client.Services;
 /// <remarks>
 /// 逐行对齐 ApeRadar 的实时链路（ArenaInfoReader + 主窗口 1 秒定时器）：
 /// 每秒在游戏 replays 目录下递归找 tempArenaInfo.json，取修改时间最新者，
-/// 只要比上次见到的时间更新就触发一次。没有任何时效窗口，客户端在对局
-/// 中途启动也能立刻看到正在进行的这一局。
+/// 只要比上次见到的时间更新就触发一次。客户端在对局中途启动也能立刻看到
+/// 正在进行的这一局。
+///
+/// 与 ApeRadar 不同的一点：加了新鲜度窗口。崩溃或强退会残留一份
+/// tempArenaInfo，ApeRadar 没有时效判断，会把它当成当前对局显示，时间停在
+/// 残留那天。这里只认修改时间在窗口内的文件，残留被挡掉。
 ///
 /// 游戏在加载界面写入该文件，玩家陆续加入时多次重写，对局结束后删除。
 /// 文件从"存在且已触发"变为"不存在"时触发 <see cref="PreBattleEnded"/>，
@@ -31,6 +35,18 @@ public sealed class ArenaInfoWatcher : IDisposable
     private AppConfig config;
     private CancellationTokenSource? cts;
     private Task? loop;
+
+    /// <summary>
+    /// tempArenaInfo 的新鲜度窗口。文件修改时间早于"现在减该窗口"即视为陈旧，
+    /// 不当作进行中的对局。
+    /// </summary>
+    /// <remarks>
+    /// 对局正常结束后游戏会删除 tempArenaInfo，但崩溃或被强制关闭时会残留一份。
+    /// 观测器递归取最新修改的那个，若不做时效判断，会在下次启动时把这份残留
+    /// 当成当前对局显示，时间停在残留那天。加载界面与对局进行中游戏都会持续
+    /// 重写该文件，修改时间始终很近，取一小时足以覆盖各种启动时机。
+    /// </remarks>
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromHours(1);
 
     /// <summary>上次成功触发时该文件的修改时间，用于"比上次新才触发"判重。</summary>
     private DateTime lastSeenWriteTimeUtc = DateTime.MinValue;
@@ -186,6 +202,21 @@ public sealed class ArenaInfoWatcher : IDisposable
         }
         catch (IOException)
         {
+            return;
+        }
+
+        // 陈旧文件不当作进行中的对局。崩溃残留的 tempArenaInfo 会一直躺在
+        // replays 目录里，用修改时间把它挡掉；若之前有对局在展示中，这里
+        // 等同于对局结束，把它收起。
+        if (DateTime.UtcNow - writeTimeUtc > StaleThreshold)
+        {
+            if (battleActive)
+            {
+                battleActive = false;
+                lastSeenWriteTimeUtc = DateTime.MinValue;
+                PreBattleEnded?.Invoke();
+            }
+
             return;
         }
 

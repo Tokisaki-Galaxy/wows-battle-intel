@@ -33,8 +33,10 @@ public sealed class AppServices : IDisposable
         Repository = repository;
         StatsProvider = statsProvider;
         Logs = new LogService();
-        Stats = new PlayerStatsService(statsProvider, repository, Logs);
+        Stats = new PlayerStatsService(statsProvider, Logs);
         ClanCatalog = clanCatalog;
+        // 名单染色规则是全局共享的，装配时同步一次，配置变更时再更新。
+        ColorRuleSet.Set(config.ColorRules);
         Predictor = predictor;
         PredictionInfo = predictionInfo;
         ReplayParser = new ReplayService(config);
@@ -108,7 +110,7 @@ public sealed class AppServices : IDisposable
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         // 统计来源。军团目录带持久缓存，仓储实现 Core 的缓存接口。
-        var statsProvider = CreateStatsProvider(config);
+        var statsProvider = CreateStatsProvider(config, repository);
         var clanCatalog = new ClanCatalogService(CreateWgOptions(config), repository);
 
         // 预测器。模型不可用时自动降级到基线。
@@ -204,9 +206,10 @@ public sealed class AppServices : IDisposable
         {
             Config = updated;
             Repository = repository;
-            StatsProvider = CreateStatsProvider(updated);
-            Stats = new PlayerStatsService(StatsProvider, repository, Logs);
+            StatsProvider = CreateStatsProvider(updated, repository);
+            Stats = new PlayerStatsService(StatsProvider, Logs);
             ClanCatalog = new ClanCatalogService(CreateWgOptions(updated), repository);
+            ColorRuleSet.Set(updated.ColorRules);
             Predictor = createResult.Predictor;
             PredictionInfo = new PredictionFallbackInfo(
                 createResult.UsedFallback,
@@ -223,7 +226,7 @@ public sealed class AppServices : IDisposable
         ArenaWatcher.Rebind(updated);
     }
 
-    private static IPlayerStatsProvider CreateStatsProvider(AppConfig config)
+    private static IPlayerStatsProvider CreateStatsProvider(AppConfig config, IPlayerStatsCache? cache)
     {
         var options = CreateWgOptions(config);
 
@@ -231,7 +234,16 @@ public sealed class AppServices : IDisposable
         // 关闭时逐玩家单船查询拿不到熟练数据，界面舰种列永远空。
         options.FetchClassStats = true;
 
-        return new WgPublicStatsProvider(options);
+        var raw = new WgPublicStatsProvider(options);
+
+        // 统一加一层缓存装饰器：查缓存、TTL 判定、回写都在装饰器里，
+        // 任何具体提供商套上它都自动获得加速能力。开关只控制是否读缓存，
+        // 快照始终落库。
+        return new CachingPlayerStatsProvider(raw, cache, new PlayerStatsCacheOptions
+        {
+            Enabled = config.EnableBattleCache,
+            Ttl = config.BattleCacheTtl,
+        });
     }
 
     private static WgPublicOptions CreateWgOptions(AppConfig config)

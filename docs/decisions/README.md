@@ -13,6 +13,7 @@
 | [0005](0005-storage-abstraction.md) | 持久层藏在仓储接口后 | 已采纳 |
 | [0006](0006-central-package-management.md) | 集中式包版本管理 | 已采纳 |
 | [0007](0007-auto-update.md) | 客户端自动更新采用 Velopack | 建议采纳 |
+| [0008](0008-stats-cache-decorator.md) | 战绩缓存做成提供商的装饰器 | 已采纳 |
 
 ## 格式
 

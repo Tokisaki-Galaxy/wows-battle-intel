@@ -14,6 +14,9 @@ public partial class MainWindow : Window
     private DispatcherTimer? pendingTimer;
     private bool logAutoScrollEnabled = true;
 
+    /// <summary>首次加载完成前忽略页签切换，避免与 OnLoaded 的首次加载重复。</summary>
+    private bool initialLoadCompleted;
+
     /// <summary>
     /// 构造主窗口。
     /// </summary>
@@ -50,6 +53,30 @@ public partial class MainWindow : Window
         pendingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         pendingTimer.Tick += (_, _) => viewModel.RefreshObservationStatus();
         pendingTimer.Start();
+
+        initialLoadCompleted = true;
+    }
+
+    /// <summary>
+    /// 主标签页切换。切回对局情报页时按最新后台状态重刷一次详情。
+    /// </summary>
+    /// <remarks>
+    /// 切页期间赛前收敛循环照常在后台跑，界面被盖住时用户看不到变化。
+    /// 切回来重刷一次，名单与倒计时对齐到最新进度，不停在旧文字上。
+    /// 首次加载完成前不处理，交给 OnLoaded 走一次即可。
+    /// </remarks>
+    private async void OnMainTabSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 事件会从内部控件冒泡上来，只处理主标签页自身的选择变化。
+        if (!ReferenceEquals(e.OriginalSource, MainTabs) || !initialLoadCompleted)
+        {
+            return;
+        }
+
+        if (MainTabs.SelectedIndex == 0)
+        {
+            await viewModel.RefreshIntelViewAsync().ConfigureAwait(true);
+        }
     }
 
     private async void OnBattleListChanged()

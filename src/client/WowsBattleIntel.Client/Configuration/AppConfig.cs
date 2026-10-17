@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WowsBattleIntel.Core.Scoring;
 
 namespace WowsBattleIntel.Client.Configuration;
 
@@ -39,6 +40,31 @@ public sealed class AppConfig
 
     /// <summary>快照保留天数，默认 14，0 表示不清理。</summary>
     public int SnapshotRetentionDays { get; set; } = 14;
+
+    /// <summary>
+    /// 是否缓存对局战绩加速查询。开启后同一玩家在缓存有效期内的重复查询
+    /// 直接命中本地，不再请求 WG API。默认开启。
+    /// </summary>
+    public bool EnableBattleCache { get; set; } = true;
+
+    /// <summary>
+    /// 战绩缓存有效期天数，默认 7。0 表示不设新鲜度上界，永不按时间过期。
+    /// </summary>
+    public int BattleCacheDays { get; set; } = 7;
+
+    /// <summary>
+    /// 名单整行染色规则。按顺序求值，第一条命中的决定行色。
+    /// </summary>
+    /// <remarks>
+    /// 默认两条：胜率大于等于 0.58 染紫、胜率小于等于 0.47 染红，即原有的
+    /// 紫色大佬与红色海猴口径。规则可空，为空时名单不按水平染底色。
+    /// </remarks>
+    public List<ColorRule> ColorRules { get; set; } = DefaultColorRules.Clone();
+
+    /// <summary>
+    /// 默认染色规则。紫规则在前，保证高胜率玩家判紫优先于红。
+    /// </summary>
+    public static List<ColorRule> CreateDefaultColorRules() => DefaultColorRules.Clone();
 
     /// <summary>WG API 应用 ID。为空时用默认共享 ID。</summary>
     public string WgApplicationId { get; set; } = string.Empty;
@@ -123,6 +149,10 @@ public sealed class AppConfig
         ReplaysharkPath = ResolveReplaysharkPath(ReplaysharkPath);
         ExtractedDataPath = ResolveExtractedDataPath(ExtractedDataPath);
         ConstantsRootPath = ResolveConstantsRootPath(ConstantsRootPath);
+
+        // 旧配置无染色规则字段，反序列化后为 null，补默认；显式存过 null
+        // 也按缺失处理，避免名单着色被清空。
+        ColorRules ??= CreateDefaultColorRules();
     }
 
     /// <summary>
@@ -410,6 +440,17 @@ public sealed class AppConfig
             return DefaultReplayDirectory;
         }
     }
+
+    /// <summary>
+    /// 战绩缓存有效期。0 天表示不设新鲜度上界，取任意最新快照。
+    /// </summary>
+    /// <remarks>
+    /// 负数按 0 处理，与界面校验的口径一致，避免装饰器拿到负 TTL。
+    /// </remarks>
+    [JsonIgnore]
+    public TimeSpan BattleCacheTtl => BattleCacheDays <= 0
+        ? TimeSpan.MaxValue
+        : TimeSpan.FromDays(BattleCacheDays);
 
     /// <summary>
     /// 配置是否足够开始工作。

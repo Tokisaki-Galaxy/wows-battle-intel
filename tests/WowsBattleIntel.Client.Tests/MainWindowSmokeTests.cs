@@ -37,4 +37,30 @@ public class MainWindowSmokeTests
             window.Close();
         });
     }
+
+    [Fact]
+    public void MainWindow_TabSwitchBackToIntel_DoesNotThrow()
+    {
+        WpfApplicationFixture.Run(_ =>
+        {
+            ThemeService.ApplyTheme(ThemeMode.Dark);
+
+            using var holder = TestServices.CreateAsync().GetAwaiter().GetResult();
+            var viewModel = new MainViewModel(holder.Services);
+            var window = new MainWindow(viewModel);
+            window.Measure(new Size(1280, 800));
+            window.Arrange(new Rect(0, 0, 1280, 800));
+            window.UpdateLayout();
+
+            // 切到运行日志再切回对局情报，回切会触发一次详情重刷，不得抛异常。
+            var tabs = (System.Windows.Controls.TabControl)window.FindName("MainTabs")!;
+            tabs.SelectedIndex = 1;
+            window.UpdateLayout();
+            tabs.SelectedIndex = 0;
+            window.UpdateLayout();
+
+            Assert.Equal(0, tabs.SelectedIndex);
+            window.Close();
+        });
+    }
 }

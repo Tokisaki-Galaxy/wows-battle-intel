@@ -15,7 +15,7 @@ namespace WowsBattleIntel.Storage;
 /// 连接采用每次操作打开短连接的方式，SQLite 对短连接友好，
 /// 且避免多线程共享连接带来的复杂度。写操作串行化由 SQLite 自身保证。
 /// </remarks>
-public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache
+public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache, IPlayerStatsCache
 {
     private readonly string connectionString;
 
@@ -91,6 +91,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         await AddColumnIfMissing(existing, connection, "ship_winrate", "REAL");
         await AddColumnIfMissing(existing, connection, "ship_avg_damage", "REAL");
         await AddColumnIfMissing(existing, connection, "favorite_tier", "INTEGER");
+
+        // 军团标签快照列。身份字段，让缓存加速路径也能把标签灌回名单。
+        await AddColumnIfMissing(existing, connection, "clan_tag", "TEXT");
 
         // 单船层快照的查询索引。引用 ship_id，必须在加列之后建，
         // 因此放迁移里而 schema.sql 只服务新库也不重复建。
@@ -699,7 +702,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         GameServer server,
         CancellationToken cancellationToken = default)
     {
-        return await GetSnapshotAsync(accountId, server, shipId: null, cancellationToken)
+        return await GetSnapshotAsync(accountId, server, shipId: null, DateTimeOffset.MinValue, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -717,47 +720,78 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shipId);
-        return await GetSnapshotAsync(accountId, server, shipId, cancellationToken)
+        return await GetSnapshotAsync(accountId, server, shipId, DateTimeOffset.MinValue, cancellationToken)
             .ConfigureAwait(false);
     }
 
     /// <summary>
     /// 快照查询的公共实现。shipId 为空查账号级最新快照，否则查该船最新一条。
     /// </summary>
+    /// <remarks>
+    /// minCapturedAt 为时间下界，只返回该时刻之后采集的快照。取
+    /// <see cref="DateTimeOffset.MinValue"/> 时不设下界，取任意最新一条。
+    /// 缓存加速查询靠它实现 TTL 语义。
+    /// </remarks>
     private async Task<PlayerSnapshot?> GetSnapshotAsync(
         string accountId,
         GameServer server,
         string? shipId,
+        DateTimeOffset minCapturedAt,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
 
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
+
+        // 时间下界与 ship_id 两个条件排列组合，四段 SQL 内联，避免动态拼条件。
+        // captured_at 用毫秒整数比较，与写入口径一致。
+        bool hasLowerBound = minCapturedAt > DateTimeOffset.MinValue;
         if (string.IsNullOrEmpty(shipId))
         {
-            command.CommandText = """
-                SELECT * FROM player_snapshots
-                WHERE account_id = $accountId AND server = $server
-                ORDER BY captured_at DESC
-                LIMIT 1;
-                """;
+            command.CommandText = hasLowerBound
+                ? """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND captured_at >= $minCapturedAt
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """
+                : """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """;
         }
         else
         {
             // ship_battles >= 0 过滤掉 ship_id 为空或单船数据缺失的行。
-            command.CommandText = """
-                SELECT * FROM player_snapshots
-                WHERE account_id = $accountId AND server = $server
-                  AND ship_id = $shipId AND ship_battles >= 0
-                ORDER BY captured_at DESC
-                LIMIT 1;
-                """;
+            command.CommandText = hasLowerBound
+                ? """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND ship_id = $shipId AND ship_battles >= 0
+                    AND captured_at >= $minCapturedAt
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """
+                : """
+                  SELECT * FROM player_snapshots
+                  WHERE account_id = $accountId AND server = $server
+                    AND ship_id = $shipId AND ship_battles >= 0
+                  ORDER BY captured_at DESC
+                  LIMIT 1;
+                  """;
             command.Parameters.AddWithValue("$shipId", shipId);
         }
 
         command.Parameters.AddWithValue("$accountId", accountId);
         command.Parameters.AddWithValue("$server", server.ToString());
+        if (hasLowerBound)
+        {
+            command.Parameters.AddWithValue("$minCapturedAt", minCapturedAt.ToUnixTimeMilliseconds());
+        }
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -768,6 +802,42 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
 
         return ReadSnapshot(reader);
     }
+
+    /// <inheritdoc />
+    public async Task<PlayerSnapshot?> GetAccountSnapshotAsync(
+        string accountId,
+        GameServer server,
+        TimeSpan maxAge,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetSnapshotAsync(accountId, server, shipId: null, ThresholdFrom(maxAge), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<PlayerSnapshot?> GetShipSnapshotAsync(
+        string accountId,
+        GameServer server,
+        string shipId,
+        TimeSpan maxAge,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(shipId);
+        return await GetSnapshotAsync(accountId, server, shipId, ThresholdFrom(maxAge), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 把缓存有效期换算成快照的时间下界。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TimeSpan.MaxValue"/> 或负值表示不设下界，返回
+    /// <see cref="DateTimeOffset.MinValue"/> 让查询取任意最新一条。
+    /// </remarks>
+    private static DateTimeOffset ThresholdFrom(TimeSpan maxAge) =>
+        maxAge == TimeSpan.MaxValue || maxAge < TimeSpan.Zero
+            ? DateTimeOffset.MinValue
+            : DateTimeOffset.UtcNow - maxAge;
 
     /// <inheritdoc />
     public async Task<PredictionResult?> GetPredictionAsync(
@@ -846,7 +916,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     account_winrate_solo, account_battles_solo,
                     account_winrate_div2, account_battles_div2,
                     account_winrate_div3, account_battles_div3,
-                    weighted_winrate, pr, source, class_stats,
+                    weighted_winrate, pr, source, class_stats, clan_tag,
                     ship_id, ship_battles, ship_winrate, ship_avg_damage, favorite_tier
                 ) VALUES (
                     $accountId, $server, $capturedAt,
@@ -854,7 +924,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     $wrSolo, $bSolo,
                     $wrDiv2, $bDiv2,
                     $wrDiv3, $bDiv3,
-                    $weighted, NULL, $source, $classStats,
+                    $weighted, NULL, $source, $classStats, $clanTag,
                     $shipId, $shipBattles, $shipWinrate, $shipAvgDamage, $favoriteTier
                 )
                 ON CONFLICT(account_id, server, captured_at) DO NOTHING;
@@ -874,6 +944,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$bDiv3", s.AccountBattlesDiv3);
             command.Parameters.AddWithValue("$weighted", s.WeightedWinrate);
             command.Parameters.AddWithValue("$source", s.Source ?? string.Empty);
+            command.Parameters.AddWithValue("$clanTag", s.ClanTag ?? string.Empty);
             var classStats = command.Parameters.Add("$classStats", SqliteType.Text);
             classStats.Value = string.IsNullOrEmpty(s.ClassStatsJson)
                 ? DBNull.Value
@@ -950,6 +1021,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 ? null
                 : reader.GetString(reader.GetOrdinal("class_stats")),
 
+            // 军团标签列，旧快照无此列或为 NULL 时落空串。
+            ClanTag = TryGetString(reader, "clan_tag"),
+
             // 单船三列，旧快照与账号级快照均无值，落回 -1 哨兵。
             ShipId = shipIdOrdinal >= 0 && !reader.IsDBNull(shipIdOrdinal)
                 ? reader.GetString(shipIdOrdinal)
@@ -979,6 +1053,13 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     {
         int ordinal = TryGetOrdinal(reader, name);
         return ordinal < 0 || reader.IsDBNull(ordinal) ? -1 : reader.GetDouble(ordinal);
+    }
+
+    /// <summary>按列名取文本，列不存在或为 NULL 时返回空串。</summary>
+    private static string TryGetString(SqliteDataReader reader, string name)
+    {
+        int ordinal = TryGetOrdinal(reader, name);
+        return ordinal < 0 || reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
     }
 
     /// <inheritdoc />
