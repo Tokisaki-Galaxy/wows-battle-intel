@@ -178,7 +178,10 @@ public static class ReplaysharkMapper
 
             result.Add(new DamageByTarget
             {
-                TargetShipId = targetId,
+                // 交互字典的键是对方玩家的 db_id，不是船 ID，命名要如实反映。
+                TargetPlayerId = targetId,
+                // 真正的数字船 ID 从同一局名单里反查，查不到为空串。
+                TargetShipId = target?.ShipId.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
                 TargetShipName = target?.ShipName ?? string.Empty,
                 TargetShipTier = target?.ShipTier ?? 0,
                 TargetShipClass = target is null ? ShipClass.Unknown : MapShipClass(target.ShipClass),

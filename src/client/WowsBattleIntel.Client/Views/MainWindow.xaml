@@ -364,32 +364,15 @@
                                 </StackPanel>
                                 <!-- 船名行：舰种缩写、等级、船名后跟小队色块 -->
                                 <StackPanel Orientation="Horizontal">
+                                  <!-- 船名限宽并在内部截断，后面的小队色块才不会被挤出可视区 -->
                                   <TextBlock Text="{Binding ShipLineText}"
                                              Style="{StaticResource SecondaryTextStyle}"
-                                             TextTrimming="CharacterEllipsis" />
+                                             TextTrimming="CharacterEllipsis"
+                                             MaxWidth="110" />
                                   <Border VerticalAlignment="Center" Margin="4,0,0,0"
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
-                                  <!-- 击杀标记只在历史回放里出现，实时名单没有战果数据 -->
-                                  <TextBlock Text="{Binding ResultMark}"
-                                             Margin="6,0,0,0"
-                                             VerticalAlignment="Center"
-                                             Foreground="{StaticResource LossBrush}">
-                                    <TextBlock.Style>
-                                      <Style TargetType="TextBlock"
-                                             BasedOn="{StaticResource SecondaryTextStyle}">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                          <DataTrigger Binding="{Binding DataContext.IsHistoricalBattle,
-                                                                 RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                       Value="True">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                          </DataTrigger>
-                                        </Style.Triggers>
-                                      </Style>
-                                    </TextBlock.Style>
-                                  </TextBlock>
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>
@@ -547,6 +530,28 @@
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
+                        <!-- 本局击杀数，红色数字，只占两三个字符 -->
+                        <DataGridTemplateColumn x:Name="DetailKillColumnAlly" Header="击杀" Width="*" MinWidth="36">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
+                                         HorizontalAlignment="Stretch">
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                    <Setter Property="Text" Value="{Binding ResultMark}" />
+                                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding HasKills}" Value="False">
+                                        <Setter Property="Text" Value="-" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
 </DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>
@@ -649,32 +654,15 @@
                                 </StackPanel>
                                 <!-- 船名行：舰种缩写、等级、船名后跟小队色块 -->
                                 <StackPanel Orientation="Horizontal">
+                                  <!-- 船名限宽并在内部截断，后面的小队色块才不会被挤出可视区 -->
                                   <TextBlock Text="{Binding ShipLineText}"
                                              Style="{StaticResource SecondaryTextStyle}"
-                                             TextTrimming="CharacterEllipsis" />
+                                             TextTrimming="CharacterEllipsis"
+                                             MaxWidth="110" />
                                   <Border VerticalAlignment="Center" Margin="4,0,0,0"
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
-                                  <!-- 击杀标记只在历史回放里出现，实时名单没有战果数据 -->
-                                  <TextBlock Text="{Binding ResultMark}"
-                                             Margin="6,0,0,0"
-                                             VerticalAlignment="Center"
-                                             Foreground="{StaticResource LossBrush}">
-                                    <TextBlock.Style>
-                                      <Style TargetType="TextBlock"
-                                             BasedOn="{StaticResource SecondaryTextStyle}">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                          <DataTrigger Binding="{Binding DataContext.IsHistoricalBattle,
-                                                                 RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                       Value="True">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                          </DataTrigger>
-                                        </Style.Triggers>
-                                      </Style>
-                                    </TextBlock.Style>
-                                  </TextBlock>
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>
@@ -823,6 +811,28 @@
                                     <Style.Triggers>
                                       <DataTrigger Binding="{Binding AchievementCount}" Value="0">
                                         <Setter Property="Text" Value="无" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局击杀数，红色数字，只占两三个字符 -->
+                        <DataGridTemplateColumn x:Name="DetailKillColumnEnemy" Header="击杀" Width="*" MinWidth="36">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
+                                         HorizontalAlignment="Stretch">
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                    <Setter Property="Text" Value="{Binding ResultMark}" />
+                                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding HasKills}" Value="False">
+                                        <Setter Property="Text" Value="-" />
                                         <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
                                       </DataTrigger>
                                     </Style.Triggers>

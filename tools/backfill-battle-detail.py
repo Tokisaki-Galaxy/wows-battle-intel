@@ -1,15 +1,11 @@
-"""回填 battle_players 里的单场战斗明细。
+"""把逐船明细、成就与组队标识三个派生字段一次性回填到库里。
 
-回放解析产物（replayshark normalized JSON）里有每个玩家对每艘敌舰的伤害往来
-与获得的成就，早期入库时没有保存这两列。这个脚本把已有产物回填进库，
-不用重新跑 replayshark。
+三个字段都来自同一个回放解析产物，分开补容易出现「明细有了、组队没补」
+这种半截状态，所以合并成一个脚本，重复执行安全。
 
-三种情况都会处理：
-- 解析产物是 JSON：直接读
-- 解析产物是原始 .wowsreplay：先跑一次 replayshark 再读
-- 列还没建：先补列
-
-重复执行安全，已回填的行会被同值覆盖。
+- damage_by_target：逐船伤害明细，含目标船数字 ID
+- achievements：成就展示名
+- division_id：组队标识，同一小队成员共享
 
 用法：python tools/backfill-battle-detail.py
 """
@@ -69,7 +65,8 @@ def map_damage(player, by_id):
             continue
         target = by_id.get(str(target_id)) or {}
         result.append({
-            "targetShipId": str(target_id),
+            "targetPlayerId": str(target_id),
+            "targetShipId": str(target.get("ship_id") or ""),
             "targetShipName": target.get("ship_name") or "",
             "targetShipTier": target.get("ship_tier") or 0,
             "targetShipClass": target.get("ship_class") or "Unknown",
@@ -115,6 +112,7 @@ def main():
 
     battles_done = 0
     players_done = 0
+    division_done = 0
     skipped = 0
 
     for index, (battle_id, replay_path) in enumerate(rows, 1):
@@ -140,13 +138,20 @@ def main():
             rowids = existing.get(player.get("name") or "")
             if not rowids:
                 continue
+
             details = map_damage(player, by_id)
             achievements = map_achievements(player)
+            division = player.get("division_id")
+            division_id = str(division) if division else None
+            if division_id:
+                division_done += 1
+
             for rowid in rowids:
                 conn.execute(
-                    "update battle_players set damage_by_target = ?, achievements = ? where rowid = ?",
+                    "update battle_players set damage_by_target = ?, achievements = ?, division_id = ? where rowid = ?",
                     (json.dumps(details, ensure_ascii=False) if details else None,
                      json.dumps(achievements, ensure_ascii=False) if achievements else None,
+                     division_id,
                      rowid))
                 wrote += 1
 
@@ -165,13 +170,15 @@ def main():
 
     with_detail = conn.execute(
         "select count(*) from battle_players where damage_by_target is not null").fetchone()[0]
+    with_division = conn.execute(
+        "select count(*) from battle_players where division_id is not null").fetchone()[0]
     missing = conn.execute(
         "select count(*) from battle_players where damage_by_target is null and damage_dealt > 0"
     ).fetchone()[0]
     conn.close()
 
     print(f"完成 · 对局 {battles_done} · 玩家行 {players_done} · 跳过 {skipped}")
-    print(f"有明细的行 {with_detail} · 仍有伤害但缺明细的行 {missing}")
+    print(f"有明细的行 {with_detail} · 有组队标识的行 {with_division} · 缺明细的行 {missing}")
     return 0
 
 

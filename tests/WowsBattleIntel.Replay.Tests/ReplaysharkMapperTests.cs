@@ -385,7 +385,7 @@ public class ReplaysharkMapperTests
         var recorder = battle.Players.First(p => p.AccountId == "1001");
         Assert.Equal(2, recorder.DamageByTarget.Count);
 
-        var shimakaze = recorder.DamageByTarget.First(d => d.TargetShipId == "2001");
+        var shimakaze = recorder.DamageByTarget.First(d => d.TargetPlayerId == "2001");
         Assert.Equal("Shimakaze", shimakaze.TargetShipName);
         Assert.Equal(6, shimakaze.TargetShipTier);
         Assert.Equal(ShipClass.Destroyer, shimakaze.TargetShipClass);
@@ -409,7 +409,7 @@ public class ReplaysharkMapperTests
         var recorder = battle.Players.First(p => p.AccountId == "1001");
         // 双方都是 0 的条目没有信息量，只留有一条非零的。
         Assert.Equal(2, recorder.DamageByTarget.Count);
-        Assert.DoesNotContain(recorder.DamageByTarget, d => d.TargetShipId == "2001");
+        Assert.DoesNotContain(recorder.DamageByTarget, d => d.TargetPlayerId == "2001");
     }
 
     [Fact]
@@ -433,7 +433,7 @@ public class ReplaysharkMapperTests
         var battle = ReplaysharkMapper.Map(output)!;
 
         var recorder = battle.Players.First(p => p.AccountId == "1001");
-        Assert.Equal(["2002", "1002", "2003", "2001"], recorder.DamageByTarget.Select(d => d.TargetShipId));
+        Assert.Equal(["2002", "1002", "2003", "2001"], recorder.DamageByTarget.Select(d => d.TargetPlayerId));
         Assert.Equal(50000, recorder.DamageByTarget[0].DamageDealt);
     }
 
@@ -451,7 +451,8 @@ public class ReplaysharkMapperTests
 
         var recorder = battle.Players.First(p => p.AccountId == "1001");
         var entry = Assert.Single(recorder.DamageByTarget);
-        Assert.Equal("7777", entry.TargetShipId);
+        Assert.Equal("7777", entry.TargetPlayerId);
+        Assert.Equal(string.Empty, entry.TargetShipId);
         Assert.Equal(string.Empty, entry.TargetShipName);
         Assert.Equal(ShipClass.Unknown, entry.TargetShipClass);
     }

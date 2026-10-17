@@ -559,12 +559,14 @@ public class PlayerRowViewModelTests
         var vm = PlayerRowViewModel.FromPlayer(player);
 
         Assert.Equal(2, vm.DamageTargetCount);
+
+        // 船名统一走船目录：Yamato 能查到中文，Shinano 未收录则保留原名。
         Assert.Equal(
-            "X Yamato 31,000" + Environment.NewLine + "X Shinano 11,000",
+            "X 大和 31,000" + Environment.NewLine + "X Shinano 11,000",
             vm.DamageTargetsText);
 
         // 承伤方向单独算，目标是打我的那艘。
-        Assert.Equal("X Yamato 12,000" + Environment.NewLine + "X K-1 9,000", vm.DamageTakenByText);
+        Assert.Equal("X 大和 12,000" + Environment.NewLine + "X K-1 9,000", vm.DamageTakenByText);
     }
 
     [Fact]

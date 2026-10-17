@@ -10,10 +10,28 @@ namespace WowsBattleIntel.Core.Models;
 /// </remarks>
 public sealed class DamageByTarget
 {
-    /// <summary>目标船 ID，即对局内的数字船 ID。</summary>
+    /// <summary>目标玩家的账号 ID。</summary>
+    /// <remarks>
+    /// 来自回放 damage_interactions 字典的键，是对方玩家的 db_id，
+    /// 不是船 ID。界面不展示它，只用于去重与排查。
+    /// </remarks>
+    public string TargetPlayerId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 目标船的数字船 ID，来自同一局名单反查。
+    /// </summary>
+    /// <remarks>
+    /// 依赖它才能走船目录查到中文名。早期入库的记录没有这一列，
+    /// 展示层会退回按英文船名反查。
+    /// </remarks>
     public string TargetShipId { get; set; } = string.Empty;
 
-    /// <summary>目标船名。解析时从同一局的参战者名单反查，查不到为空串。</summary>
+    /// <summary>
+    /// 目标船名，回放原始给的是英文名。
+    /// </summary>
+    /// <remarks>
+    /// 展示时统一经船目录翻成中文；这里保留原文，避免丢失可追溯信息。
+    /// </remarks>
     public string TargetShipName { get; set; } = string.Empty;
 
     /// <summary>目标船等级，0 表示未知。</summary>

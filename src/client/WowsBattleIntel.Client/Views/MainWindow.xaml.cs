@@ -97,9 +97,9 @@ public partial class MainWindow : Window
         }
 
         foreach (var column in new[] { DetailDamageColumnAlly, DetailSpottingColumnAlly,
-                     DetailTakenColumnAlly, DetailAchievementColumnAlly,
+                     DetailTakenColumnAlly, DetailAchievementColumnAlly, DetailKillColumnAlly,
                      DetailDamageColumnEnemy, DetailSpottingColumnEnemy,
-                     DetailTakenColumnEnemy, DetailAchievementColumnEnemy })
+                     DetailTakenColumnEnemy, DetailAchievementColumnEnemy, DetailKillColumnEnemy })
         {
             SetColumnVisible(column, historical);
         }
