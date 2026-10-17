@@ -24,12 +24,6 @@ public sealed class AppConfig
     /// <summary>replayshark 可执行文件路径。</summary>
     public string ReplaysharkPath { get; set; } = string.Empty;
 
-    /// <summary>游戏数据目录，含各版本的 .def 定义。</summary>
-    public string ExtractedDataPath { get; set; } = string.Empty;
-
-    /// <summary>constants.json 所在根目录，按版本分子目录。</summary>
-    public string ConstantsRootPath { get; set; } = string.Empty;
-
     /// <summary>ONNX 模型路径。为空时使用基线预测器。</summary>
     public string ModelPath { get; set; } = string.Empty;
 
@@ -162,8 +156,6 @@ public sealed class AppConfig
         DatabasePath = ResolveDatabasePath(DatabasePath);
         ModelPath = ResolveModelPath(ModelPath);
         ReplaysharkPath = ResolveReplaysharkPath(ReplaysharkPath);
-        ExtractedDataPath = ResolveExtractedDataPath(ExtractedDataPath);
-        ConstantsRootPath = ResolveConstantsRootPath(ConstantsRootPath);
         LogDirectory = ResolveLogDirectory(LogDirectory);
 
         // 旧配置无染色规则字段，反序列化后为 null，补默认；显式存过 null
@@ -194,48 +186,6 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// 解析游戏数据根目录（各版本子目录的父目录）。
-    /// </summary>
-    private static string ResolveExtractedDataPath(string value)
-    {
-        if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
-        {
-            return ToAbsolutePath(value);
-        }
-
-        foreach (string candidate in GetDataRootCandidates("gamedata"))
-        {
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    /// <summary>
-    /// 解析 constants 根目录（各版本子目录的父目录）。
-    /// </summary>
-    private static string ResolveConstantsRootPath(string value)
-    {
-        if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
-        {
-            return ToAbsolutePath(value);
-        }
-
-        foreach (string candidate in GetDataRootCandidates("constants"))
-        {
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    /// <summary>
     /// replayshark.exe 候选位置。发布包 tools 目录优先，其次仓库 data/tools。
     /// </summary>
     private static IEnumerable<string> GetReplaysharkCandidates()
@@ -245,19 +195,6 @@ public sealed class AppConfig
         if (repoDataDir is not null)
         {
             yield return Path.Combine(repoDataDir, "tools", "replayshark.exe");
-        }
-    }
-
-    /// <summary>
-    /// 游戏数据与 constants 根目录候选。发布包内目录优先，其次仓库 data。
-    /// </summary>
-    private static IEnumerable<string> GetDataRootCandidates(string subdirectory)
-    {
-        yield return Path.Combine(AppContext.BaseDirectory, subdirectory);
-        string? repoDataDir = FindRepoDataDirectory();
-        if (repoDataDir is not null)
-        {
-            yield return Path.Combine(repoDataDir, subdirectory);
         }
     }
 

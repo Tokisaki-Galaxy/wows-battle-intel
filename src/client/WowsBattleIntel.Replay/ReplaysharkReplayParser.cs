@@ -15,10 +15,15 @@ namespace WowsBattleIntel.Replay;
 /// 由 wows-toolkit 维护。进程调用的细节被本类封装，将来换进程内实现时
 /// 上层代码不受影响。
 ///
-/// replayshark 要求三个参数：
-/// - -e 游戏数据目录，含 .def 定义与 GameParams
-/// - -c constants.json，缺失时会尝试联网拉取并失败
+/// replayshark 用 -g 直接指向游戏安装目录，自行从 res_packages 下的 pkg
+/// 里读 .def 定义与 GameParams。这样不再需要预先用 wowsunpack 提取数据，
+/// 地图名与舰名也能得到可直接展示的名称而非内部 id。
+///
+/// 调用参数：
+/// - -g 游戏安装目录
 /// - battle-results 子命令加 --out-file
+///
+/// -c constants.json 在 -g 模式下可选。实测缺失也能正常产出结果，因此不再传。
 /// </remarks>
 public sealed class ReplaysharkReplayParser : IReplayParser
 {
@@ -124,8 +129,8 @@ public sealed class ReplaysharkReplayParser : IReplayParser
         };
 
         // 全局参数必须放在子命令之前。
-        psi.ArgumentList.Add("-e");
-        psi.ArgumentList.Add(options.ExtractedDataPath);
+        psi.ArgumentList.Add("-g");
+        psi.ArgumentList.Add(options.GamePath);
 
         if (!string.IsNullOrWhiteSpace(options.ConstantsPath))
         {
@@ -223,12 +228,13 @@ public sealed class ReplaysharkOptions
     public string ReplaysharkPath { get; set; } = "replayshark.exe";
 
     /// <summary>
-    /// 游戏数据目录，含 .def 定义与 GameParams。
+    /// 游戏安装目录，replayshark 据此从 res_packages 读取定义与 GameParams。
     /// </summary>
-    public string ExtractedDataPath { get; set; } = string.Empty;
+    public string GamePath { get; set; } = string.Empty;
 
     /// <summary>
-    /// constants.json 路径。缺失时 replayshark 会尝试联网拉取并失败。
+    /// constants.json 路径，可选。为 -g 模式下的补充覆盖，留空时由 replayshark
+    /// 自行从游戏数据里取。
     /// </summary>
     public string ConstantsPath { get; set; } = string.Empty;
 
@@ -243,9 +249,9 @@ public sealed class ReplaysharkOptions
             throw new ArgumentException("必须指定 replayshark 可执行文件路径。", nameof(ReplaysharkPath));
         }
 
-        if (string.IsNullOrWhiteSpace(ExtractedDataPath))
+        if (string.IsNullOrWhiteSpace(GamePath))
         {
-            throw new ArgumentException("必须指定游戏数据目录。", nameof(ExtractedDataPath));
+            throw new ArgumentException("必须指定游戏安装目录。", nameof(GamePath));
         }
     }
 }
