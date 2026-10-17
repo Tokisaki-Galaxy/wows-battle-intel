@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
 using WowsBattleIntel.Stats;
@@ -594,23 +595,7 @@ public sealed class MainViewModel : ViewModelBase
             // battle_players 表不保存战绩字段，账号层统计走快照合并。
             // 展示层取最新快照，不设对局时间上界：给玩家看的是当前战绩，
             // ApeRadar 同口径。预测特征的严格赛前约束在预测管线内部维持。
-            full = SnapshotFeatureBuilder.Enrich(full, (accountId, server, shipId) =>
-            {
-                // 账号层取最新快照；带船 ID 时再取该船最新一条，两层独立命中。
-                var account = services.Repository
-                    .GetLatestSnapshotAsync(accountId, server)
-                    .GetAwaiter()
-                    .GetResult();
-                if (string.IsNullOrEmpty(shipId))
-                {
-                    return account;
-                }
-
-                return services.Repository
-                    .GetLatestShipSnapshotAsync(accountId, server, shipId)
-                    .GetAwaiter()
-                    .GetResult() ?? account;
-            });
+            full = EnrichWithSnapshots(full);
 
             actualOutcome = full.Outcome;
 
@@ -712,6 +697,36 @@ public sealed class MainViewModel : ViewModelBase
         && player.ClassStatsJson.Length > 2;
 
     /// <summary>
+    /// 用仓库里的最新快照补齐对局特征。
+    /// </summary>
+    /// <remarks>
+    /// 账号层取最新账号快照，带船 ID 时再取该船最新一条，两层独立命中，
+    /// 单船快照缺失时退回账号层。四个调用点（详情展示、重算、补拉后收敛、
+    /// 赛前迭代）用的是同一口径，改动只需改这里。
+    ///
+    /// 这里同步阻塞是为了让 <see cref="SnapshotFeatureBuilder.Enrich"/> 保持
+    /// 纯同步签名。仓库内部全部 ConfigureAwait(false)，不会死锁；代价是每次
+    /// 详情加载在界面线程上付出 2×N 次 SQLite 往返。
+    /// </remarks>
+    private BattleRecord EnrichWithSnapshots(BattleRecord battle) =>
+        SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
+        {
+            PlayerSnapshot? account = services.Repository
+                .GetLatestSnapshotAsync(accountId, server)
+                .GetAwaiter()
+                .GetResult();
+            if (string.IsNullOrEmpty(shipId))
+            {
+                return account;
+            }
+
+            return services.Repository
+                .GetLatestShipSnapshotAsync(accountId, server, shipId)
+                .GetAwaiter()
+                .GetResult() ?? account;
+        });
+
+    /// <summary>
     /// 用当前名单与模型重新生成预测并入库。
     /// </summary>
     /// <remarks>
@@ -747,22 +762,7 @@ public sealed class MainViewModel : ViewModelBase
 
             // 重算前先把快照合并进来：补拉过的数据不落 battle_players 表，
             // 直接预测会丢掉账号层特征。
-            battle = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
-            {
-                var account = services.Repository
-                    .GetLatestSnapshotAsync(accountId, server)
-                    .GetAwaiter()
-                    .GetResult();
-                if (string.IsNullOrEmpty(shipId))
-                {
-                    return account;
-                }
-
-                return services.Repository
-                    .GetLatestShipSnapshotAsync(accountId, server, shipId)
-                    .GetAwaiter()
-                    .GetResult() ?? account;
-            });
+            battle = EnrichWithSnapshots(battle);
 
             var prediction = await services.Predictor.PredictAsync(battle).ConfigureAwait(true);
 
@@ -880,23 +880,7 @@ public sealed class MainViewModel : ViewModelBase
 
         // 阶段三：快照合并后重算。分舰种聚合与单船口径都以合并结果为准，
         // 与阶段一的展示口径完全一致。
-        BattleRecord enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
-        {
-            // 账号层取最新快照；带船 ID 时再取该船最新一条，两层独立命中。
-            var account = services.Repository
-                .GetLatestSnapshotAsync(accountId, server)
-                .GetAwaiter()
-                .GetResult();
-            if (string.IsNullOrEmpty(shipId))
-            {
-                return account;
-            }
-
-            return services.Repository
-                .GetLatestShipSnapshotAsync(accountId, server, shipId)
-                .GetAwaiter()
-                .GetResult() ?? account;
-        });
+        BattleRecord enriched = EnrichWithSnapshots(battle);
 
         // 军团分档查询与本局玩家统计补拉并行推进，失败静默不影响名单展示。
         await FetchClanGradesAsync(battle, version, token).ConfigureAwait(false);
@@ -1227,22 +1211,7 @@ public sealed class MainViewModel : ViewModelBase
                 }
 
                 // 重新合并快照后推理：补拉的数据只落快照表，不合并拿不到。
-                var enriched = SnapshotFeatureBuilder.Enrich(battle, (accountId, server, shipId) =>
-                {
-                    var account = services.Repository
-                        .GetLatestSnapshotAsync(accountId, server)
-                        .GetAwaiter()
-                        .GetResult();
-                    if (string.IsNullOrEmpty(shipId))
-                    {
-                        return account;
-                    }
-
-                    return services.Repository
-                        .GetLatestShipSnapshotAsync(accountId, server, shipId)
-                        .GetAwaiter()
-                        .GetResult() ?? account;
-                });
+                var enriched = EnrichWithSnapshots(battle);
 
                 // 合并后的军团标签写回原始名单记录：赛前 tempArenaInfo 不含标签，
                 // 原始记录本为空，写回后供军团分档查询与列表项使用。只补空值。
