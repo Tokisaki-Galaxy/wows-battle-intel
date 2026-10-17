@@ -558,10 +558,25 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
 
     /// <summary>
     /// WG 舰种字符串转稳定存储键，与 <see cref="ShipClassExtensions.Parse"/> 的输入兼容。
-    /// 映射表本身只养在 <see cref="ShipClassExtensions"/> 一处，这里只做“未知返回 null”的适配。
     /// </summary>
+    /// <remarks>
+    /// 映射表本身只养在 <see cref="ShipClassExtensions"/> 一处，这里只做适配。
+    /// 有意收窄输入面：encyclopedia/ships 返回的是 Destroyer、AirCarrier 这类
+    /// 完整类型名，不认 DD/CA/CL 这类缩写。若直接放行缩写，“CL”会被当年的
+    /// 巡洋并入 CA 键，分舰种聚合就多算了一类。
+    /// </remarks>
     internal static string? ToClassKey(string wgType)
     {
+        string normalized = wgType.Trim().ToUpperInvariant();
+        bool isKnownWgType = normalized is
+            "DESTROYER" or "CRUISER" or "BATTLESHIP"
+            or "AIR_CARRIER" or "AIRCARRIER" or "CARRIER"
+            or "SUBMARINE";
+        if (!isKnownWgType)
+        {
+            return null;
+        }
+
         ShipClass shipClass = ShipClassExtensions.Parse(wgType);
         return shipClass == ShipClass.Unknown ? null : shipClass.ToStorageKey();
     }

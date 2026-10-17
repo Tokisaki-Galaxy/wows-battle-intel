@@ -304,6 +304,12 @@ public class WgApiParserTests
     [InlineData("AirCarrier", "CV")]
     [InlineData("Submarine", "SS")]
     [InlineData("UnknownType", null)]
+    // encyclopedia/ships 只返回完整类型名，缩写不应被当成有效舰种：
+    // 放行 CL 会被并入 CA 键，分舰种聚合多算一类。
+    [InlineData("CL", null)]
+    [InlineData("DD", null)]
+    [InlineData("CA", null)]
+    [InlineData("", null)]
     public void ToClassKey_NormalizesWgTypes(string wgType, string? expected)
     {
         Assert.Equal(expected, WowsBattleIntel.Stats.WgPublicStatsProvider.ToClassKey(wgType));

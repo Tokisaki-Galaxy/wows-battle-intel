@@ -701,6 +701,9 @@ public sealed class MainViewModel : ViewModelBase
                 .GetLatestSnapshotAsync(accountId, server)
                 .GetAwaiter()
                 .GetResult();
+
+            // Enrich 只在玩家有船 ID 时传入船 ID，传入空串走的就是上面的
+            // 账号级查询。这里保留空判只是防御，确保船快照缺失时退回账号层。
             if (string.IsNullOrEmpty(shipId))
             {
                 return account;

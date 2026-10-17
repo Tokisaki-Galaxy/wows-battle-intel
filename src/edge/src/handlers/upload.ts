@@ -148,11 +148,17 @@ function validateBattle(input: unknown): BattleUpload | null {
   const battleId = asNonEmptyString(raw.battleId);
   const result = asNonEmptyString(raw.result);
   const startedAt = asFiniteNumber(raw.startedAt);
-  if (!battleId || !result || startedAt === null) {
+  // startedAt 是近期窗口的排序键，0 会被永久排到窗口末尾，必须为正。
+  if (!battleId || !result || startedAt === null || startedAt <= 0) {
     return null;
   }
 
-  if (!Array.isArray(raw.players) || raw.players.length > MAX_PLAYERS_PER_BATTLE) {
+  // 空参战者名单不会写入逐场记录，聚合与近期窗口都会失真，直接拒绝。
+  if (
+    !Array.isArray(raw.players) ||
+    raw.players.length === 0 ||
+    raw.players.length > MAX_PLAYERS_PER_BATTLE
+  ) {
     return null;
   }
 

@@ -409,6 +409,20 @@ describe("上报请求校验", () => {
     expect(res.status).toBe(400);
   });
 
+  it("参战者为空数组返回 400", async () => {
+    const payload = makePayload();
+    payload.battles[0]!.players = [];
+    const res = await upload(payload);
+    expect(res.status).toBe(400);
+  });
+
+  it("startedAt 非正数返回 400", async () => {
+    const payload = makePayload();
+    payload.battles[0]!.startedAt = 0;
+    const res = await upload(payload);
+    expect(res.status).toBe(400);
+  });
+
   it("超出单批对局上限返回 400", async () => {
     const template = makePayload();
     const battles = Array.from({ length: 51 }, (_, i) => ({
