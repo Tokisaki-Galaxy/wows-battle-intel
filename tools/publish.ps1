@@ -142,9 +142,9 @@ try {
         Write-Host "[publish] 警告: 本地模型不存在，包内不含 models 目录" -ForegroundColor Yellow
     }
 
-    # replayshark 与解析数据随包分发，客户端自动探测 包目录/tools 与
-    # 包目录/gamedata、constants。gamedata 含全部已提取版本目录，
-    # 新版本游戏需要用 wowsunpack 从游戏目录重新提取。
+    # 只随包分发 replayshark 本身。解析所需的游戏定义与 GameParams 由
+    # replayshark 的 -g 参数直接从游戏安装目录的 res_packages 里读，
+    # 不再打包预提取的 gamedata 与 constants（那批数据曾让包体达到 150 MB）。
     $toolsSource = Join-Path $repoRoot "data/tools/replayshark.exe"
     if (Test-Path $toolsSource) {
         New-Item (Join-Path $stage "tools") -ItemType Directory -Force | Out-Null
@@ -152,15 +152,6 @@ try {
     }
     else {
         Write-Host "[publish] 警告: replayshark 不存在，包内不含解析器" -ForegroundColor Yellow
-    }
-
-    foreach ($dataDir in @("gamedata", "constants")) {
-        $src = Join-Path $repoRoot "data/$dataDir"
-        if (Test-Path $src) {
-            Copy-Item $src (Join-Path $stage $dataDir) -Recurse -Force
-            $sizeMb = [math]::Round(((Get-ChildItem (Join-Path $stage $dataDir) -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 1)
-            Write-Host "[publish] 已随包分发 $dataDir ($sizeMb MB)"
-        }
     }
 
     # config 模板与说明文档。

@@ -2,8 +2,6 @@
   "GamePath": "",
   "DatabasePath": "",
   "ReplaysharkPath": "",
-  "ExtractedDataPath": "",
-  "ConstantsRootPath": "",
   "ModelPath": "",
   "ModelVersion": "baseline-logistic-v1",
   "AutoObserve": true,

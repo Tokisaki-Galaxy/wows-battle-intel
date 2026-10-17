@@ -23,6 +23,8 @@ wows-battle-intel 解压即用绿色包
   删除本目录不会影响已采集的数据。
 - 包内 models\baseline.onnx 为默认预测模型，随包自动加载。
 - 如需更换模型，在设置页选择其他 .onnx 文件即可。
+- 回放解析直接读取游戏安装目录，包里不再附带游戏数据。
+  因此需要本机装着战舰世界本体，卸载游戏后历史回放将无法解析。
 
 四、附带工具
 
@@ -36,7 +38,5 @@ wows-intel.exe              命令行工具
 onnxruntime.dll             ONNX 推理原生库
 e_sqlite3.dll               SQLite 原生库
 models\baseline.onnx        默认预测模型
-tools\replayshark.exe       回放解析器
-gamedata\                   各版本游戏定义数据（回放解析依赖）
-constants\                  各版本 constants.json（回放解析依赖）
+tools\replayshark.exe       回放解析器（直接从游戏目录读数据）
 config.sample.json          配置模板
