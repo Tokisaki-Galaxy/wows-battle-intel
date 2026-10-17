@@ -14,10 +14,12 @@ namespace WowsBattleIntel.Client.Tests;
 internal sealed class TestServices : IDisposable
 {
     private readonly List<string> databasePaths = [];
+    private readonly List<string> logDirectories = [];
 
     private TestServices(AppServices services)
     {
         Services = services;
+        logDirectories.Add(services.Logs.LogDirectory);
     }
 
     /// <summary>装配好的服务。</summary>
@@ -38,6 +40,13 @@ internal sealed class TestServices : IDisposable
         if (string.IsNullOrWhiteSpace(config.DatabasePath))
         {
             config.DatabasePath = NewDatabasePath();
+        }
+
+        // 调用方显式指定了日志目录就沿用，否则一律落临时目录，
+        // 避免测试把运行日志写进仓库 Logs。
+        if (string.IsNullOrWhiteSpace(config.LogDirectory))
+        {
+            config.LogDirectory = Path.Combine(TestTempRoot, $"wbi-logs-{Guid.NewGuid():N}");
         }
 
         var services = await AppServices.CreateAsync(config);
@@ -93,6 +102,21 @@ internal sealed class TestServices : IDisposable
             TryDelete(path);
             TryDelete(path + "-wal");
             TryDelete(path + "-shm");
+        }
+
+        foreach (string directory in logDirectories)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch
+            {
+                // 清理失败不影响测试结论。
+            }
         }
     }
 
