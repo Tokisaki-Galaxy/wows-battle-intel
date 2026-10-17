@@ -78,8 +78,8 @@ public sealed class ColorRule
 /// 内置的默认染色规则。
 /// </summary>
 /// <remarks>
-/// 紫色大佬与红色海猴两条，沿用应用既有口径：胜率高于 0.58 染紫、
-/// 低于等于 0.47 染红。紫规则在前，高胜率优先判紫。配置缺失或为空时回落。
+/// 紫色大佬与红色海猴两条，沿用应用既有口径：胜率大于等于 58% 染紫、
+/// 小于等于 47% 染红。紫规则在前，高胜率优先判紫。配置缺失或为空时回落。
 /// </remarks>
 public static class DefaultColorRules
 {
@@ -89,7 +89,7 @@ public static class DefaultColorRules
         new ColorRule
         {
             Metric = ColorRuleMetric.AccountWinrate,
-            Operator = ColorRuleOperator.GreaterThan,
+            Operator = ColorRuleOperator.GreaterOrEqual,
             Threshold = 0.58,
             RowBrushKey = "RowUnicumBrush",
         },

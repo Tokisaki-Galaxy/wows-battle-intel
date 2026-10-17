@@ -43,9 +43,9 @@ public sealed class AppConfig
 
     /// <summary>
     /// 是否缓存对局战绩加速查询。开启后同一玩家在缓存有效期内的重复查询
-    /// 直接命中本地，不再请求 WG API。默认关闭，避免用户没预期到数据滞后。
+    /// 直接命中本地，不再请求 WG API。默认开启。
     /// </summary>
-    public bool EnableBattleCache { get; set; }
+    public bool EnableBattleCache { get; set; } = true;
 
     /// <summary>
     /// 战绩缓存有效期天数，默认 7。0 表示不设新鲜度上界，永不按时间过期。
@@ -56,7 +56,7 @@ public sealed class AppConfig
     /// 名单整行染色规则。按顺序求值，第一条命中的决定行色。
     /// </summary>
     /// <remarks>
-    /// 默认两条：胜率大于 0.58 染紫、胜率小于等于 0.47 染红，即原有的
+    /// 默认两条：胜率大于等于 0.58 染紫、胜率小于等于 0.47 染红，即原有的
     /// 紫色大佬与红色海猴口径。规则可空，为空时名单不按水平染底色。
     /// </remarks>
     public List<ColorRule> ColorRules { get; set; } = DefaultColorRules.Clone();

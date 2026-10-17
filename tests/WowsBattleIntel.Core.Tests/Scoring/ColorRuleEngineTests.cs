@@ -40,8 +40,8 @@ public class ColorRuleEngineTests
     [Fact]
     public void DefaultRules_BoundaryValues()
     {
-        // 默认紫规则用严格大于，0.58 不判紫；红规则用小于等于，0.47 判红。
-        Assert.Equal(string.Empty, Evaluate(DefaultRules, winrate: 0.58));
+        // 默认紫规则用大于等于，0.58 判紫；红规则用小于等于，0.47 判红。
+        Assert.Equal("RowUnicumBrush", Evaluate(DefaultRules, winrate: 0.58));
         Assert.Equal("RowApeBrush", Evaluate(DefaultRules, winrate: 0.47));
     }
 

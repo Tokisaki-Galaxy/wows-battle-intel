@@ -84,9 +84,13 @@ public sealed class ColorRuleViewModel : ViewModelBase
             or ColorRuleMetric.WeightedWinrate
             or ColorRuleMetric.ShipWinrate;
 
-    /// <summary>领域值换算成界面展示值。</summary>
+    /// <summary>领域值换算成界面展示值。胜率类乘 100 后取到小数点后四位，抹掉浮点误差。</summary>
+    /// <remarks>
+    /// 0.58 直接乘 100 会得到 57.99999999999999，文本框里显示成一长串。
+    /// 这里按有效小数位取整，让默认值干净地显示为 58。
+    /// </remarks>
     public static double ToDisplay(ColorRuleMetric metric, double value) =>
-        IsWinrateMetric(metric) ? value * 100 : value;
+        IsWinrateMetric(metric) ? Math.Round(value * 100, 4) : value;
 
     /// <summary>界面展示值换算回领域值。</summary>
     public static double FromDisplay(ColorRuleMetric metric, double value) =>
