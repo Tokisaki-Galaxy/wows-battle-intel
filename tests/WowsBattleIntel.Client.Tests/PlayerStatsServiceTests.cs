@@ -63,6 +63,9 @@ public class PlayerStatsServiceTests : IDisposable
         /// <summary>是否给分舰种字段赋值。默认不赋值以保持最小数据。</summary>
         public bool FillClassStats { get; set; }
 
+        /// <summary>模拟 WG 判定隐藏战绩：跳过统计补全，与真实提供商一致。</summary>
+        public bool MarkHidden { get; set; }
+
         /// <summary>给玩家补的军团标签，空表示不补。</summary>
         public string ClanTag { get; set; } = string.Empty;
 
@@ -86,10 +89,18 @@ public class PlayerStatsServiceTests : IDisposable
                     p.AccountId = "2" + Math.Abs(p.PlayerName.GetHashCode() % 1000000);
                 }
 
-                p.AccountBattles = 1000;
-                p.AccountWinrate = 0.55;
-                p.ShipBattles = 100;
-                p.ShipWinrate = 0.6;
+                if (MarkHidden)
+                {
+                    p.IsHidden = true;
+                }
+                else
+                {
+                    p.AccountBattles = 1000;
+                    p.AccountWinrate = 0.55;
+                    p.ShipBattles = 100;
+                    p.ShipWinrate = 0.6;
+                }
+
                 if (FillClassStats)
                 {
                     p.ClassStatsJson = "{\"CA\":{\"battles\":100,\"wins\":55,\"damage\":50000}}";
@@ -340,6 +351,36 @@ public class PlayerStatsServiceTests : IDisposable
         var snapshot = await repository.GetLatestSnapshotAsync("3002", GameServer.Asia);
         Assert.NotNull(snapshot);
         Assert.Equal("[HID]", snapshot!.ClanTag);
+    }
+
+    [Fact]
+    public async Task CachingProvider_HiddenSnapshot_DoesNotHydrateFakeZeroWinrate()
+    {
+        // 隐藏玩家只落军团标签的空快照。次轮灌缓存时不能把空快照当统计，
+        // 否则账号胜率会从 -1 被改成 0，界面上隐藏战绩就变成 0.0% 了。
+        var provider = new FakeProvider { ClanTag = "[HID]", MarkHidden = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        await cached.FetchStatsAsync([new PlayerRecord
+        {
+            AccountId = "3003",
+            PlayerName = "HiddenGuy",
+            Server = GameServer.Asia,
+            IsHidden = true,
+        }]);
+
+        var again = new PlayerRecord
+        {
+            AccountId = "3003",
+            PlayerName = "HiddenGuy",
+            Server = GameServer.Asia,
+            IsHidden = true,
+        };
+        await cached.FetchStatsAsync([again]);
+
+        Assert.Equal(-1, again.AccountWinrate, 3);
+        Assert.Equal("[HID]", again.ClanTag);
     }
 
     [Fact]

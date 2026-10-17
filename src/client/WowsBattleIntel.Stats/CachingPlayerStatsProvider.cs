@@ -175,7 +175,11 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (player.AccountId == "-1" || player.Server == GameServer.Auto)
+            // 查询服优先用已知的具体服，玩家记录为 Auto 时退回 StatsServer。
+            // 赛前链路把对局服推断成具体服后，玩家记录的 Server 仍是 Auto，
+            // 只认 Server 会让这些玩家每次都被判成“无缓存可用”。
+            GameServer server = player.Server == GameServer.Auto ? player.StatsServer : player.Server;
+            if (player.AccountId == "-1" || server == GameServer.Auto)
             {
                 continue;
             }
@@ -183,7 +187,7 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
             try
             {
                 var account = await cache!
-                    .GetAccountSnapshotAsync(player.AccountId, player.Server, options.Ttl, cancellationToken)
+                    .GetAccountSnapshotAsync(player.AccountId, server, options.Ttl, cancellationToken)
                     .ConfigureAwait(false);
                 if (account is null)
                 {
@@ -191,13 +195,14 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
                 }
 
                 ApplyAccountSnapshot(player, account);
+                player.StatsServer = server;
 
                 // 单船层：带本局船 ID 时按船查，命中才覆盖。
                 if (!string.IsNullOrEmpty(player.ShipId))
                 {
                     var ship = await cache
                         .GetShipSnapshotAsync(
-                            player.AccountId, player.Server, player.ShipId, options.Ttl, cancellationToken)
+                            player.AccountId, server, player.ShipId, options.Ttl, cancellationToken)
                         .ConfigureAwait(false);
                     if (ship is not null)
                     {
@@ -223,6 +228,13 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
     /// </summary>
     private static void ApplyAccountSnapshot(PlayerRecord player, PlayerSnapshot account)
     {
+        // 隐藏快照没有统计，只带回军团标签。把它当统计灌进去会把账号胜率
+        // 从 -1 变成快照里的 0，界面上就没有隐藏战绩只有 0.0% 了。
+        if (!account.HasStats)
+        {
+            ApplyClanTag(player, account);
+            return;
+        }
         player.AccountBattles = account.AccountBattles;
         player.AccountWinrate = account.AccountWinrate;
         player.AccountAvgDamage = account.AccountAvgDamage;
@@ -239,7 +251,14 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
             player.FavoriteTier = account.FavoriteTier;
         }
 
-        // 军团标签：只补空值。回放链路已带回放里的标签，不被缓存覆盖。
+        ApplyClanTag(player, account);
+    }
+
+    /// <summary>
+    /// 军团标签只补空值。回放链路已带回放里的标签，不被缓存覆盖。
+    /// </summary>
+    private static void ApplyClanTag(PlayerRecord player, PlayerSnapshot account)
+    {
         if (string.IsNullOrEmpty(player.ClanTag) && !string.IsNullOrEmpty(account.ClanTag))
         {
             player.ClanTag = account.ClanTag;

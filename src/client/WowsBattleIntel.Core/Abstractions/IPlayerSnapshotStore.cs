@@ -129,6 +129,15 @@ public sealed class PlayerSnapshot
     public string Source { get; set; } = string.Empty;
 
     /// <summary>
+    /// 快照是否带账号统计。
+    /// </summary>
+    /// <remarks>
+    /// 隐藏战绩玩家也会落快照，但只是为了跨局回填军团标签，统计字段保持
+    /// -1 哨兵。这种空快照不能当统计灌回名单，否则会把隐藏读成 0.0%。
+    /// </remarks>
+    public bool HasStats => AccountWinrate >= 0;
+
+    /// <summary>
     /// 从玩家记录构造快照。
     /// </summary>
     public static PlayerSnapshot FromPlayer(PlayerRecord player, DateTimeOffset capturedAt)
@@ -138,7 +147,8 @@ public sealed class PlayerSnapshot
         return new PlayerSnapshot
         {
             AccountId = player.AccountId,
-            Server = player.Server,
+            // 按服务端实际服落库，赛前玩家长期为 Auto。
+            Server = player.Server == GameServer.Auto ? player.StatsServer : player.Server,
             CapturedAt = capturedAt,
             ClanTag = player.ClanTag,
             AccountBattles = (int)Math.Max(0, player.AccountBattles),

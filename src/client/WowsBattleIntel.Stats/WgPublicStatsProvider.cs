@@ -71,6 +71,13 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 continue;
             }
 
+            foreach (var player in group)
+            {
+                // 服务端确实按这个服发的请求，写回玩家记录：快照按该服落库，
+                // 后续合并快照要用同一口径查，不能一直停在 Auto 上。
+                player.StatsServer = group.Key;
+            }
+
             await FetchGroupAsync(group.ToList(), group.Key, cancellationToken).ConfigureAwait(false);
         }
 

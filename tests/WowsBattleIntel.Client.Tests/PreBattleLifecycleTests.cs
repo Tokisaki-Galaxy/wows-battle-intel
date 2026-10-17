@@ -131,6 +131,64 @@ public class PreBattleLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task CurrentBattle_LeavingPreBattleClearsFetchProgress()
+    {
+        // 第一局的补拉进度提示必须清掉，不留旧进度。
+        WriteArena();
+        using var holder = await TestServices.CreateAsync(CreateConfig());
+
+        await holder.Services.Repository.SaveBattleAsync(new BattleRecord
+        {
+            BattleId = "hist-status",
+            StartedAt = DateTimeOffset.UtcNow.AddHours(-1),
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1001", PlayerName = "HistAlly", Server = GameServer.Asia,
+                    IsAlly = true, ShipClass = ShipClass.Battleship, ShipTier = 10,
+                },
+            ],
+        });
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        // 先切到历史回放再切回赛前对局，详情区重建后观察补拉进度。
+        // 赛前链路会真的进入补拉，顶栏出现“正在补充”。测试环境网络必失败，
+        // 补拉会在一段时间后自己收尾，必须在它收尾前切走才对得上。
+        holder.Services.ArenaWatcher.ScanOnce();
+        await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
+        var live = vm.LiveBattles[0];
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "历史对局详情加载");
+        vm.SelectedLiveBattle = live;
+        await WaitUntilAsync(() => vm.Allies.Count > 0, "赛前名单灌入详情区");
+
+        // 等收敛循环跑出第一版倒计时，此时补拉已经跑过一轮。
+        await WaitUntilAsync(
+            () => vm.CountdownText.Length > 0,
+            "赛前倒计时出现",
+            timeoutSeconds: 30);
+
+        // 再切走，进度提示必须清掉。收敛循环被取消后还会走完收尾，投递是
+        // 异步的，短暂延迟后才生效，给一个短窗口等它落地。
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(
+            () => vm.Allies.Count > 0 && vm.CountdownText.Length == 0,
+            "历史对局详情加载并收起赛前文案");
+        await WaitUntilAsync(
+            () => !vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
+            "换局后补拉提示消失",
+            timeoutSeconds: 15);
+        Assert.False(vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task CurrentBattle_PreBattleLoopConvergesAndShowsRoster()
     {
         // 代次必须在 SelectedBattle 赋值之后再取。旧实现取在赋值之前，

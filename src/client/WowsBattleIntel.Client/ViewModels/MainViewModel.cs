@@ -652,14 +652,24 @@ public sealed class MainViewModel : ViewModelBase
         // 阶段二三在后台推进。快照缺失的玩家行此刻显示占位符，
         // 补拉结果落地后增量刷新。赛前对局由收敛循环统一负责拉取与刷新，
         // 这里不重复拉，避免两处并发请求同一批玩家。
-        if (!isPreBattle)
-        {
-            await FetchMissingStatsInBackgroundAsync(full, version, token).ConfigureAwait(true);
-        }
-        else
-        {
-            await FetchClanGradesAsync(full, version, token).ConfigureAwait(true);
-        }
+        StartBackgroundLoading(full, version, isPreBattle, token);
+    }
+
+    /// <summary>
+    /// 阶段二三在后台推进时的执行顺序。
+    /// </summary>
+    /// <remarks>
+    /// 只把阶段一留在界面同步上下文里。阶段二含网络请求与轮询延迟，若与
+    /// <see cref="LoadBattleDetailsAsync"/> 共用同步上下文，在无界面环境的
+    /// 单线程上下文中会把后续代码一直排队，界面线程也拿不到执行机会。
+    /// </remarks>
+    private void StartBackgroundLoading(BattleRecord full, int version, bool isPreBattle, CancellationToken token)
+    {
+        _ = Task.Run(
+            () => isPreBattle
+                ? FetchClanGradesAsync(full, version, token)
+                : FetchMissingStatsInBackgroundAsync(full, version, token),
+            CancellationToken.None);
     }
 
     /// <summary>
@@ -804,14 +814,22 @@ public sealed class MainViewModel : ViewModelBase
     /// </remarks>
     private async Task FetchMissingStatsInBackgroundAsync(BattleRecord battle, int version, CancellationToken token)
     {
-        var missing = SelectPlayersNeedingStats(battle.Players).ToList();
+        // 缺统计的玩家。补拉与军团分档共用这一份名单。
+        List<PlayerRecord> missing = SelectPlayersNeedingStats(battle.Players).ToList();
 
         // 军团分档与统计补拉并行推进，缺统计名单为空时军团查询照常执行。
         var clanTask = FetchClanGradesAsync(battle, version, token);
-
+        // 快照已被别的链路补齐时也要把进度提示收掉，否则“正在补充”会一直挂着。
         if (missing.Count == 0)
         {
             await clanTask.ConfigureAwait(false);
+            Post(() =>
+            {
+                if (IsDetailsCurrent(version) && statusMessage.StartsWith(StatsFetchStatusPrefix, StringComparison.Ordinal))
+                {
+                    StatusMessage = "就绪";
+                }
+            });
             return;
         }
 
@@ -828,7 +846,7 @@ public sealed class MainViewModel : ViewModelBase
             while (!fetchTask.IsCompleted)
             {
                 await Task.Delay(StatsProgressInterval, token).ConfigureAwait(false);
-                Post(() => RefreshRowsFor(version, battle.Players));
+                RefreshRowsOnUiThread(version, battle.Players);
             }
 
             var outcome = await fetchTask.ConfigureAwait(false);
@@ -868,8 +886,11 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         // 阶段三：快照合并后重算。分舰种聚合与单船口径都以合并结果为准，
-        // 与阶段一的展示口径完全一致。
-        BattleRecord enriched = EnrichWithSnapshots(battle);
+        // 与阶段一的展示口径完全一致。合并逐玩家查库，放到线程池执行，
+        // 不占界面线程。
+        BattleRecord enriched = await Task
+            .Run(() => EnrichWithSnapshots(battle))
+            .ConfigureAwait(false);
 
         // 军团分档查询与本局玩家统计补拉并行推进，失败静默不影响名单展示。
         await FetchClanGradesAsync(battle, version, token).ConfigureAwait(false);
@@ -1234,15 +1255,20 @@ public sealed class MainViewModel : ViewModelBase
                 currentPrediction = prediction;
 
                 int after = CountCoveredPlayers(battle);
-                (int humans, int covered, int hidden, int incomplete) = DescribeCoverage(battle);
+                (int total, int humans, int covered, int hidden, int incomplete) = DescribeCoverage(battle);
+
+                // 分母用名单总人数：x/y 要和界面里看得到的人数对得上。
+                string donePart = $"{covered + hidden}/{total}";
+
+                // 隐藏只在确认后才出现在文案里，缺数据的玩家不再被描述成隐藏。
+                string hiddenPart = hidden > 0 ? $"，另有 {hidden} 名隐藏战绩" : string.Empty;
 
                 preBattleProgressText = incomplete == 0
-                    ? $"数据齐全（{covered}/{humans}，另有 {hidden} 名隐藏战绩）"
-                    : $"已拉取玩家 {covered}/{humans}"
-                      + (hidden > 0 ? $"，隐藏战绩 {hidden} 名" : string.Empty);
+                    ? $"数据齐全 {donePart}{hiddenPart}"
+                    : $"已拉取 {donePart}{hiddenPart}";
 
                 LogSink.Info($"赛前预测第 {round} 轮: 概率 {prediction.AllyWinProbability:F3}，"
-                    + $"覆盖 {covered}/{humans}，隐藏 {hidden}，不完整 {incomplete}");
+                    + $"名单 {total}，真人 {humans}，覆盖 {covered}，隐藏 {hidden}，不完整 {incomplete}");
 
                 Post(() =>
                 {
@@ -1300,13 +1326,20 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 统计覆盖情况：真人数、已有统计数、隐藏数、数据仍不完整的真人数。
+    /// 统计覆盖情况：总人数、真人数、已有统计的真人、确认隐藏的真人、仍缺数据的真人。
     /// </summary>
     /// <remarks>
     /// 不完整指账号胜率、分舰种或单船数据任一缺失。隐藏战绩玩家 WG API
     /// 永远不返回数据，不计入不完整，否则循环永不收敛。
+    ///
+    /// 三项分开数，互不重叠：隐藏只看提供商是否确认，不完整只看数据是否
+    /// 到齐，没拉到的玩家落在不完整里。若把“没查到”也算隐藏，显示层会
+    /// 冒出根本没被标记过的隐藏玩家，覆盖数也对不上。
+    ///
+    /// Total 与 Humans 分开是给显示用的：名单里夹着机器人，x/y 的分母
+    /// 要和名单总人数一致，隐藏与缺数据只从真人里数。
     /// </remarks>
-    internal static (int Humans, int Covered, int Hidden, int Incomplete) DescribeCoverage(
+    internal static (int Total, int Humans, int Covered, int Hidden, int Incomplete) DescribeCoverage(
         BattleRecord battle)
     {
         var humans = battle.HumanPlayers.ToList();
@@ -1315,7 +1348,18 @@ public sealed class MainViewModel : ViewModelBase
         // 若只数账号胜率，"已拉取 x/y"会在舰种与单船仍空时显示成满。
         int covered = humans.Count(p => !p.IsHidden && p.IsFullyCovered);
         int incomplete = humans.Count(p => !p.IsHidden && !p.IsFullyCovered);
-        return (humans.Count, covered, hidden, incomplete);
+        return (battle.Players.Count, humans.Count, covered, hidden, incomplete);
+    }
+
+    /// <summary>
+    /// 把一行刷新投到界面线程。后台线程轮询时用，不能直接改行对象。
+    /// </summary>
+    private void RefreshRowsOnUiThread(int version, IEnumerable<PlayerRecord> players)
+    {
+        // 必须先把记录复制成独立序列，再进队列。调用方传的是实时观察集合，
+        // 排队后再枚举会和界面线程的增删撞车，抛“并发修改了非并发集合”。
+        var snapshot = players.ToList();
+        Post(() => RefreshRowsFor(version, snapshot));
     }
 
     /// <summary>已覆盖的真人数量，用于判定本轮是否有进展。</summary>

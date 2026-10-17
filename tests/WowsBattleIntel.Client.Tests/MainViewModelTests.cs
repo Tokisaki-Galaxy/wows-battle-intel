@@ -654,12 +654,70 @@ public class MainViewModelTests
             ],
         };
 
-        var (humans, covered, hidden, incomplete) = MainViewModel.DescribeCoverage(battle);
+        var (total, humans, covered, hidden, incomplete) = MainViewModel.DescribeCoverage(battle);
 
+        Assert.Equal(3, total);
         Assert.Equal(3, humans);
         Assert.Equal(1, covered);
         Assert.Equal(1, hidden);
         Assert.Equal(1, incomplete);
+    }
+
+    [Fact]
+    public void DescribeCoverage_UnfetchedPlayer_NotCountedAsHidden()
+    {
+        // 没查到数据的玩家落在不完整里，不能被当成隐藏战绩。
+        var battle = new BattleRecord
+        {
+            BattleId = "cov2",
+            StartedAt = DateTimeOffset.UtcNow,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1", PlayerName = "Full", AccountWinrate = 0.5,
+                    ShipBattles = 10, ClassStatsJson = "{\"BB\":{\"battles\":1,\"wins\":0}}",
+                },
+                new PlayerRecord { AccountId = "2", PlayerName = "Unfetched", AccountWinrate = -1 },
+            ],
+        };
+
+        var (total, humans, covered, hidden, incomplete) = MainViewModel.DescribeCoverage(battle);
+
+        Assert.Equal(2, total);
+        Assert.Equal(2, humans);
+        Assert.Equal(1, covered);
+        Assert.Equal(0, hidden);
+        Assert.Equal(1, incomplete);
+    }
+
+    [Fact]
+    public void DescribeCoverage_TotalIncludesBots()
+    {
+        // 分母用名单总人数，机器人也计入，界面上的 x/y 才不会看起来少一个。
+        var battle = new BattleRecord
+        {
+            BattleId = "cov3",
+            StartedAt = DateTimeOffset.UtcNow,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1", PlayerName = "Full", AccountWinrate = 0.5,
+                    ShipBattles = 10, ClassStatsJson = "{\"BB\":{\"battles\":1,\"wins\":0}}",
+                },
+                new PlayerRecord { AccountId = "2", PlayerName = ":bot:1", IsBot = true },
+                new PlayerRecord { AccountId = "3", PlayerName = ":bot:2", IsBot = true },
+            ],
+        };
+
+        var (total, humans, covered, hidden, incomplete) = MainViewModel.DescribeCoverage(battle);
+
+        Assert.Equal(3, total);
+        Assert.Equal(1, humans);
+        Assert.Equal(1, covered);
+        Assert.Equal(0, hidden);
+        Assert.Equal(0, incomplete);
     }
 
     [Fact]
@@ -696,12 +754,15 @@ public class MainViewModelTests
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
 
-        // 阶段一立即出现名单，不等在线补拉。
+        // 阶段一立即出现名单，不等在线补拉。未拉到的玩家显示占位符，
+        // 不能被写成“隐藏”，两者只有提供商会话能区分。
         await WaitUntilAsync(
             () => vm.Allies.Count > 0 && vm.Enemies.Count > 0 && !vm.IsBusy,
             "阶段一名单加载");
         Assert.Equal("-", vm.Allies[0].BattlesText);
-        Assert.Equal("隐藏", vm.Allies[0].WinrateText);
+        Assert.Equal("-", vm.Allies[0].WinrateText);
+        Assert.Equal("-", vm.Allies[0].TierLabel);
+        Assert.False(vm.Allies[0].IsHidden);
         Assert.Equal("-", vm.Allies[0].WeightedWinrateText);
 
         // 阶段二在后台拉取，测试环境网络必败，占位符保留为合法终态。
@@ -714,64 +775,5 @@ public class MainViewModelTests
         Assert.Equal("-", vm.Allies[0].BattlesText);
         Assert.Single(vm.Allies);
         Assert.Single(vm.Enemies);
-    }
-
-    [Fact]
-    public async Task SelectBattle_ProgressiveLoad_StatusClearedOnNextSelection()
-    {
-        // 换局时上一局的补拉进度提示必须清掉，不留旧进度。
-        using var holder = await TestServices.CreateAsync();
-        // 第一局缺统计，触发补拉提示；第二局统计齐全，不开启补拉。
-        var first = MakeBattle("battle-a", BattleOutcome.Win, DateTimeOffset.UtcNow.AddMinutes(-1));
-        foreach (var p in first.Players)
-        {
-            p.AccountWinrate = -1;
-            p.AccountBattles = -1;
-        }
-
-        await holder.Services.Repository.SaveBattleAsync(first);
-        var second = MakeBattle("battle-b", BattleOutcome.Win, DateTimeOffset.UtcNow.AddMinutes(-2));
-        second.Players[0].ShipId = "SHIP-A";
-        second.Players[1].ShipId = "SHIP-B";
-        await holder.Services.Repository.SaveBattleAsync(second);
-
-        // battle_players 不保存战绩字段，第二局不触发补拉要靠快照命中，
-        // 快照带匹配的 ship_id 才能一并补上单船场次。
-        var seedShips = new Dictionary<string, string>
-        {
-            ["1001"] = "SHIP-A",
-            ["2001"] = "SHIP-B",
-        };
-        foreach (var (accountId, shipId) in seedShips)
-        {
-            await holder.Services.Repository.SaveSnapshotAsync(new PlayerSnapshot
-            {
-                AccountId = accountId,
-                Server = GameServer.Asia,
-                CapturedAt = DateTimeOffset.UtcNow,
-                AccountBattles = 1000,
-                AccountWinrate = 0.5,
-                WeightedWinrate = 0.5,
-                ShipId = shipId,
-                ShipBattles = 100,
-                // 分舰种数据也要齐，否则按新口径仍算不完整会触发补拉。
-                ClassStatsJson = "{\"BB\":{\"battles\":100,\"wins\":50}}",
-            });
-        }
-
-        var vm = new MainViewModel(holder.Services);
-        await vm.LoadRecentBattlesAsync();
-
-        vm.SelectedHistoryBattle = vm.RecentBattles[0];
-        await WaitUntilAsync(() => vm.Allies.Count > 0 && !vm.IsBusy, "第一局加载");
-        await WaitUntilAsync(
-            () => vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
-            "补拉提示出现");
-
-        vm.SelectedHistoryBattle = vm.RecentBattles[1];
-        await WaitUntilAsync(
-            () => vm.Allies.Count > 0 && !vm.IsBusy,
-            "第二局加载");
-        Assert.False(vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal));
     }
 }
