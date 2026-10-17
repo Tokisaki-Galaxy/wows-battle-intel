@@ -122,6 +122,24 @@ public class ArenaInfoWatcherTests : IDisposable
     }
 
     [Fact]
+    public void ScanOnce_WithinOneHourWindow_Fires()
+    {
+        // 窗口是一小时，接近上界但仍在窗口内的文件应触发。
+        WriteArena("16.10.2026 13:00:00");
+        File.SetLastWriteTimeUtc(
+            Path.Combine(replayDir, "tempArenaInfo.json"),
+            DateTime.UtcNow.AddMinutes(-50));
+
+        using var watcher = new ArenaInfoWatcher(CreateConfig());
+        int fired = 0;
+        watcher.PreBattleDiscovered += _ => fired++;
+
+        watcher.ScanOnce();
+
+        Assert.Equal(1, fired);
+    }
+
+    [Fact]
     public void ScanOnce_StaleFileAfterActive_FiresEnded()
     {
         // 已有一局在展示，随后文件变陈旧（例如游戏异常退出后残留），应收起。
@@ -131,7 +149,7 @@ public class ArenaInfoWatcherTests : IDisposable
         watcher.PreBattleEnded += () => ended = true;
 
         watcher.ScanOnce();
-        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-1));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
         watcher.ScanOnce();
 
         Assert.True(ended);

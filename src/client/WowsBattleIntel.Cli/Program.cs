@@ -1748,7 +1748,7 @@ internal static class Program
             return null;
         }
 
-        DateTime staleBefore = DateTime.UtcNow.AddMinutes(-10);
+        DateTime staleBefore = DateTime.UtcNow.AddHours(-1);
         string? best = null;
         DateTime bestTime = DateTime.MinValue;
         foreach (string file in Directory.EnumerateFiles(replayRoot, "tempArenaInfo.json", SearchOption.AllDirectories))

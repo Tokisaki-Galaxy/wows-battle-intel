@@ -44,9 +44,9 @@ public sealed class ArenaInfoWatcher : IDisposable
     /// 对局正常结束后游戏会删除 tempArenaInfo，但崩溃或被强制关闭时会残留一份。
     /// 观测器递归取最新修改的那个，若不做时效判断，会在下次启动时把这份残留
     /// 当成当前对局显示，时间停在残留那天。加载界面与对局进行中游戏都会持续
-    /// 重写该文件，修改时间始终很近，取十分钟足以覆盖"对局中途启动客户端"。
+    /// 重写该文件，修改时间始终很近，取一小时足以覆盖各种启动时机。
     /// </remarks>
-    private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromHours(1);
 
     /// <summary>上次成功触发时该文件的修改时间，用于"比上次新才触发"判重。</summary>
     private DateTime lastSeenWriteTimeUtc = DateTime.MinValue;
