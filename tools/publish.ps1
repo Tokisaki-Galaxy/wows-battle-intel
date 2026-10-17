@@ -103,7 +103,7 @@ try {
     $publishArgs = @(
         "publish", "src/client/WowsBattleIntel.Client/WowsBattleIntel.Client.csproj",
         "-c", "Release", "-r", "win-x64",
-        "-p:PublishSingleFile=true", "-p:SelfContained=false", "-p:PublishTrimmed=false"
+        "-p:PublishSingleFile=false", "-p:SelfContained=false", "-p:PublishTrimmed=false"
     )
     Write-Host "[publish] 发布客户端..."
     dotnet @publishArgs
@@ -123,12 +123,22 @@ try {
         Write-Host "[publish] 发布 CLI..."
         dotnet publish src/client/WowsBattleIntel.Cli/WowsBattleIntel.Cli.csproj `
             -c Release -r win-x64 `
-            -p:PublishSingleFile=true -p:SelfContained=false `
+            -p:PublishSingleFile=false -p:SelfContained=false `
             -o (Join-Path $OutputDir "cli-tmp")
         if ($LASTEXITCODE -ne 0) { throw "CLI 发布失败，退出码 $LASTEXITCODE" }
 
+        # CLI 与客户端共用同一份原生库，只补复制客户端没有的文件，
+        # 避免同一份 dll 被写两遍。
         $cliOut = Join-Path $OutputDir "cli-tmp"
         Copy-Item (Join-Path $cliOut "wows-intel.exe") $stage
+        Get-ChildItem $cliOut -File |
+            Where-Object { $_.Extension -notin ".pdb", ".xml", ".lib" } |
+            ForEach-Object {
+                $target = Join-Path $stage $_.Name
+                if (-not (Test-Path $target)) {
+                    Copy-Item $_.FullName $stage
+                }
+            }
         Remove-Item $cliOut -Recurse -Force
     }
 
@@ -157,6 +167,23 @@ try {
     # config 模板与说明文档。
     Copy-Item (Join-Path $repoRoot "tools/publish/config.sample.json") $stage
     Copy-Item (Join-Path $repoRoot "tools/publish/README.txt") $stage
+
+    # 关键原生库自检。曾因单文件发布静默丢掉 onnxruntime 与 e_sqlite3，
+    # 出过一个能双击启动、但一碰数据库就崩的坏包。
+    $required = @(
+        "WowsBattleIntel.Client.exe",
+        "wows-intel.exe",
+        "onnxruntime.dll",
+        "e_sqlite3.dll",
+        "Microsoft.ML.OnnxRuntime.dll",
+        "Microsoft.Data.Sqlite.dll",
+        "models/baseline.onnx"
+    )
+    $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
+    if ($missing.Count -gt 0) {
+        throw "发布包缺少关键文件: $($missing -join ', ')。请检查 publish 参数是否把原生库输出到了目录。"
+    }
+    Write-Host "[publish] 关键文件自检通过"
 
     if ($SmokeTest) {
         Write-Host "[publish] 冒烟验证客户端启动..."

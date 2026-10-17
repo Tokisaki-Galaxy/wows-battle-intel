@@ -35,8 +35,10 @@ wows-intel.exe 为命令行工具，供高级用户离线补采与校验，
 
 WowsBattleIntel.Client.exe  主程序
 wows-intel.exe              命令行工具
+WowsBattleIntel.*.dll       程序自身的各层组件
 onnxruntime.dll             ONNX 推理原生库
 e_sqlite3.dll               SQLite 原生库
+*.dll                       其余托管依赖
 models\baseline.onnx        默认预测模型
 tools\replayshark.exe       回放解析器（直接从游戏目录读数据）
 config.sample.json          配置模板
