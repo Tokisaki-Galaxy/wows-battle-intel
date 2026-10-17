@@ -345,13 +345,13 @@ public sealed class PlayerRowViewModel : ViewModelBase
             }
 
             double wr = source.AccountWinrate;
-            // 阈值沿用 ApeRadar 默认口径。
-            if (wr > 0.58 && source.AccountBattles >= 500)
+            // 档位判定与队伍聚合共用 TeamAggregator 的阈值。
+            return TeamAggregator.ClassifyPlayer(wr, source.AccountBattles) switch
             {
-                return "海王";
-            }
-
-            return wr <= 0.47 ? "猴子" : "普通";
+                PlayerTier.Unicum => "海王",
+                PlayerTier.Ape => "猴子",
+                _ => "普通",
+            };
         }
     }
 
@@ -387,12 +387,12 @@ public sealed class PlayerRowViewModel : ViewModelBase
             return "HiddenBrush";
         }
 
-        if (winrate > 0.58 && battles >= 500)
+        return TeamAggregator.ClassifyPlayer(winrate, battles) switch
         {
-            return "UnicumBrush";
-        }
-
-        return winrate <= 0.47 ? "ApeBrush" : "TextPrimaryBrush";
+            PlayerTier.Unicum => "UnicumBrush",
+            PlayerTier.Ape => "ApeBrush",
+            _ => "TextPrimaryBrush",
+        };
     }
 
     /// <summary>
