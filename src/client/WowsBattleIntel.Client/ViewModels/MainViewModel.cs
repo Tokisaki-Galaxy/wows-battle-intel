@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Client.Views.Converters;
 using WowsBattleIntel.Core.Abstractions;
@@ -22,6 +23,9 @@ public sealed class MainViewModel : ViewModelBase
 {
     private readonly AppServices services;
     private readonly SynchronizationContext? syncContext;
+
+    // 测试用回放目录覆盖。为空时读配置，避免测试去扫本机真实回放目录。
+    private readonly string? replayDirectory;
 
     // 详情加载的代次与取消源。每次选择新对局都递增代次并取消旧的
     // 后台补拉，防止快速连点时旧任务的回写污染新对局的名单。
@@ -87,10 +91,9 @@ public sealed class MainViewModel : ViewModelBase
     /// 历史列表一次最多读取的对局数。
     /// </summary>
     /// <remarks>
-    /// 不取无限是为了启动速度：列表逐局补齐名单与预测，每条都是一次库查询，
-    /// 行数越多启动越慢，界面线程在加载期间一直占着。两千行在实测里是
-    /// 秒级量级的上限，覆盖绝大多数玩家的全部历史；真被截断时界面会明确
-    /// 提示，不让用户以为"就这么多"。
+    /// 不取无限是为了启动速度：行数越多，单条列表查询与界面集合重建越慢。
+    /// 现在列表走单条 SQL 只取摘要字段，两千行与配合占位项足够覆盖绝大多数
+    /// 玩家的全部历史；真被截断时界面会明确提示，不让用户以为"就这么多"。
     /// </remarks>
     internal const int HistoryBattleLimit = 2000;
 
@@ -99,10 +102,21 @@ public sealed class MainViewModel : ViewModelBase
     /// </summary>
     /// <param name="services">应用服务。</param>
     /// <param name="pathPicker">配置界面的路径选择器。为空时配置项只能手动输入。</param>
-    public MainViewModel(AppServices services, IPathPicker? pathPicker = null)
+    /// <param name="replayDirectory">回放目录。为空时读当前配置的回放目录。</param>
+    public MainViewModel(
+        AppServices services,
+        IPathPicker? pathPicker = null,
+        string? replayDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         this.services = services;
+        this.replayDirectory = replayDirectory;
+
+        // 测试用空目录按“没有回放目录不会列占位项”处理，生产读配置。
+        if (this.replayDirectory is null && BuildEnvironment.IsTestHost)
+        {
+            this.replayDirectory = string.Empty;
+        }
 
         syncContext = SynchronizationContext.Current;
         Calibration = new CalibrationViewModel(services);
@@ -154,10 +168,14 @@ public sealed class MainViewModel : ViewModelBase
     public IReadOnlyList<BattleSummaryViewModel> LiveBattles =>
         currentBattle is null ? [] : [currentBattle];
 
-    /// <summary>历史对局，符合筛选条件的入库记录。</summary>
+    /// <summary>历史对局，符合筛选条件的记录。</summary>
+    /// <remarks>
+    /// 既包含已入库的对局，也包含回放目录里尚未入库的占位项。占位项的
+    /// 模式与日期未知，筛选时按“未判定”处理，全部模式下照常显示。
+    /// </remarks>
     public IReadOnlyList<BattleSummaryViewModel> HistoryBattles =>
         RecentBattles
-            .Where(s => HistoryBattleTypeFilter is null || s.Battle.BattleType == HistoryBattleTypeFilter)
+            .Where(s => HistoryBattleTypeFilter is null || s.BattleType == HistoryBattleTypeFilter)
             .Where(s => HistoryDaysFilter is null
                 || s.StartedAt >= DateTimeOffset.UtcNow.AddDays(-HistoryDaysFilter.Value))
             .ToList();
@@ -285,13 +303,20 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     // 两个列表互斥选中：选实时区时清掉历史区的选中。
                     SetField(ref selectedHistoryBattle, null, nameof(SelectedHistoryBattle));
-                    SelectedBattle = value.Battle;
+                    if (value.Battle is not null)
+                    {
+                        SelectedBattle = value.Battle;
+                    }
                 }
             }
         }
     }
 
     /// <summary>历史对局列表选中的摘要项，设置时同步到底层对局记录。</summary>
+    /// <remarks>
+    /// 选中的是占位项（回放还没入库）时，先解析入库再加载详情。解析要几秒，
+    /// 期间详情区显示加载提示，列表项原地刷新成正式条目。
+    /// </remarks>
     public BattleSummaryViewModel? SelectedHistoryBattle
     {
         get => selectedHistoryBattle;
@@ -303,9 +328,79 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     // 两个列表互斥选中：选历史区时清掉实时区的选中。
                     SetField(ref selectedLiveBattle, null, nameof(SelectedLiveBattle));
-                    SelectedBattle = value.Battle;
+                    _ = SelectHistoryBattleAsync(value);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// 处理历史区选中：库中已有的直接读详情，占位项先解析入库。
+    /// </summary>
+    private async Task SelectHistoryBattleAsync(BattleSummaryViewModel summary)
+    {
+        if (!summary.IsPlaceholder)
+        {
+            // 列表只带摘要，详情按标识读完整记录。
+            var full = await services.Repository
+                .GetBattleAsync(summary.BattleId)
+                .ConfigureAwait(true);
+            if (full is not null)
+            {
+                SelectedBattle = full;
+            }
+
+            return;
+        }
+
+        string replayPath = summary.ReplayPath;
+        if (replayPath.Length == 0)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = "正在解析回放...";
+        try
+        {
+            var result = await services.Backfill
+                .IngestAsync(replayPath)
+                .ConfigureAwait(true);
+
+            if (!result.Success || result.Battle is null)
+            {
+                StatusMessage = result.Message ?? "回放解析失败";
+                LogSink.Warn($"回放补录失败: {Path.GetFileName(replayPath)} · {result.Message}");
+                return;
+            }
+
+            // 解析成功：列表项原地换成正式条目，随后按正式标识读详情。
+            var entry = await services.Repository
+                .GetBattleListAsync(HistoryBattleLimit)
+                .ConfigureAwait(true);
+            var match = entry.FirstOrDefault(e =>
+                string.Equals(e.BattleId, result.Battle.BattleId, StringComparison.Ordinal));
+            if (match is not null)
+            {
+                summary.Update(match);
+            }
+
+            // 队列里可能有同一份回放，补录成功后入库路径自带幂等。
+            SelectedBattle = result.Battle;
+            StatusMessage = result.IsDuplicate ? "该局已存在" : "回放已入库";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "解析已取消";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"回放解析失败: {ex.Message}";
+            LogSink.Error($"回放补录异常: {Path.GetFileName(replayPath)} · {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
 
@@ -536,38 +631,26 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            // 多取一条用来判断是否被截断：取回条数超过上限，说明库里还有更早的。
-            var battles = await services.Repository
-                .GetRecentBattlesAsync(limit: HistoryBattleLimit + 1, cancellationToken)
-                .ConfigureAwait(true);
+            // 列表只取摘要字段，回放目录里尚未入库的对局以占位项一并返回。
+            // 占位项不在这里解析：几百份回放全跑一遍会让启动卡上几分钟。
+            var snapshot = await LoadSnapshotAsync(cancellationToken).ConfigureAwait(true);
 
-            bool truncated = battles.Count > HistoryBattleLimit;
-            if (truncated)
-            {
-                battles = battles.Take(HistoryBattleLimit).ToList();
-            }
-
-            // 列表查询不带参战者，批量补齐，列表项的等级标签需要名单。
-            await services.Repository
-                .AttachPlayersAsync(battles, cancellationToken)
-                .ConfigureAwait(true);
-
-            // 逐局取预测胜率，列表上直接显示对照所需的关键数字。
-            var summaries = new List<BattleSummaryViewModel>(battles.Count);
-            foreach (var battle in battles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var prediction = await services.Repository
-                    .GetPredictionAsync(battle.BattleId, cancellationToken)
-                    .ConfigureAwait(true);
-
-                summaries.Add(BattleSummaryViewModel.FromBattle(
-                    battle,
-                    sourcePath: string.Empty,
-                    predictedWinProbability: prediction?.AllyWinProbability));
-            }
+            bool truncated = snapshot.Battles.Count > HistoryBattleLimit;
+            var stored = truncated
+                ? snapshot.Battles.Take(HistoryBattleLimit).ToList()
+                : snapshot.Battles;
 
             string? keepId = selectedBattle?.BattleId;
+            bool keepSelection = selectedHistoryBattle is not null;
+
+            var summaries = new List<BattleSummaryViewModel>(stored.Count + snapshot.PendingReplays.Count);
+
+            // 先放占位项：回放目录里存在、库里还没有的对局，点开才解析。
+            summaries.AddRange(snapshot.PendingReplays.Select(BattleSummaryViewModel.FromReplay));
+            summaries.AddRange(stored.Select(BattleSummaryViewModel.FromEntry));
+
+            // 两组各自的排序都倒序，合并后统一按开战时间倒序，占位项与已入库项交错。
+            summaries.Sort((a, b) => b.StartedAt.CompareTo(a.StartedAt));
 
             RecentBattles.Clear();
             foreach (var summary in summaries)
@@ -575,10 +658,19 @@ public sealed class MainViewModel : ViewModelBase
                 RecentBattles.Add(summary);
             }
 
-            // 尽量保持原选中项，刷新后不跳走。实时区与历史区各恢复各自的选中。
-            if (keepId is not null)
+            int pending = snapshot.PendingReplays.Count;
+            if (pending > 0)
             {
-                var reselect = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == keepId);
+                LogSink.Info(
+                    $"回放目录中发现 {pending} 场未入库的对局，已列为占位项，点击时解析");
+            }
+
+            // 尽量保持原选中项，刷新后不跳走。只续选历史区自己的条目：
+            // 选中实时区赛前对局时不把这个选中状态带进历史区。
+            if (keepSelection)
+            {
+                var reselect = RecentBattles.FirstOrDefault(s =>
+                    !s.IsPlaceholder && s.BattleId == keepId);
                 if (reselect is not null)
                 {
                     SelectedHistoryBattle = reselect;
@@ -607,6 +699,33 @@ public sealed class MainViewModel : ViewModelBase
             IsBusy = false;
             NotifyListChanged();
         }
+    }
+
+    /// <summary>
+    /// 取列表快照。测试里可以覆盖回放目录，生产走补录服务读配置。
+    /// </summary>
+    private async Task<BattleListSnapshot> LoadSnapshotAsync(CancellationToken cancellationToken)
+    {
+        if (replayDirectory is null)
+        {
+            return await services.Backfill
+                .BuildSnapshotAsync(HistoryBattleLimit + 1, cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        // 测试与托管场景用固定目录：直接读库，占位项按文件名时间比对。
+        var stored = await services.Repository
+            .GetBattleListAsync(HistoryBattleLimit + 1, cancellationToken)
+            .ConfigureAwait(false);
+        string root = replayDirectory;
+        var replays = await Task.Run(
+            () => ReplayDirectoryScanner.Scan(root, TimeSpan.FromSeconds(5), cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+
+        var pending = replays
+            .Where(r => stored.All(s => (s.StartedAt - r.StartedAt).Duration() > TimeSpan.FromMinutes(1)))
+            .ToList();
+        return new BattleListSnapshot(stored, pending);
     }
 
     /// <summary>
@@ -857,7 +976,8 @@ public sealed class MainViewModel : ViewModelBase
             }
 
             // 同步刷新左侧列表项的预测概率，否则列表要重启才更新。
-            var summary = RecentBattles.FirstOrDefault(s => s.Battle.BattleId == battle.BattleId);
+            var summary = RecentBattles.FirstOrDefault(s =>
+                !s.IsPlaceholder && s.BattleId == battle.BattleId);
             summary?.UpdatePrediction(prediction.AllyWinProbability);
             currentBattle?.UpdatePrediction(prediction.AllyWinProbability);
 
@@ -1256,14 +1376,14 @@ public sealed class MainViewModel : ViewModelBase
             return;
         }
 
-        if (currentBattle is not null
-            && string.Equals(currentBattle.Battle.BattleId, battle.BattleId, StringComparison.Ordinal)
-            && battle.Players.Count < currentBattle.Battle.Players.Count)
+        if (currentBattle?.Battle is { } live
+            && string.Equals(live.BattleId, battle.BattleId, StringComparison.Ordinal)
+            && battle.Players.Count < live.Players.Count)
         {
             // 键不推进：后续再来同样人数的读数是同一次回退的重复现象，
             // 同样不该覆盖；等人数涨回旧值或更多时自然放行。
             LogSink.Warn(
-                $"赛前名单人数回退，保留旧名单: {battle.Players.Count} < {currentBattle.Battle.Players.Count}");
+                $"赛前名单人数回退，保留旧名单: {battle.Players.Count} < {live.Players.Count}");
             return;
         }
 
@@ -1317,7 +1437,7 @@ public sealed class MainViewModel : ViewModelBase
         // 点一下就切过去。只在新对局开始时自动切，同一局的名单刷新
         // 不打断浏览。
         bool isNewBattle = previousLive is null
-            || !string.Equals(previousLive.Battle.BattleId, battle.BattleId, StringComparison.Ordinal);
+            || !string.Equals(previousLive.BattleId, battle.BattleId, StringComparison.Ordinal);
         if (isNewBattle || selectedHistoryBattle is null)
         {
             SelectedHistoryBattle = null;
