@@ -29,7 +29,7 @@ wows-battle-intel 解压即用绿色包
 四、命令行工具
 
 wows-intel 为离线分析工具，供高级用户批量导入与回测，
-单独打包在 wows-intel-<版本>-win-x64.zip 中，日常使用不需要下载。
+单独打包在 wows-intel-<版本>-win-x64-cli.zip 中，日常使用不需要下载。
 
 五、目录结构
 

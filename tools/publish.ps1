@@ -87,17 +87,12 @@ try {
     }
 
     # Velopack 只认三段 semver。git describe 的 v0.2.0-3-gabcdef 截为主版本，
-    # 八位日期映射为 日期形式。普通 zip 名保留原始版本串不动。
-
-    $zipName = "wows-battle-intel-$Version-win-x64.zip"
     $stage = Join-Path $OutputDir "wows-battle-intel-$Version-win-x64"
-    $zipPath = Join-Path $OutputDir $zipName
 
     Write-Host "[publish] 版本 $Version，输出 $OutputDir"
 
-    # 幂等：先清后建。
+    # 幂等：先清后建。目录本身是 vpk 的输入，必须保留。
     if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     New-Item $stage -ItemType Directory -Force | Out-Null
 
     # 单文件发布，含原生库。IncludeNativeLibrariesForSelfExtract 必须显式打开，
@@ -220,11 +215,10 @@ try {
         Write-Host "[publish] 冒烟通过: 进程存活 5 秒后正常结束"
     }
 
-    Write-Host "[publish] 打 zip..."
-    Compress-Archive -Path "$stage/*" -DestinationPath $zipPath -CompressionLevel Optimal
-
-    $zipMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-    Write-Host "[publish] 完成: $zipPath ($zipMb MB)"
+    # 不再额外打普通 zip。它的职责已由 Velopack 的 Portable.zip 覆盖，
+    # 后者同样免安装解压即用，还支持自动更新。两种包并存只会让下载页
+    # 多一个需要用户判断的选项。
+    Write-Host "[publish] 客户端目录: $stage"
 
     if (-not $SkipVelopack) {
         Write-Host "[publish] Velopack 打包（semver $semver）..."
