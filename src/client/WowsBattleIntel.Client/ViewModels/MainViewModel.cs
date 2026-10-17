@@ -1042,7 +1042,16 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         string progressText = $"{StatsFetchStatusPrefix}{missing.Count} 名玩家的统计...";
-        StatusMessage = progressText;
+
+        // 跑在线程池里，不占界面线程；写界面状态时再投回去。阶段一刚放开
+        // 界面时，排队进来的选中操作会先跑，投递被清掉也不会残留在界面上。
+        Post(() =>
+        {
+            if (IsDetailsCurrent(version))
+            {
+                StatusMessage = progressText;
+            }
+        });
         LogSink.Info($"快照在线补拉开始，缺统计玩家 {missing.Count} 名");
 
         try

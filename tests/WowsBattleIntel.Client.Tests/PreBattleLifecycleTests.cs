@@ -14,6 +14,7 @@ namespace WowsBattleIntel.Client.Tests;
 /// 观测事件经同步上下文回投界面线程，异步测试里 xunit 装了同步上下文，
 /// 事件落地晚于 ScanOnce 返回，断言前必须轮询等待。
 /// </remarks>
+[Collection(SequentialTestCollection.Name)]
 public class PreBattleLifecycleTests : IDisposable
 {
     private readonly string gamePath;
@@ -187,7 +188,6 @@ public class PreBattleLifecycleTests : IDisposable
             () => !vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
             "换局后补拉提示消失",
             timeoutSeconds: 15);
-        Assert.False(vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal));
     }
 
     [Fact]
