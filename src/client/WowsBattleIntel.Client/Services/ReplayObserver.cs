@@ -1,4 +1,3 @@
-using System.IO;
 using WowsBattleIntel.Client.Configuration;
 
 namespace WowsBattleIntel.Client.Services;
@@ -11,12 +10,22 @@ namespace WowsBattleIntel.Client.Services;
 /// 观测与解析严格分离：本服务只负责发现，不解析。
 ///
 /// 用轮询而非 FileSystemWatcher，原因：游戏写回放时可能先建文件再写入，
-/// FileSystemWatcher 会触发多次且可能在写入完成前触发。轮询配合文件稳定
-/// 判定更可靠，且游戏回放目录不深，扫描代价低。
+/// FileSystemWatcher 会触发多次且可能在写入完成前触发。轮询配合文件
+/// 稳定判定更可靠，且游戏回放目录不深，扫描代价低。
+///
+/// 首次扫描只登记不通知的老做法会让应用没在运行期间打完的每一局永久漏掉。
+/// 现在首次扫描不再交给该集合，而是逐份比对库：已入库的当作已知，未入库的
+/// 交给 <see cref="ReplayDiscovered"/>，由消费方决定是否收集。
 /// </remarks>
 public sealed class ReplayObserver : IDisposable
 {
+    /// <summary>
+    /// 判断某份回放是否已入库的委托。返回 false 表示这是漏掉的场次。
+    /// </summary>
+    public delegate Task<bool> KnownReplayCheck(string replayPath, DateTimeOffset startedAt);
+
     private readonly AppConfig config;
+    private readonly KnownReplayCheck? knownCheck;
     private readonly HashSet<string> knownFiles = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? cts;
     private Task? loop;
@@ -27,12 +36,17 @@ public sealed class ReplayObserver : IDisposable
     public event Action<string>? ReplayDiscovered;
 
     /// <summary>
-    /// 构造观测器。
+    /// 构造函数。
     /// </summary>
-    public ReplayObserver(AppConfig config)
+    /// <param name="config">配置。</param>
+    /// <param name="knownCheck">
+    /// 首次扫描时用来判断回放是否已入库。为空时首次扫描行为与后续扫描一致。
+    /// </param>
+    public ReplayObserver(AppConfig config, KnownReplayCheck? knownCheck = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         this.config = config;
+        this.knownCheck = knownCheck;
     }
 
     /// <summary>
@@ -46,7 +60,8 @@ public sealed class ReplayObserver : IDisposable
         }
 
         cts = new CancellationTokenSource();
-        loop = Task.Run(() => ObserveLoopAsync(cts.Token));
+        Task loopTask = Task.Run(() => ObserveLoopAsync(cts.Token));
+        loop = loopTask;
     }
 
     /// <summary>
@@ -74,8 +89,7 @@ public sealed class ReplayObserver : IDisposable
     /// </summary>
     private async Task ObserveLoopAsync(CancellationToken cancellationToken)
     {
-        // 首次扫描只登记既有文件，不触发事件，避免启动时批量解析历史回放。
-        ScanOnce(notify: false);
+        await FirstScanAsync(cancellationToken).ConfigureAwait(false);
 
         var interval = TimeSpan.FromSeconds(Math.Max(3, config.PollIntervalSeconds));
 
@@ -98,67 +112,52 @@ public sealed class ReplayObserver : IDisposable
     }
 
     /// <summary>
+    /// 首次扫描：库里已有的直接登记为已知，未入库的上报给消费方。
+    /// </summary>
+    /// <remarks>
+    /// 不设 5 秒空闲门槛：刚打完一局就启动应用时，文件可能才存在几秒。
+    /// 首次扫描的范围有限，读半成品的概率也低。
+    /// </remarks>
+    private async Task FirstScanAsync(CancellationToken cancellationToken)
+    {
+        var files = ReplayDirectoryScanner.Scan(config.ReplayDirectory, TimeSpan.Zero, cancellationToken);
+
+        foreach (var file in files)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            bool known = knownCheck is not null
+                && await knownCheck(file.Path, file.StartedAt).ConfigureAwait(false);
+            if (known)
+            {
+                // 已入库的也并入已知集合，后续轮询不再重复上报。
+                knownFiles.Add(file.Path);
+                continue;
+            }
+
+            ReplayDiscovered?.Invoke(file.Path);
+        }
+    }
+
+    /// <summary>
     /// 扫描一次回放目录。
     /// </summary>
     /// <param name="notify">是否对新文件触发事件。</param>
     private void ScanOnce(bool notify)
     {
-        string replayRoot = config.ReplayDirectory;
-        if (!Directory.Exists(replayRoot))
-        {
-            return;
-        }
+        var files = ReplayDirectoryScanner.Scan(
+            config.ReplayDirectory,
+            TimeSpan.FromSeconds(5));
 
-        // 回放按版本分子目录，递归查找。
-        IEnumerable<string> files;
-        try
+        foreach (var file in files)
         {
-            files = Directory.EnumerateFiles(replayRoot, "*.wowsreplay", SearchOption.AllDirectories);
-        }
-        catch
-        {
-            return;
-        }
-
-        foreach (string file in files)
-        {
-            if (Path.GetFileName(file).Equals("temp.wowsreplay", StringComparison.OrdinalIgnoreCase))
+            if (knownFiles.Add(file.Path) && notify)
             {
-                continue;
+                ReplayDiscovered?.Invoke(file.Path);
             }
-
-            // 文件仍在写入时跳过，下次扫描再处理。
-            if (!IsFileStable(file))
-            {
-                continue;
-            }
-
-            if (knownFiles.Add(file) && notify)
-            {
-                ReplayDiscovered?.Invoke(file);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 判断文件是否已写完。以最近修改时间距今超过阈值作为稳定判据。
-    /// </summary>
-    private static bool IsFileStable(string path)
-    {
-        try
-        {
-            var info = new FileInfo(path);
-            if (!info.Exists || info.Length == 0)
-            {
-                return false;
-            }
-
-            // 回放写完到落盘通常很快，5 秒无变化视为稳定。
-            return DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromSeconds(5);
-        }
-        catch
-        {
-            return false;
         }
     }
 
