@@ -26,7 +26,7 @@ public class MainWindowSmokeTests
             ThemeService.ApplyTheme(ThemeMode.Dark);
 
             using var holder = TestServices.CreateAsync().GetAwaiter().GetResult();
-            var viewModel = new MainViewModel(holder.Services);
+            var viewModel = new MainViewModel(holder.Services, null, ReplayBackfillTests.CreateEmptyBackfill(holder.Services));
             var window = new MainWindow(viewModel);
 
             // 触发一次布局，能暴露模板与资源解析的问题。
@@ -46,7 +46,7 @@ public class MainWindowSmokeTests
             ThemeService.ApplyTheme(ThemeMode.Dark);
 
             using var holder = TestServices.CreateAsync().GetAwaiter().GetResult();
-            var viewModel = new MainViewModel(holder.Services);
+            var viewModel = new MainViewModel(holder.Services, null, ReplayBackfillTests.CreateEmptyBackfill(holder.Services));
             var window = new MainWindow(viewModel);
             window.Measure(new Size(1280, 800));
             window.Arrange(new Rect(0, 0, 1280, 800));
@@ -72,7 +72,7 @@ public class MainWindowSmokeTests
             ThemeService.ApplyTheme(ThemeMode.Dark);
 
             using var holder = TestServices.CreateAsync().GetAwaiter().GetResult();
-            var viewModel = new MainViewModel(holder.Services);
+            var viewModel = new MainViewModel(holder.Services, null, ReplayBackfillTests.CreateEmptyBackfill(holder.Services));
             var window = new MainWindow(viewModel);
             window.Measure(new Size(1280, 800));
             window.Arrange(new Rect(0, 0, 1280, 800));

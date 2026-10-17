@@ -24,8 +24,9 @@ public sealed class MainViewModel : ViewModelBase
     private readonly AppServices services;
     private readonly SynchronizationContext? syncContext;
 
-    // 列表补录服务。测试可注入固定回放目录的实例。
-    private readonly ReplayBackfillService backfill;
+    // 列表补录服务。测试可注入固定回放目录的实例；配置换绑后由
+    // ApplyBackfill 换成新实例。
+    private ReplayBackfillService backfill;
 
     // 详情加载的代次与取消源。每次选择新对局都递增代次并取消旧的
     // 后台补拉，防止快速连点时旧任务的回写污染新对局的名单。
@@ -128,15 +129,7 @@ public sealed class MainViewModel : ViewModelBase
             _ => !IsBusy && selectedBattle is not null);
 
         services.Monitor.BattleIngested += OnBattleIngested;
-        ReplayBackfillService configuredBackfill = this.backfill;
-        services.Monitor.BattleIngested += result =>
-        {
-            // 实时入库的场次补进补录的已知时间，下次列表快照不会把它列成占位项。
-            if (result.Battle is { } battle)
-            {
-                configuredBackfill.RememberIngested(battle.StartedAt);
-            }
-        };
+        services.Monitor.BattleIngested += OnBattleIngestedForBackfill;
         services.Monitor.IngestionFailed += OnIngestionFailed;
         services.ArenaWatcher.PreBattleDiscovered += OnPreBattleDiscovered;
         services.ArenaWatcher.PreBattleEnded += OnPreBattleEnded;
@@ -1313,10 +1306,24 @@ public sealed class MainViewModel : ViewModelBase
                 ? $"已跳过 {name}{suffix}"
                 : $"已入库 {name}{suffix}";
 
-
             OnPropertyChanged(nameof(ObservationStatusText));
             _ = RefreshAfterIngestionAsync();
         });
+    }
+
+    /// <summary>
+    /// 实时入库的场次补进补录的已知时间，下次列表快照不会把它列成占位项。
+    /// </summary>
+    /// <remarks>
+    /// 每次读当前实例：设置页换绑配置会重建补录服务，闭包捕获旧实例会把
+    /// 时间记进一张已经作废的缓存。
+    /// </remarks>
+    private void OnBattleIngestedForBackfill(IngestionResult result)
+    {
+        if (result.Battle is { } battle)
+        {
+            backfill.RememberIngested(battle.StartedAt);
+        }
     }
 
     private void OnIngestionFailed(string replayPath, string message)
@@ -1662,11 +1669,30 @@ public sealed class MainViewModel : ViewModelBase
             OnPropertyChanged(nameof(ModelVersionText));
             OnPropertyChanged(nameof(PredictorStatusText));
 
+            // 配置换绑会重建观测器与补录服务，列表要切到新实例，否则后续
+            // 实时入库记进的是已经作废的那份缓存。
+            ApplyBackfill(services.Backfill);
+
             // 配置换绑会重建观测器，旧的当前对局不再有事件驱动，收起。
             ClearCurrentBattle();
 
             _ = RefreshAfterIngestionAsync();
         });
+    }
+
+    /// <summary>
+    /// 切换列表补录服务。旧缓存随之作废，下次比对重新读新库。
+    /// </summary>
+    /// <param name="updated">新的补录服务。</param>
+    private void ApplyBackfill(ReplayBackfillService updated)
+    {
+        if (ReferenceEquals(backfill, updated))
+        {
+            return;
+        }
+
+        backfill = updated;
+        backfill.ForgetKnownTimes();
     }
 
     /// <summary>

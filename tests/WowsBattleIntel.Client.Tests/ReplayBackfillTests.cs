@@ -109,7 +109,7 @@ public class ReplayBackfillTests
         await holder.Services.Repository.SaveBattleAsync(pre);
         await SeedStoredBattleAsync(holder.Services, "formal", startedAt.AddMinutes(1));
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(100);
 
         // 同一局只留正式记录，占位记录被清掉。
@@ -141,7 +141,7 @@ public class ReplayBackfillTests
         await holder.Services.Repository.SaveBattleAsync(pre);
         await SeedStoredBattleAsync(holder.Services, "formal", startedAt.AddSeconds(15), mapId: "spaces/09_Other");
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(100);
 
         Assert.DoesNotContain(snapshot.Battles, e => e.BattleId == "other:pre");
@@ -157,7 +157,7 @@ public class ReplayBackfillTests
         await SeedStoredBattleAsync(holder.Services, "ancient", DaysAgo(400));
         replays.Create(DaysAgo(400));
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(limit: 1);
 
         Assert.Empty(snapshot.PendingReplays);
@@ -170,7 +170,7 @@ public class ReplayBackfillTests
         var startedAt = DaysAgo(2);
         await SeedStoredBattleAsync(holder.Services, "battle-stored", startedAt);
 
-        var backfill = CreateBackfill(holder.Services, Path.GetTempPath());
+        var backfill = CreateEmptyBackfill(holder.Services, Path.GetTempPath());
 
         Assert.True(await backfill.IsKnownAsync(startedAt.AddSeconds(20)));
         Assert.False(await backfill.IsKnownAsync(startedAt.AddMinutes(30)));
@@ -183,7 +183,7 @@ public class ReplayBackfillTests
         using var replays = new TempReplayDir();
 
         // 这里只验证原样搬运：解析本身依赖游戏目录，不在单元测试里跑。
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var missing = await backfill.IngestAsync(Path.Combine(replays.Path, "not-there.wowsreplay"));
 
         Assert.False(missing.Success);
@@ -243,7 +243,7 @@ public class ReplayBackfillTests
         await SeedStoredBattleAsync(holder.Services, "ancient-formal", startedAt.AddSeconds(12));
         await SeedStoredBattleAsync(holder.Services, "recent", DaysAgo(1));
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(limit: 1);
 
         Assert.DoesNotContain(snapshot.Battles, e => e.BattleId == "ancient:pre");
@@ -259,7 +259,7 @@ public class ReplayBackfillTests
         var startedAt = DaysAgo(1);
         replays.Create(startedAt);
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var before = await backfill.BuildSnapshotAsync(100);
         Assert.Single(before.PendingReplays);
 
@@ -286,10 +286,59 @@ public class ReplayBackfillTests
         await holder.Services.Repository.SaveBattleAsync(pre);
         await SeedStoredBattleAsync(holder.Services, "earlier", startedAt.AddMinutes(-3));
 
-        var backfill = CreateBackfill(holder.Services, replays.Path);
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
         var snapshot = await backfill.BuildSnapshotAsync(100);
 
         Assert.Contains(snapshot.Battles, e => e.BattleId == "later:pre");
+    }
+    [Fact]
+    public async Task BuildSnapshot_ClearsPlaceholderWhenFormalSharesExactTimestamp()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        // 正式记录与占位记录同一时刻：必须算作已合并，不能因为"时间差为零"漏掉。
+        var startedAt = DaysAgo(1);
+        var pre = new BattleRecord
+        {
+            BattleId = "same:pre",
+            StartedAt = startedAt,
+            BattleType = BattleType.Random,
+            Outcome = BattleOutcome.Unknown,
+        };
+        await holder.Services.Repository.SaveBattleAsync(pre);
+        await SeedStoredBattleAsync(holder.Services, "same-formal", startedAt);
+
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
+        var snapshot = await backfill.BuildSnapshotAsync(100);
+
+        Assert.DoesNotContain(snapshot.Battles, e => e.BattleId == "same:pre");
+        Assert.Empty(await holder.Services.Repository.GetPrebattlePlaceholdersAsync());
+    }
+
+    [Fact]
+    public async Task BuildSnapshot_KeepsLonePlaceholderWithoutFormalRecord()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        // 库里只有占位记录、没有任何正式记录：不能清。占位记录自己的时间
+        // 不能当作"已有正式记录"的证据。
+        var startedAt = DaysAgo(1);
+        var pre = new BattleRecord
+        {
+            BattleId = "lonely:pre",
+            StartedAt = startedAt,
+            BattleType = BattleType.Random,
+            Outcome = BattleOutcome.Unknown,
+        };
+        await holder.Services.Repository.SaveBattleAsync(pre);
+
+        var backfill = CreateEmptyBackfill(holder.Services, replays.Path);
+        var snapshot = await backfill.BuildSnapshotAsync(100);
+
+        Assert.Contains(snapshot.Battles, e => e.BattleId == "lonely:pre");
+        Assert.Single(await holder.Services.Repository.GetPrebattlePlaceholdersAsync());
     }
     [Theory]
     [InlineData(@"20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]
@@ -407,9 +456,16 @@ public class ReplayBackfillTests
     }
 
     private static MainViewModel CreateViewModel(AppServices services, string replayRoot) =>
-        new(services, null, CreateBackfill(services, replayRoot));
+        new(services, null, CreateEmptyBackfill(services, replayRoot));
 
-    private static ReplayBackfillService CreateBackfill(AppServices services, string replayRoot) =>
+    /// <summary>
+    /// 构造指向空回放目录的补录服务。列表只反映库里的记录，测试不依赖
+    /// 开发机上的回放文件。
+    /// </summary>
+    internal static ReplayBackfillService CreateEmptyBackfill(AppServices services) =>
+        CreateEmptyBackfill(services, string.Empty);
+
+    private static ReplayBackfillService CreateEmptyBackfill(AppServices services, string replayRoot) =>
         new(
             () => new AppConfig { GamePath = replayRoot },
             services.Repository,
