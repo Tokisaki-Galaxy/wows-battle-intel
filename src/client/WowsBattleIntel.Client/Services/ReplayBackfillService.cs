@@ -94,13 +94,11 @@ public sealed class ReplayBackfillService
     {
         // 占位记录清理要覆盖全库：列表页被上限截断时，页外的占位记录
         // 永远不在这一页里，只看本页会让它永久残留成一条赛前项。
-        // 全量摘要同时用于按标识区分正式记录，早于回放扫描读出来。
-        var allEntries = await listProvider.GetBattleListAsync(int.MaxValue, cancellationToken)
+        var placeholders = await listProvider.GetPrebattlePlaceholdersAsync(cancellationToken)
             .ConfigureAwait(false);
-        var placeholders = allEntries.Where(e => e.IsPrebattle).ToList();
         var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
 
-        var merges = FindPlaceholderMerges(placeholders, allEntries);
+        var merges = FindPlaceholderMerges(placeholders, known);
         if (merges.Count > 0)
         {
             // 同一局的赛前占位记录已能被正式记录代表，先从库里清掉再出快照。
@@ -111,11 +109,9 @@ public sealed class ReplayBackfillService
             {
                 logs?.Info($"清理赛前占位记录 {removed} 条，同局已有正式记录");
 
-                // 库里少了几条，已知时间与全量摘要都要跟着重读。
+                // 库里少了几条，已知时间要跟着重读，否则后面还会按旧集合比对。
                 ForgetKnownTimes();
                 known = await EnsureKnownTimesAsync().ConfigureAwait(false);
-                allEntries = await listProvider.GetBattleListAsync(int.MaxValue, cancellationToken)
-                    .ConfigureAwait(false);
             }
         }
 
@@ -239,25 +235,42 @@ public sealed class ReplayBackfillService
     /// 记录。占位记录来自 tempArenaInfo，不会晚于它的正式回放；窗口里更早的
     /// 记录不可能是它的正式版本，不能拿来当依据。正式记录一条不动。
     ///
-    /// 按标识区分正式记录与占位记录，不能按时间去重：同一秒写入的正式记录
-    /// 与占位记录时间相同，按时间剔会把正式记录也一并剔掉。
+    /// 已知时间集合里混着占位记录自己的时刻，不能直接拿来当依据。这里只
+    /// 剔除占位记录自己的那些时刻再比对，同一秒写入的正式记录仍然算数。
     /// </remarks>
     /// <param name="placeholders">库里的全部占位记录。</param>
-    /// <param name="entries">库里的全部记录摘要。</param>
+    /// <param name="knownTimes">库里的全部开战时间。</param>
     private static List<string> FindPlaceholderMerges(
         IReadOnlyList<BattleListEntry> placeholders,
-        IReadOnlyList<BattleListEntry> entries)
+        List<DateTimeOffset> knownTimes)
     {
         if (placeholders.Count == 0)
         {
             return [];
         }
 
-        var formalTimes = entries
-            .Where(e => !e.IsPrebattle)
-            .Select(e => e.StartedAt)
-            .OrderBy(t => t)
-            .ToList();
+        // 逐个剔除占位记录占用的那个时刻：时刻集合里出现 N 次 = 1 条占位
+        // 记录 + (N-1) 条正式记录。N 减到 0 说明这一刻只剩占位记录自己。
+        // 时刻精确到毫秒，同一时刻的多条记录必然是同一局（占位 + 正式）。
+        var formalCount = knownTimes
+            .GroupBy(t => t)
+            .ToDictionary(g => g.Key, g => g.Count());
+        foreach (var placeholder in placeholders)
+        {
+            if (formalCount.TryGetValue(placeholder.StartedAt, out int count))
+            {
+                if (count <= 1)
+                {
+                    formalCount.Remove(placeholder.StartedAt);
+                }
+                else
+                {
+                    formalCount[placeholder.StartedAt] = count - 1;
+                }
+            }
+        }
+
+        var formalTimes = formalCount.Keys.OrderBy(t => t).ToList();
 
         var merges = new List<string>();
         foreach (var placeholder in placeholders)
