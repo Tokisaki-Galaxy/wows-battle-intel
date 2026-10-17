@@ -110,7 +110,7 @@ public class MainViewModelTests
         Assert.Equal("battle-001", item.Battle.BattleId);
         Assert.Equal(0.68, item.PredictedWinProbability);
         Assert.Equal("胜利", item.ResultLabel);
-        Assert.Equal("预测 68%", item.PredictionText);
+        Assert.Equal("预测 68% (36%)", item.PredictionText);
         Assert.Contains("亚服", item.SecondaryText);
     }
 
@@ -129,8 +129,8 @@ public class MainViewModelTests
         var high = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.997);
         var low = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.0004);
 
-        Assert.Equal("预测 95%", high.PredictionText);
-        Assert.Equal("预测 5%", low.PredictionText);
+        Assert.Equal("预测 95% (90%)", high.PredictionText);
+        Assert.Equal("预测 5% (90%)", low.PredictionText);
     }
 
     [Fact]

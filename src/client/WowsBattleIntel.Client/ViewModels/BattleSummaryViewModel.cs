@@ -60,10 +60,24 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// <remarks>
     /// 与详情区同口径走展示夹取：模型外推出的 100% 与 0% 会误导，
     /// 同一局在列表与详情必须显示同一个读数。
+    ///
+    /// 置信度用括号跟在胜率后面，取概率偏离五五开的程度，与详情区预测
+    /// 仪表旁边的数字同一个算法。两者同源，用户在两处看到的是同一个判断。
     /// </remarks>
-    public string PredictionText => PredictedWinProbability is { } p
-        ? $"预测 {DisplayCalibration.ClampForDisplay(p):P0}"
-        : "未预测";
+    public string PredictionText
+    {
+        get
+        {
+            if (PredictedWinProbability is not { } p)
+            {
+                return "未预测";
+            }
+
+            double clamped = DisplayCalibration.ClampForDisplay(p);
+            double confidence = DisplayCalibration.ConfidenceFromProbability(p);
+            return $"预测 {clamped:P0} ({confidence:P0})";
+        }
+    }
 
     /// <summary>对局类型标签。</summary>
     public string BattleTypeLabel => DisplayLabels.BattleType(Battle.BattleType);

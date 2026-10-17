@@ -375,9 +375,13 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>
     /// 模型置信度显示文本。由预测概率推导，离五五开越远置信越高。
     /// </summary>
+    /// <remarks>
+    /// 算法与列表项共用 <see cref="DisplayCalibration.ConfidenceFromProbability"/>，
+    /// 同一局在列表与详情必须显示同一个读数。
+    /// </remarks>
     public string ModelConfidenceText => currentPrediction is null
         ? "-"
-        : $"{Math.Abs(currentPrediction.AllyWinProbability - 0.5) * 2:P0}";
+        : $"{DisplayCalibration.ConfidenceFromProbability(currentPrediction.AllyWinProbability):P0}";
 
     /// <summary>
     /// 赛前数据刷新倒计时，空串表示当前没有更新循环在跑。

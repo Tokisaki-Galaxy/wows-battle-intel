@@ -24,6 +24,16 @@ public static class DisplayCalibration
         Math.Clamp(probability, DisplayFloor, DisplayCeiling);
 
     /// <summary>
+    /// 从胜率推导展示用置信度：概率偏离五五开的程度，0 表示完全没把握。
+    /// </summary>
+    /// <remarks>
+    /// 列表项与详情区预测仪表共用这一个算法，保证同一局在两处读数一致。
+    /// 这是对胜率的线性变换，不是模型的真实置信区间，只作直观把握度展示。
+    /// </remarks>
+    public static double ConfidenceFromProbability(double probability) =>
+        Math.Abs(ClampForDisplay(probability) - 0.5) * 2;
+
+    /// <summary>
     /// 按友方获胜概率分档，返回态势文案。
     /// </summary>
     public static string TierText(double allyWinProbability) => allyWinProbability switch
