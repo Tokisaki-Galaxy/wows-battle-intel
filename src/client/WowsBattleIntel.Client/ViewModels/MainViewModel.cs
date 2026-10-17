@@ -138,6 +138,8 @@ public sealed class MainViewModel : ViewModelBase
         UpdatePredictionStatus();
     }
 
+    /// <summary>当前使用的列表补录服务，换绑后随之切换。</summary>
+    internal ReplayBackfillService BackfillForTest => backfill;
     /// <summary>校准统计子视图模型。</summary>
     public CalibrationViewModel Calibration { get; }
 
@@ -371,7 +373,8 @@ public sealed class MainViewModel : ViewModelBase
         StatusMessage = "正在解析回放...";
         try
         {
-            var result = await services.Backfill
+            // 走注入的实例：与列表快照用同一份补录服务，测试才能覆盖点开解析。
+            var result = await backfill
                 .IngestAsync(replayPath)
                 .ConfigureAwait(true);
 
@@ -752,7 +755,8 @@ public sealed class MainViewModel : ViewModelBase
         int version = detailsVersion;
         CancellationToken token = detailsCts.Token;
 
-        // 上一局的后台补拉提示还在时清掉，避免新对局显示旧进度。
+        // 上一局的补拉进度提示属于上一局，换局立刻收掉，不等旧任务收尾的
+        // 异步回投。
         if (statusMessage.StartsWith(StatsFetchStatusPrefix, StringComparison.Ordinal))
         {
             StatusMessage = "就绪";

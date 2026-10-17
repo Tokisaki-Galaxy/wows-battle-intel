@@ -82,6 +82,9 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>配置已应用并完成服务重配置后触发。</summary>
     public event Action? SettingsApplied;
 
+    /// <summary>触发一次配置已应用事件。供测试验证换绑后的订阅行为。</summary>
+    internal void ApplyForTest() => SettingsApplied?.Invoke();
+
     /// <summary>游戏安装目录。</summary>
     public string GamePath
     {

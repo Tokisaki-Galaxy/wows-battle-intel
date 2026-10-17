@@ -337,15 +337,6 @@ public class PreBattleLifecycleTests : IDisposable
     /// 不扫真实回放目录的补录服务。赛前链路测试只关心名单与倒计时，
     /// 不该被开发机上的回放文件掺进来。
     /// </summary>
-    private static ReplayBackfillService EmptyBackfill(WowsBattleIntel.Client.Services.AppServices services)
-    {
-        var config = new AppConfig();
-        return new ReplayBackfillService(
-            () => config,
-            services.Repository,
-            services.Ingestion,
-            () => services.Repository.GetStartedAtValuesAsync(),
-            services.Logs,
-            rootOverride: string.Empty);
-    }
+    private static ReplayBackfillService EmptyBackfill(WowsBattleIntel.Client.Services.AppServices services) =>
+        ReplayBackfillTests.CreateEmptyBackfill(services);
 }

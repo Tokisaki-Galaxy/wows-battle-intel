@@ -340,6 +340,21 @@ public class ReplayBackfillTests
         Assert.Contains(snapshot.Battles, e => e.BattleId == "lonely:pre");
         Assert.Single(await holder.Services.Repository.GetPrebattlePlaceholdersAsync());
     }
+    [Fact]
+    public async Task ApplyBackfill_AfterSettingsApplied_UsesNewService()
+    {
+        using var holder = await TestServices.CreateAsync();
+        using var replays = new TempReplayDir();
+
+        var vm = CreateViewModel(holder.Services, replays.Path);
+
+        // 换绑后视图模型要切到新的补录实例，否则实时入库会记进作废旧缓存。
+        vm.Settings.ApplyForTest();
+        await WaitUntilAsync(
+            () => ReferenceEquals(vm.BackfillForTest, holder.Services.Backfill),
+            5000);
+    }
+
     [Theory]
     [InlineData(@"20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]
     [InlineData(@"D:\replays\15.9.0.0\20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]
