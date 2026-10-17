@@ -13,10 +13,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from wows_ml.calibration import build_report
 from wows_ml.dataset import DEFAULT_BATTLE_TYPES, load_battles
 from wows_ml.export import export_to_onnx, verify_onnx, write_model_manifest
-from wows_ml.features import MatchFeatures
 from wows_ml.train import TrainResult, train_lightgbm, train_logistic
 
 
@@ -110,12 +108,3 @@ def describe(result: PipelineResult) -> str:
     ]
     return "\n".join(lines)
 
-
-def baseline_report(matches: list[MatchFeatures]):
-    """对样本计算无信息基线，供对照。"""
-    import numpy as np
-
-    labels = np.asarray(
-        [m.label for m in matches if m.label is not None], dtype=float
-    )
-    return build_report(np.full(len(labels), 0.5), labels)
