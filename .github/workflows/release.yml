@@ -88,11 +88,13 @@ jobs:
             --tag $tag
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-          # 附加资产：Portable.zip 供新用户免安装下载，普通 zip 为过渡期分发物。
+          # 附加资产：Portable.zip 供新用户免安装下载，普通 zip 为过渡期分发物，
+          # CLI 包供高级用户离线分析，与客户端分开分发避免重复内嵌 ONNX 运行时。
           # vpk 命令本身没有附加资产参数，走 gh release upload。
           gh release upload $tag `
             "$vpkOut/WowsBattleIntel-win-Portable.zip" `
             "dist/publish/wows-battle-intel-$env:RELEASE_VERSION-win-x64.zip" `
+            "dist/publish/wows-intel-$env:RELEASE_VERSION-win-x64-cli.zip" `
             --clobber
           if ($LASTEXITCODE -ne 0) { exit 1 }
 

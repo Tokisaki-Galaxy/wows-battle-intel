@@ -130,7 +130,7 @@ try {
         # 分开分发能让主包小一半。
         Write-Host "[publish] 发布 CLI..."
         $cliStage = Join-Path $OutputDir "wows-intel-$Version-win-x64"
-        $cliZip = Join-Path $OutputDir "wows-intel-$Version-win-x64.zip"
+        $cliZip = Join-Path $OutputDir "wows-intel-$Version-win-x64-cli.zip"
 
         if (Test-Path $cliStage) { Remove-Item $cliStage -Recurse -Force }
         if (Test-Path $cliZip) { Remove-Item $cliZip -Force }
