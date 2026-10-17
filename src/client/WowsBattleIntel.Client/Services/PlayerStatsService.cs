@@ -64,8 +64,10 @@ public sealed class PlayerStatsService
     {
         ArgumentNullException.ThrowIfNull(players);
 
+        // 隐藏标记由提供商标记后落库，后续轮次不再重复请求；
+        // 尚未标记的玩家照常进入请求，由提供商回写 IsHidden。
         var targets = players
-            .Where(p => !p.IsBot && !string.IsNullOrEmpty(p.PlayerName))
+            .Where(p => p.IsStatsCandidate)
             .ToList();
         if (targets.Count == 0)
         {

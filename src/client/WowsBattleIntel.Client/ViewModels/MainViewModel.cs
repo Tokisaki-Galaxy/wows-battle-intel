@@ -679,22 +679,8 @@ public sealed class MainViewModel : ViewModelBase
     internal static IEnumerable<PlayerRecord> SelectPlayersNeedingStats(
         IEnumerable<PlayerRecord> players) =>
         players
-            .Where(p => !p.IsBot && !p.IsHidden && !string.IsNullOrEmpty(p.PlayerName))
-            .Where(p => !IsFullyCovered(p));
-
-    /// <summary>
-    /// 账号、分舰种与单船数据是否都到齐。
-    /// </summary>
-    /// <remarks>
-    /// 判据用原始记录字段：提供商把分舰种数据写进 ClassStatsJson，单船层
-    /// 落 ShipBattles，账号层落 AccountWinrate。ClassStatsJson 为空串或
-    /// "{}" 都表示没有分舰种数据。
-    /// </remarks>
-    private static bool IsFullyCovered(PlayerRecord player) =>
-        player.AccountWinrate >= 0
-        && player.ShipBattles >= 0
-        && !string.IsNullOrEmpty(player.ClassStatsJson)
-        && player.ClassStatsJson.Length > 2;
+            .Where(p => p.IsStatsCandidate)
+            .Where(p => !p.IsFullyCovered);
 
     /// <summary>
     /// 用仓库里的最新快照补齐对局特征。
@@ -1324,14 +1310,14 @@ public sealed class MainViewModel : ViewModelBase
         int hidden = humans.Count(p => p.IsHidden);
         // covered 用与 incomplete 同一套齐全口径：账号、分舰种、单船都到齐。
         // 若只数账号胜率，"已拉取 x/y"会在舰种与单船仍空时显示成满。
-        int covered = humans.Count(p => !p.IsHidden && IsFullyCovered(p));
-        int incomplete = humans.Count(p => !p.IsHidden && !IsFullyCovered(p));
+        int covered = humans.Count(p => !p.IsHidden && p.IsFullyCovered);
+        int incomplete = humans.Count(p => !p.IsHidden && !p.IsFullyCovered);
         return (humans.Count, covered, hidden, incomplete);
     }
 
     /// <summary>已覆盖的真人数量，用于判定本轮是否有进展。</summary>
     private static int CountCoveredPlayers(BattleRecord battle) =>
-        battle.HumanPlayers.Count(p => !p.IsHidden && IsFullyCovered(p));
+        battle.HumanPlayers.Count(p => !p.IsHidden && p.IsFullyCovered);
 
     private async Task RefreshAfterIngestionAsync()
     {

@@ -189,4 +189,28 @@ public sealed class PlayerRecord
 
     /// <summary>数据是否可用，隐藏战绩或查询失败时为 false。</summary>
     public bool HasStats => !IsHidden && AccountWinrate >= 0;
+
+    /// <summary>
+    /// 账号、分舰种与单船三项统计是否都已到齐。
+    /// </summary>
+    /// <remarks>
+    /// 判据用原始记录字段：提供商把分舰种数据写进 <see cref="ClassStatsJson"/>，
+    /// 单船层落 <see cref="ShipBattles"/>，账号层落 <see cref="AccountWinrate"/>。
+    /// ClassStatsJson 为空串或 "{}" 都表示没有分舰种数据。
+    /// 需要在线补拉与缓存命中判定共用这一处，避免两侧口径漂移。
+    /// </remarks>
+    public bool IsFullyCovered =>
+        AccountWinrate >= 0
+        && ShipBattles >= 0
+        && !string.IsNullOrEmpty(ClassStatsJson)
+        && ClassStatsJson.Length > 2;
+
+    /// <summary>
+    /// 是否需要向提供商查询战绩：真人、有昵称、未隐藏。
+    /// </summary>
+    /// <remarks>
+    /// 隐藏战绩者不计入，WG API 不返回他们的数据。是否真的缺数据由
+    /// <see cref="IsFullyCovered"/> 再判一次。
+    /// </remarks>
+    public bool IsStatsCandidate => !IsBot && !IsHidden && !string.IsNullOrEmpty(PlayerName);
 }
