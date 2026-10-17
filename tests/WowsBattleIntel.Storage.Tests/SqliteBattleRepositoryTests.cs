@@ -38,6 +38,8 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
 
     public Task DisposeAsync()
     {
+        // SQLite 的连接默认进池，池仍持有文件句柄，直接删会失败并静默残留。
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         TryDelete(dbPath);
         TryDelete(dbPath + "-wal");
         TryDelete(dbPath + "-shm");

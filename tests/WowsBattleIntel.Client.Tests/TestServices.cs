@@ -99,9 +99,7 @@ internal sealed class TestServices : IDisposable
 
         foreach (string path in databasePaths)
         {
-            TryDelete(path);
-            TryDelete(path + "-wal");
-            TryDelete(path + "-shm");
+            TryDeleteDatabase(path);
         }
 
         foreach (string directory in logDirectories)
@@ -118,6 +116,21 @@ internal sealed class TestServices : IDisposable
                 // 清理失败不影响测试结论。
             }
         }
+    }
+
+    /// <summary>
+    /// 删除数据库文件及其附属文件。
+    /// </summary>
+    /// <remarks>
+    /// SQLite 的 ADO.NET 连接默认进池：连接关掉后池仍握着文件句柄，
+    /// 直接删会失败并静默残留。删除前必须先清掉这个库的池。
+    /// </remarks>
+    private static void TryDeleteDatabase(string path)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        TryDelete(path);
+        TryDelete(path + "-wal");
+        TryDelete(path + "-shm");
     }
 
     private static void TryDelete(string path)

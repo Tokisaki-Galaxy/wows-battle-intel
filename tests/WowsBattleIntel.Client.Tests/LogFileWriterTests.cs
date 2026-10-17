@@ -322,9 +322,14 @@ public class LogFileWriterTests : IDisposable
     {
         try
         {
+            // 落盘失败用例会把这个路径换成一个同名占位文件，两种形态都要清掉。
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
+            }
+            else if (File.Exists(root))
+            {
+                File.Delete(root);
             }
         }
         catch
