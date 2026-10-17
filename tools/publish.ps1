@@ -100,10 +100,15 @@ try {
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     New-Item $stage -ItemType Directory -Force | Out-Null
 
+    # 单文件发布，含原生库。IncludeNativeLibrariesForSelfExtract 必须显式打开，
+    # 否则 onnxruntime 与 e_sqlite3 会被静默丢掉：包能启动，一碰数据库就崩。
+    # 代价是原生库在首次启动时解压到 %TEMP%\.net\<程序名>。
     $publishArgs = @(
         "publish", "src/client/WowsBattleIntel.Client/WowsBattleIntel.Client.csproj",
         "-c", "Release", "-r", "win-x64",
-        "-p:PublishSingleFile=false", "-p:SelfContained=false", "-p:PublishTrimmed=false"
+        "-p:PublishSingleFile=true",
+        "-p:IncludeNativeLibrariesForSelfExtract=true",
+        "-p:SelfContained=false", "-p:PublishTrimmed=false"
     )
     Write-Host "[publish] 发布客户端..."
     dotnet @publishArgs
@@ -114,7 +119,7 @@ try {
         throw "客户端发布产物缺失: $clientOut"
     }
 
-    # 主 exe 与原生 DLL，排除调试符号、文档与静态链接库文件。
+    # 单文件产物只有一个 exe，pdb 与 xml 不进包。
     Get-ChildItem $clientOut -File |
         Where-Object { $_.Extension -notin ".pdb", ".xml", ".lib" } |
         ForEach-Object { Copy-Item $_.FullName $stage }
@@ -123,22 +128,14 @@ try {
         Write-Host "[publish] 发布 CLI..."
         dotnet publish src/client/WowsBattleIntel.Cli/WowsBattleIntel.Cli.csproj `
             -c Release -r win-x64 `
-            -p:PublishSingleFile=false -p:SelfContained=false `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:SelfContained=false `
             -o (Join-Path $OutputDir "cli-tmp")
         if ($LASTEXITCODE -ne 0) { throw "CLI 发布失败，退出码 $LASTEXITCODE" }
 
-        # CLI 与客户端共用同一份原生库，只补复制客户端没有的文件，
-        # 避免同一份 dll 被写两遍。
         $cliOut = Join-Path $OutputDir "cli-tmp"
         Copy-Item (Join-Path $cliOut "wows-intel.exe") $stage
-        Get-ChildItem $cliOut -File |
-            Where-Object { $_.Extension -notin ".pdb", ".xml", ".lib" } |
-            ForEach-Object {
-                $target = Join-Path $stage $_.Name
-                if (-not (Test-Path $target)) {
-                    Copy-Item $_.FullName $stage
-                }
-            }
         Remove-Item $cliOut -Recurse -Force
     }
 
@@ -168,22 +165,26 @@ try {
     Copy-Item (Join-Path $repoRoot "tools/publish/config.sample.json") $stage
     Copy-Item (Join-Path $repoRoot "tools/publish/README.txt") $stage
 
-    # 关键原生库自检。曾因单文件发布静默丢掉 onnxruntime 与 e_sqlite3，
-    # 出过一个能双击启动、但一碰数据库就崩的坏包。
+    # 关键资源自检。单文件发布下原生库嵌在 exe 里，目录中看不到，
+    # 所以改为检查 exe 体积是否达到"确实打包了原生库"的量级。
+    # 历史上曾漏传 IncludeNativeLibrariesForSelfExtract，出一个 2.5 MB 的
+    # 残缺包：能双击启动，一碰数据库就崩。15 MB 是含 onnxruntime 后的下限。
     $required = @(
         "WowsBattleIntel.Client.exe",
         "wows-intel.exe",
-        "onnxruntime.dll",
-        "e_sqlite3.dll",
-        "Microsoft.ML.OnnxRuntime.dll",
-        "Microsoft.Data.Sqlite.dll",
         "models/baseline.onnx"
     )
     $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
     if ($missing.Count -gt 0) {
-        throw "发布包缺少关键文件: $($missing -join ', ')。请检查 publish 参数是否把原生库输出到了目录。"
+        throw "发布包缺少关键文件: $($missing -join ', ')。"
     }
-    Write-Host "[publish] 关键文件自检通过"
+
+    $clientExeMb = (Get-Item (Join-Path $stage "WowsBattleIntel.Client.exe")).Length / 1MB
+    if ($clientExeMb -lt 10) {
+        throw ("客户端 exe 只有 {0:N1} MB，明显没含 onnxruntime 与 e_sqlite3。" +
+            "请确认 publish 带了 -p:IncludeNativeLibrariesForSelfExtract=true。") -f $clientExeMb
+    }
+    Write-Host ("[publish] 关键文件自检通过（客户端 exe {0:N1} MB）" -f $clientExeMb)
 
     if ($SmokeTest) {
         Write-Host "[publish] 冒烟验证客户端启动..."
