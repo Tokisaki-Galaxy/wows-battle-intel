@@ -9,6 +9,15 @@
         Style="{StaticResource AppWindowStyle}">
 
   <Window.Resources>
+    <!-- 逐船明细提示内容。只给文字，外框由全局 ToolTip 样式统一提供，
+         与军团标签的悬浮提示保持同一外观，避免出现双层边框 -->
+    <DataTemplate x:Key="DamageConcededTipTemplate">
+      <TextBlock Text="{Binding}"
+                 Foreground="{StaticResource TextPrimaryBrush}"
+                 TextWrapping="Wrap"
+                 MaxWidth="260" />
+    </DataTemplate>
+
     <!-- 列表项模板：两行信息加右侧结果列，选中指示条由 ListBoxItem 样式提供 -->
     <DataTemplate x:Key="BattleItemTemplate">
       <Grid Margin="4,5">
@@ -160,6 +169,14 @@
                   </ComboBox>
                 </StackPanel>
               </StackPanel>
+              <!-- 列表被上限截断时常驻提示，不随状态栏消息消失 -->
+              <TextBlock DockPanel.Dock="Top"
+                         Margin="10,0,10,4"
+                         Text="{Binding HistoryTruncationHint}"
+                         Style="{StaticResource SecondaryTextStyle}"
+                         Foreground="{StaticResource WarnBrush}"
+                         TextWrapping="Wrap"
+                         Visibility="{Binding HistoryTruncationHint, Converter={StaticResource EmptyStringToCollapsedConverter}}" />
               <ListBox ItemsSource="{Binding HistoryBattles}"
                        SelectedItem="{Binding SelectedHistoryBattle}"
                        ItemTemplate="{StaticResource BattleItemTemplate}"
@@ -354,80 +371,183 @@
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                  <!-- 击杀标记只在历史回放里出现，实时名单没有战果数据 -->
+                                  <TextBlock Text="{Binding ResultMark}"
+                                             Margin="6,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Foreground="{StaticResource LossBrush}">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock"
+                                             BasedOn="{StaticResource SecondaryTextStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding DataContext.IsHistoricalBattle,
+                                                                 RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                       Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="Auto" MinWidth="86">
+                                                <DataGridTemplateColumn x:Name="LiveAccountColumnAlly" Header="账号" Width="86">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding BattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding WinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding AvgDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="加权" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveWeightedColumnAlly" Header="加权" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding WeightedWinrateText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                         TextAlignment="Right"
-                                         VerticalAlignment="Center" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right"
+                                  VerticalAlignment="Center" />
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="舰种" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveClassColumnAlly" Header="舰种" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding ClassBattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ClassWinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ClassDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="单船" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveShipColumnAlly" Header="单船" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding ShipBattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ShipWinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ShipDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                      </DataGrid.Columns>
+                        <!-- 本局输出，数字悬浮看逐船明细 -->
+                        <DataGridTemplateColumn x:Name="DetailDamageColumnAlly" Header="输出" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding DamageText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTargetsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局点亮伤害 -->
+                        <DataGridTemplateColumn x:Name="DetailSpottingColumnAlly" Header="点亮" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding SpottingText}"
+                                         Style="{StaticResource SecondaryTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTargetsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局承受伤害，数字悬浮看来源船 -->
+                        <DataGridTemplateColumn x:Name="DetailTakenColumnAlly" Header="承伤" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding TakenText}"
+                                         Style="{StaticResource SecondaryTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTakenByText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局成就，数字为数量 -->
+                        <DataGridTemplateColumn x:Name="DetailAchievementColumnAlly" Header="成就" Width="*" MinWidth="42">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
+                                         HorizontalAlignment="Stretch" Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding AchievementsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                    <Setter Property="Text" Value="{Binding AchievementBadgeText}" />
+                                    <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding AchievementCount}" Value="0">
+                                        <Setter Property="Text" Value="无" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+</DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>
                 </Grid>
@@ -536,80 +656,183 @@
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
                                           Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                  <!-- 击杀标记只在历史回放里出现，实时名单没有战果数据 -->
+                                  <TextBlock Text="{Binding ResultMark}"
+                                             Margin="6,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Foreground="{StaticResource LossBrush}">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock"
+                                             BasedOn="{StaticResource SecondaryTextStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding DataContext.IsHistoricalBattle,
+                                                                 RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                       Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="账号" Width="Auto" MinWidth="86">
+                                                <DataGridTemplateColumn x:Name="LiveAccountColumnEnemy" Header="账号" Width="86">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding BattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding BattlesBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding WinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding WinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding AvgDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding AvgDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="加权" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveWeightedColumnEnemy" Header="加权" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <TextBlock Text="{Binding WeightedWinrateText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                         TextAlignment="Right"
-                                         VerticalAlignment="Center" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding WeightedWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right"
+                                  VerticalAlignment="Center" />
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="舰种" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveClassColumnEnemy" Header="舰种" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding ClassBattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ClassWinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ClassMasteryBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ClassDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="单船" Width="*">
+                        <DataGridTemplateColumn x:Name="LiveShipColumnEnemy" Header="单船" Width="*">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                               <StackPanel HorizontalAlignment="Right">
                                 <TextBlock Text="{Binding ShipBattlesText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ShipWinrateText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ShipWinrateBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                                 <TextBlock Text="{Binding ShipDamageText}"
-                                           Style="{StaticResource BodyTextStyle}"
-                                           Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
-                                           TextAlignment="Right" />
+                                  Style="{StaticResource BodyTextStyle}"
+                                  Foreground="{Binding ShipDamageBrushKey, Converter={StaticResource BrushKeyConverter}}"
+                                  TextAlignment="Right" />
                               </StackPanel>
                             </DataTemplate>
                           </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                      </DataGrid.Columns>
+                        <!-- 本局输出，数字悬浮看逐船明细 -->
+                        <DataGridTemplateColumn x:Name="DetailDamageColumnEnemy" Header="输出" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding DamageText}"
+                                         Style="{StaticResource BodyTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTargetsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局点亮伤害 -->
+                        <DataGridTemplateColumn x:Name="DetailSpottingColumnEnemy" Header="点亮" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding SpottingText}"
+                                         Style="{StaticResource SecondaryTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTargetsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局承受伤害，数字悬浮看来源船 -->
+                        <DataGridTemplateColumn x:Name="DetailTakenColumnEnemy" Header="承伤" Width="*" MinWidth="54">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding TakenText}"
+                                         Style="{StaticResource SecondaryTextStyle}"
+                                         HorizontalAlignment="Stretch"
+                                         TextAlignment="Right"
+                                         VerticalAlignment="Center"
+                                         Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding DamageTakenByText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- 本局成就，数字为数量 -->
+                        <DataGridTemplateColumn x:Name="DetailAchievementColumnEnemy" Header="成就" Width="*" MinWidth="42">
+                          <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
+                                         HorizontalAlignment="Stretch" Background="Transparent">
+                                <TextBlock.ToolTip>
+                                  <TextBlock Text="{Binding AchievementsText}"
+                                             MaxWidth="260"
+                                             TextWrapping="Wrap" />
+                                </TextBlock.ToolTip>
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+                                    <Setter Property="Text" Value="{Binding AchievementBadgeText}" />
+                                    <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding AchievementCount}" Value="0">
+                                        <Setter Property="Text" Value="无" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                            </DataTemplate>
+                          </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+</DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>
                 </Grid>

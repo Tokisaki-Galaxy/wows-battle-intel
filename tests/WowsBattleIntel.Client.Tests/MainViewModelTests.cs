@@ -843,4 +843,111 @@ public class MainViewModelTests
         Assert.Single(vm.Allies);
         Assert.Single(vm.Enemies);
     }
+
+    /// <summary>
+    /// 构造一份赛前名单，人数由 count 决定。名称带序号，便于核对是哪一份。
+    /// </summary>
+    private static BattleRecord MakePreBattle(string battleId, int count)
+    {
+        var players = new List<PlayerRecord>(count);
+        for (int i = 0; i < count; i++)
+        {
+            players.Add(new PlayerRecord
+            {
+                AccountId = (1000 + i).ToString(),
+                PlayerName = $"Player{i:00}",
+                Server = GameServer.Asia,
+                IsAlly = i < count / 2,
+                ShipName = "TestShip",
+                ShipTier = 10,
+                ShipClass = ShipClass.Battleship,
+            });
+        }
+
+        return new BattleRecord
+        {
+            BattleId = battleId,
+            StartedAt = DateTimeOffset.UtcNow,
+            MapId = "spaces/50_Gold_harbor",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Unknown,
+            Players = players,
+        };
+    }
+
+    [Fact]
+    public async Task PreBattle_ShorterRosterDoesNotReplaceLongerOne()
+    {
+        using var holder = await TestServices.CreateAsync();
+        var vm = new MainViewModel(holder.Services);
+
+        // 长名单先到：24 人。
+        holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 24));
+        await WaitUntilAsync(
+            () => vm.LiveBattles.Count == 1 && vm.LiveBattles[0].Battle.Players.Count == 24,
+            "长名单进入实时区");
+
+        // 游戏重写文件时写出更短的名单，不得覆盖。
+        holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 12));
+        await Task.Delay(200);
+
+        Assert.Single(vm.LiveBattles);
+        Assert.Equal(24, vm.LiveBattles[0].Battle.Players.Count);
+
+        // 人数涨回长名单之上：正常刷新。
+        holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 30));
+        await WaitUntilAsync(
+            () => vm.LiveBattles[0].Battle.Players.Count == 30,
+            "更长的名单刷新实时区");
+
+        // 换局：BattleId 变了，人数更少也照常替换。
+        holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-2", 4));
+        await WaitUntilAsync(
+            () => vm.LiveBattles[0].Battle.BattleId == "pre-2"
+                && vm.LiveBattles[0].Battle.Players.Count == 4,
+            "新对局替换实时区");
+    }
+
+    [Fact]
+    public async Task LoadRecentBattles_UnderLimit_NoTruncationHint()
+    {
+        using var holder = await TestServices.CreateAsync();
+        await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.6);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        Assert.Equal(string.Empty, vm.HistoryTruncationHint);
+        Assert.Single(vm.RecentBattles);
+    }
+
+    [Fact]
+    public async Task LoadRecentBattles_OverLimit_ReportsTruncation()
+    {
+        using var holder = await TestServices.CreateAsync();
+
+        // 逐条写入。条数为上限加一，正好越过边界；最早的一局应当被截掉。
+        int total = MainViewModel.HistoryBattleLimit + 1;
+        var baseTime = DateTimeOffset.UtcNow.AddDays(-1);
+        for (int i = 0; i < total; i++)
+        {
+            await holder.Services.Repository.SaveBattleAsync(MakeBattle(
+                $"battle-{i:0000}",
+                BattleOutcome.Win,
+                baseTime.AddSeconds(i)));
+        }
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+
+        Assert.Equal(MainViewModel.HistoryBattleLimit, vm.RecentBattles.Count);
+        Assert.NotEqual(string.Empty, vm.HistoryTruncationHint);
+        Assert.Contains(
+            MainViewModel.HistoryBattleLimit.ToString(),
+            vm.HistoryTruncationHint);
+
+        // 最新的一局留在最前，保证截断的是更早的记录。
+        Assert.Equal($"battle-{total - 1:0000}", vm.RecentBattles[0].Battle.BattleId);
+    }
 }

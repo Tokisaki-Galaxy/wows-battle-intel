@@ -54,10 +54,18 @@ public static class ReplaysharkMapper
 
         var divisionSizes = ComputeDivisionSizes(output.Players);
 
+        // damage_interactions 的键只有目标玩家的 db_id，船名、等级、舰种都在
+        // 同一次解析的 players 数组里。先建一次字典供所有玩家共用。
+        var playersById = new Dictionary<long, ReplaysharkPlayer>(output.Players.Count);
+        foreach (var rp in output.Players)
+        {
+            playersById[rp.DbId] = rp;
+        }
+
         var players = new List<PlayerRecord>(output.Players.Count);
         foreach (var rp in output.Players)
         {
-            players.Add(MapPlayer(rp, recorderTeamId, divisionSizes));
+            players.Add(MapPlayer(rp, recorderTeamId, divisionSizes, playersById));
         }
 
         var battle = new BattleRecord
@@ -86,7 +94,8 @@ public static class ReplaysharkMapper
     private static PlayerRecord MapPlayer(
         ReplaysharkPlayer rp,
         int recorderTeamId,
-        IReadOnlyDictionary<long, int> divisionSizes)
+        IReadOnlyDictionary<long, int> divisionSizes,
+        IReadOnlyDictionary<long, ReplaysharkPlayer> playersById)
     {
         var sr = rp.ServerResults;
 
@@ -124,9 +133,112 @@ public static class ReplaysharkMapper
             Survived = rp.Survived,
             SurvivedSeconds = rp.TimeLivedSecs ?? 0,
             ExpEarned = sr?.Xp ?? 0,
+
+            DamageByTarget = MapDamageByTarget(rp, playersById),
+            Achievements = MapAchievements(rp),
         };
 
         return player;
+    }
+
+    /// <summary>
+    /// 把某个玩家的 damage_interactions 展开成按目标船组织的明细。
+    /// </summary>
+    /// <remarks>
+    /// 键是目标玩家的 db_id，船信息要从同一局名单反查。名单里没有的目标
+    /// 仍然保留，只是船名空着、等级与舰种为未知，伤害数字本身是可信的。
+    /// 双方互无伤害的条目没有信息量，直接丢弃，否则每人都会带上整张名单。
+    /// </remarks>
+    private static IReadOnlyList<DamageByTarget> MapDamageByTarget(
+        ReplaysharkPlayer rp,
+        IReadOnlyDictionary<long, ReplaysharkPlayer> playersById)
+    {
+        var interactions = rp.ServerResults?.DamageInteractions;
+        if (interactions is null || interactions.Count == 0)
+        {
+            return Array.Empty<DamageByTarget>();
+        }
+
+        var result = new List<DamageByTarget>(interactions.Count);
+        foreach (var (targetId, interaction) in interactions)
+        {
+            if (interaction is null || (interaction.DamageDealt == 0 && interaction.DamageReceived == 0))
+            {
+                continue;
+            }
+
+            ReplaysharkPlayer? target = long.TryParse(
+                targetId,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long parsedId)
+                && playersById.TryGetValue(parsedId, out var found)
+                    ? found
+                    : null;
+
+            result.Add(new DamageByTarget
+            {
+                TargetShipId = targetId,
+                TargetShipName = target?.ShipName ?? string.Empty,
+                TargetShipTier = target?.ShipTier ?? 0,
+                TargetShipClass = target is null ? ShipClass.Unknown : MapShipClass(target.ShipClass),
+                DamageDealt = interaction.DamageDealt,
+                DamageReceived = interaction.DamageReceived,
+            });
+        }
+
+        // 伤害高的在前。同伤害再按船名排，保证两次解析的顺序完全一致，
+        // 否则比对结果时会因为顺序不同产生假差异。
+        result.Sort((a, b) =>
+        {
+            int byDamage = b.DamageDealt.CompareTo(a.DamageDealt);
+            return byDamage != 0
+                ? byDamage
+                : string.CompareOrdinal(a.TargetShipName, b.TargetShipName);
+        });
+
+        return result;
+    }
+
+    /// <summary>
+    /// 把成就整理成展示文本。同一成就计得多次时写成「名称 ×N」。
+    /// </summary>
+    /// <remarks>
+    /// 优先用 display_name，缺失时退回 name。只保留展示文本而不保留图标键，
+    /// 图标资源随游戏版本变化，存下来也未必还能对上。
+    /// </remarks>
+    private static IReadOnlyList<string> MapAchievements(ReplaysharkPlayer rp)
+    {
+        if (rp.Achievements is null || rp.Achievements.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var result = new List<string>(rp.Achievements.Count);
+        foreach (var achievement in rp.Achievements)
+        {
+            if (achievement is null)
+            {
+                continue;
+            }
+
+            string label = string.IsNullOrWhiteSpace(achievement.DisplayName)
+                ? achievement.Name
+                : achievement.DisplayName;
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                continue;
+            }
+
+            // 回放给的是英文名，界面其余文字都是中文，这里统一换成中文口径。
+            label = AchievementNames.ToChinese(label);
+
+            result.Add(achievement.Count > 1
+                ? $"{label} ×{achievement.Count}"
+                : label);
+        }
+
+        return result;
     }
 
     /// <summary>

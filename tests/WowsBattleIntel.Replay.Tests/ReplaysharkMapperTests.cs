@@ -366,4 +366,136 @@ public class ReplaysharkMapperTests
         Assert.Contains(battle.Players, p => p.AccountId == "1001");
         Assert.Contains(battle.Players, p => p.AccountId == "2001");
     }
+
+    [Fact]
+    public void Map_DamageByTarget_TranslatesTargetShipInfo()
+    {
+        var output = MakeOutput();
+        // 录制者打了 EnemyOne 与 EnemyTwo，各自的船名等级舰种从同局名单反查。
+        output.Players[2].ShipName = "Shimakaze";
+        output.Players[3].ShipName = "U-2501";
+        output.Players[0].ServerResults!.DamageInteractions = new Dictionary<string, ReplaysharkDamageInteraction>
+        {
+            ["2001"] = new() { DamageDealt = 30000, DamageReceived = 4000 },
+            ["2002"] = new() { DamageDealt = 12000, DamageReceived = 9000 },
+        };
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var recorder = battle.Players.First(p => p.AccountId == "1001");
+        Assert.Equal(2, recorder.DamageByTarget.Count);
+
+        var shimakaze = recorder.DamageByTarget.First(d => d.TargetShipId == "2001");
+        Assert.Equal("Shimakaze", shimakaze.TargetShipName);
+        Assert.Equal(6, shimakaze.TargetShipTier);
+        Assert.Equal(ShipClass.Destroyer, shimakaze.TargetShipClass);
+        Assert.Equal(30000, shimakaze.DamageDealt);
+        Assert.Equal(4000, shimakaze.DamageReceived);
+    }
+
+    [Fact]
+    public void Map_DamageByTarget_FiltersZeroBothWays()
+    {
+        var output = MakeOutput();
+        output.Players[0].ServerResults!.DamageInteractions = new Dictionary<string, ReplaysharkDamageInteraction>
+        {
+            ["2001"] = new() { DamageDealt = 0, DamageReceived = 0 },
+            ["2002"] = new() { DamageDealt = 500, DamageReceived = 0 },
+            ["1002"] = new() { DamageDealt = 0, DamageReceived = 700 },
+        };
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var recorder = battle.Players.First(p => p.AccountId == "1001");
+        // 双方都是 0 的条目没有信息量，只留有一条非零的。
+        Assert.Equal(2, recorder.DamageByTarget.Count);
+        Assert.DoesNotContain(recorder.DamageByTarget, d => d.TargetShipId == "2001");
+    }
+
+    [Fact]
+    public void Map_DamageByTarget_SortsByDealtDamageDescending()
+    {
+        var output = MakeOutput();
+        output.Players[1].ShipName = "Des Moines";
+        output.Players[2].ShipName = "Shimakaze";
+        output.Players[3].ShipName = "U-2501";
+        output.Players[0].ServerResults!.DamageInteractions = new Dictionary<string, ReplaysharkDamageInteraction>
+        {
+            ["2001"] = new() { DamageDealt = 1000 },
+            ["2002"] = new() { DamageDealt = 50000 },
+            // 同伤害值，靠船名定序：Des Moines 排在 Shimakaze 之前。
+            ["1002"] = new() { DamageDealt = 20000 },
+            ["2003"] = new() { DamageDealt = 20000 },
+        };
+        output.Players.Add(MakePlayer(2003, "EnemyThree", "ASIA", 1, shipClass: "Cruiser", tier: 10));
+        output.Players[4].ShipName = "Shimakaze";
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var recorder = battle.Players.First(p => p.AccountId == "1001");
+        Assert.Equal(["2002", "1002", "2003", "2001"], recorder.DamageByTarget.Select(d => d.TargetShipId));
+        Assert.Equal(50000, recorder.DamageByTarget[0].DamageDealt);
+    }
+
+    [Fact]
+    public void Map_DamageByTarget_UnknownTarget_KeepsDamageWithBlankShip()
+    {
+        // 名单里查不到的目标仍然保留，只是船信息落空，伤害本身可信。
+        var output = MakeOutput();
+        output.Players[0].ServerResults!.DamageInteractions = new Dictionary<string, ReplaysharkDamageInteraction>
+        {
+            ["7777"] = new() { DamageDealt = 1234, DamageReceived = 0 },
+        };
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var recorder = battle.Players.First(p => p.AccountId == "1001");
+        var entry = Assert.Single(recorder.DamageByTarget);
+        Assert.Equal("7777", entry.TargetShipId);
+        Assert.Equal(string.Empty, entry.TargetShipName);
+        Assert.Equal(ShipClass.Unknown, entry.TargetShipClass);
+    }
+
+    [Fact]
+    public void Map_NoDamageInteractions_YieldsEmptyList()
+    {
+        var battle = ReplaysharkMapper.Map(MakeOutput())!;
+
+        Assert.All(battle.Players, p => Assert.Empty(p.DamageByTarget));
+    }
+
+    [Fact]
+    public void Map_Achievements_FormatsCountAboveOne()
+    {
+        var output = MakeOutput();
+        output.Players[0].Achievements =
+        [
+            new ReplaysharkAchievement { Name = "unsinkable", DisplayName = "不死鸟", Count = 1 },
+            new ReplaysharkAchievement { Name = "kill", DisplayName = "击毁", Count = 3 },
+        ];
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var recorder = battle.Players.First(p => p.AccountId == "1001");
+        Assert.Equal(["不死鸟", "击毁 ×3"], recorder.Achievements);
+        // 没有成就的玩家保持空列表。
+        Assert.Empty(battle.Players.First(p => p.AccountId == "2001").Achievements);
+    }
+
+    [Fact]
+    public void Map_AchievementWithoutDisplayName_FallsBackToName()
+    {
+        var output = MakeOutput();
+        output.Players[3].Achievements =
+        [
+            new ReplaysharkAchievement { Name = "detonation", DisplayName = string.Empty, Count = 1 },
+        ];
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        var enemy = battle.Players.First(p => p.AccountId == "2002");
+
+        // display_name 缺失时退回内部名；内部名同样是英文，翻译层照常生效。
+        Assert.Equal(["殉爆"], enemy.Achievements);
+    }
 }

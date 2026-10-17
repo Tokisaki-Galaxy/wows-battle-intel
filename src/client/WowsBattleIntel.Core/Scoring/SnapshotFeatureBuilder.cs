@@ -173,6 +173,9 @@ public static class SnapshotFeatureBuilder
             Survived = player.Survived,
             SurvivedSeconds = player.SurvivedSeconds,
             ExpEarned = player.ExpEarned,
+            // 逐船伤害明细与成就同属单局回放产物，快照里没有，按引用原样带过。
+            DamageByTarget = player.DamageByTarget,
+            Achievements = player.Achievements,
         };
     }
 

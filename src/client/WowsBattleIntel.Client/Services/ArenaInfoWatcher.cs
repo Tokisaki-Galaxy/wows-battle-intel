@@ -54,8 +54,22 @@ public sealed class ArenaInfoWatcher : IDisposable
     /// <summary>当前是否已有一局在展示中，用于识别对局结束。</summary>
     private bool battleActive;
 
+    /// <summary>上次尝试触发时的对局标识与人数，用于识别名单回退。</summary>
+    private string? lastBattleId;
+    private int lastPlayerCount;
+
     /// <summary>发现新的赛前名单时触发。参数为解析出的对局记录。</summary>
     public event Action<BattleRecord>? PreBattleDiscovered;
+
+    /// <summary>
+    /// 名单人数比上次同一局少时触发，参数为可读日志文案；人数未回退时
+    /// 传 null 先复位、随 <see cref="PreBattleDiscovered"/> 一起回调。
+    /// </summary>
+    /// <remarks>
+    /// 观测器不持有日志服务，异常现象通过事件交给调用方落日志。触发时机
+    /// 与 <see cref="PreBattleDiscovered"/> 一致，先发本事件再发名单事件。
+    /// </remarks>
+    public event Action<string?>? ShrinkNotice;
 
     /// <summary>当前对局结束（tempArenaInfo 被游戏删除）时触发。</summary>
     public event Action? PreBattleEnded;
@@ -131,11 +145,26 @@ public sealed class ArenaInfoWatcher : IDisposable
         config = newConfig;
         lastSeenWriteTimeUtc = DateTime.MinValue;
         battleActive = false;
+        lastBattleId = null;
+        lastPlayerCount = 0;
 
         if (wasRunning)
         {
             Start();
         }
+    }
+
+    /// <summary>
+    /// 测试与诊断用：按观测器持有的订阅方原样投递一份赛前名单。
+    /// </summary>
+    /// <remarks>
+    /// C# 事件只能在声明类型内部触发，视图模型的判重逻辑需要一个不依赖
+    /// 真实文件轮询的注入点。正式链路仍然只走轮询循环。
+    /// </remarks>
+    internal void PublishPreBattleForTest(BattleRecord battle)
+    {
+        ArgumentNullException.ThrowIfNull(battle);
+        PreBattleDiscovered?.Invoke(battle);
     }
 
     /// <summary>
@@ -238,6 +267,21 @@ public sealed class ArenaInfoWatcher : IDisposable
             return;
         }
 
+        // 人数比上次少：多半是游戏写文件写到一半被读到，或者是加载早期
+        // 的不全名单。这里只记录一条，观测器无故不触发会掩盖别的故障；
+        // 是否采纳该名单由视图模型按 BattleId 与人数判定。
+        string? shrinkNotice = null;
+        if (lastBattleId is not null
+            && string.Equals(lastBattleId, battle.BattleId, StringComparison.Ordinal)
+            && battle.Players.Count < lastPlayerCount)
+        {
+            shrinkNotice =
+                $"赛前名单人数少于上次: {battle.Players.Count} < {lastPlayerCount} · {battle.BattleId}";
+        }
+
+        lastBattleId = battle.BattleId;
+        lastPlayerCount = battle.Players.Count;
+
         // 服务器兜底：tempArenaInfo 无 realm，从游戏日志探测。探测不到时
         // 保持 Auto，由调用方决定是否跳过。
         if (battle.Server == GameServer.Auto)
@@ -255,6 +299,7 @@ public sealed class ArenaInfoWatcher : IDisposable
 
         lastSeenWriteTimeUtc = writeTimeUtc;
         battleActive = true;
+        ShrinkNotice?.Invoke(shrinkNotice);
         PreBattleDiscovered?.Invoke(battle);
     }
 

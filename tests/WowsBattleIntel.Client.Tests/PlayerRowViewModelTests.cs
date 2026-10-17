@@ -542,4 +542,70 @@ public class PlayerRowViewModelTests
         Assert.Contains("账号-场 -胜率 场均-", text);
         Assert.Contains("单船-场 -胜率 -场均", text);
     }
+
+    [Fact]
+    public void FromPlayer_DamageByTarget_DropZeroAndKeepOrder()
+    {
+        // 历史回放的输出明细：只保留真的打出了伤害的目标，按伤害降序。
+        var player = MakePlayer("A", 0.5, 100);
+        player.DamageDealt = 42000;
+        player.DamageByTarget =
+        [
+            new DamageByTarget { TargetShipName = "Yamato", DamageDealt = 31000, DamageReceived = 12000 },
+            new DamageByTarget { TargetShipName = "Shinano", DamageDealt = 11000, DamageReceived = 0 },
+            new DamageByTarget { TargetShipName = "K-1", DamageDealt = 0, DamageReceived = 9000 },
+        ];
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(2, vm.DamageTargetCount);
+        Assert.Equal(
+            "X Yamato 31,000" + Environment.NewLine + "X Shinano 11,000",
+            vm.DamageTargetsText);
+
+        // 承伤方向单独算，目标是打我的那艘。
+        Assert.Equal("X Yamato 12,000" + Environment.NewLine + "X K-1 9,000", vm.DamageTakenByText);
+    }
+
+    [Fact]
+    public void FromPlayer_NoDamageDetail_ShowsPlaceholder()
+    {
+        // 旧库与赛前名单没有明细，不能显示成 0 伤害。
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+
+        Assert.Equal(0, vm.DamageTargetCount);
+        Assert.Equal("无", vm.DamageTargetsText);
+        Assert.Equal("无", vm.AchievementsText);
+        Assert.Equal(0, vm.AchievementCount);
+    }
+
+    [Fact]
+    public void FromPlayer_Achievements_ShowCountBadge()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.Achievements = ["Dreadnought", "Confederate ×2"];
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(2, vm.AchievementCount);
+        Assert.Equal("★2", vm.AchievementBadgeText);
+
+        // 成就名统一中文口径，数量后缀保留。
+        Assert.Contains("无畏者", vm.AchievementsText);
+        Assert.Contains("同盟 ×2", vm.AchievementsText);
+    }
+
+    [Fact]
+    public void AchievementNames_UnknownStaysOriginal()
+    {
+        // 新版本新增的成就没收录时保留原文，不能翻成空白。
+        Assert.Equal("Brand New Award", AchievementNames.ToChinese("Brand New Award"));
+        Assert.Equal(string.Empty, AchievementNames.ToChinese(string.Empty));
+    }
+
+    [Fact]
+    public void AchievementNames_CountSuffixPreserved()
+    {
+        Assert.Equal("第一滴血 ×3", AchievementNames.ToChinese("First Blood ×3"));
+    }
 }

@@ -182,6 +182,80 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveBattle_DamageByTarget_RoundTrips()
+    {
+        var battle = MakeBattle();
+        battle.Players[0].DamageByTarget =
+        [
+            new DamageByTarget
+            {
+                TargetShipId = "2001",
+                TargetShipName = "S-189",
+                TargetShipTier = 8,
+                TargetShipClass = ShipClass.Submarine,
+                DamageDealt = 81230,
+                DamageReceived = 1169,
+            },
+            new DamageByTarget
+            {
+                TargetShipId = "3001",
+                TargetShipName = "Yamato",
+                TargetShipTier = 10,
+                TargetShipClass = ShipClass.Battleship,
+                DamageDealt = 0,
+                DamageReceived = 4500,
+            },
+        ];
+
+        await repository.SaveBattleAsync(battle);
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+
+        var ally = loaded!.Players.First(p => p.AccountId == "1001");
+        Assert.Equal(2, ally.DamageByTarget.Count);
+        // 顺序按落盘内容原样保留，不在读取侧重排。
+        var first = ally.DamageByTarget[0];
+        Assert.Equal("2001", first.TargetShipId);
+        Assert.Equal("S-189", first.TargetShipName);
+        Assert.Equal(8, first.TargetShipTier);
+        Assert.Equal(ShipClass.Submarine, first.TargetShipClass);
+        Assert.Equal(81230, first.DamageDealt);
+        Assert.Equal(1169, first.DamageReceived);
+        Assert.Equal(ShipClass.Battleship, ally.DamageByTarget[1].TargetShipClass);
+        Assert.Equal(4500, ally.DamageByTarget[1].DamageReceived);
+    }
+
+    [Fact]
+    public async Task SaveBattle_Achievements_RoundTrips()
+    {
+        var battle = MakeBattle();
+        battle.Players[0].Achievements = ["不死鸟", "击毁 ×3"];
+
+        await repository.SaveBattleAsync(battle);
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+
+        var ally = loaded!.Players.First(p => p.AccountId == "1001");
+        Assert.Equal(["不死鸟", "击毁 ×3"], ally.Achievements);
+    }
+
+    [Fact]
+    public async Task SaveBattle_EmptyDetailLists_StayEmpty()
+    {
+        // MakeBattle 里的玩家不带明细，写入 NULL，读回必须是空列表而不是 null。
+        var battle = MakeBattle();
+
+        await repository.SaveBattleAsync(battle);
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+
+        Assert.All(loaded!.Players, p =>
+        {
+            Assert.NotNull(p.DamageByTarget);
+            Assert.Empty(p.DamageByTarget);
+            Assert.NotNull(p.Achievements);
+            Assert.Empty(p.Achievements);
+        });
+    }
+
+    [Fact]
     public async Task SaveBattle_IsIdempotent()
     {
         var battle = MakeBattle();

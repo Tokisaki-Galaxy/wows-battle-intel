@@ -113,6 +113,15 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShipClass));
         OnPropertyChanged(nameof(DivisionSize));
         OnPropertyChanged(nameof(DivisionId));
+        OnPropertyChanged(nameof(SpottingText));
+        OnPropertyChanged(nameof(TakenText));
+        OnPropertyChanged(nameof(DamageTargetCount));
+        OnPropertyChanged(nameof(DamageTargetsText));
+        OnPropertyChanged(nameof(DamageTakenByText));
+        OnPropertyChanged(nameof(AchievementCount));
+        OnPropertyChanged(nameof(AchievementsText));
+        OnPropertyChanged(nameof(AchievementBadgeText));
+        OnPropertyChanged(nameof(ResultMark));
         OnPropertyChanged(nameof(PlayerLineText));
         OnPropertyChanged(nameof(ShipLineText));
         OnPropertyChanged(nameof(WinrateText));
@@ -179,6 +188,110 @@ public sealed class PlayerRowViewModel : ViewModelBase
             ? player.WeightedWinrate.ToString("P1")
             : "-";
         TierRoman = ToRoman(player.ShipTier);
+
+        ApplyBattlePerformance(player);
+    }
+
+    /// <summary>
+    /// 换算本局战斗表现列。只有回放入库的对局才有这些数据，赛前名单与
+    /// 旧版本存的记录一律为空。
+    /// </summary>
+    /// <remarks>
+    /// 历史对局的列结构与实时名单不同：实时看的是账号底子，历史看的是
+    /// 这一局打了什么。这些字段在实时阶段拿不到，所以单独成一组，
+    /// 由界面按是否历史对局决定展示哪一组。
+    /// </remarks>
+    private void ApplyBattlePerformance(PlayerRecord player)
+    {
+        SpottingText = player.SpottingDamage.ToString("N0");
+        TakenText = player.DamageTaken.ToString("N0");
+
+        // 输出明细按伤害降序，只列出真的打出了伤害的目标。
+        var hits = (player.DamageByTarget ?? [])
+            .Where(d => d.DamageDealt > 0)
+            .ToList();
+        DamageTargetCount = hits.Count;
+        DamageTargetsText = BuildTargetLines(hits);
+
+        // 承伤明细按对方打出的伤害降序，方向与输出相反。
+        var victims = (player.DamageByTarget ?? [])
+            .Where(d => d.DamageReceived > 0)
+            .OrderByDescending(d => d.DamageReceived)
+            .ToList();
+        DamageTakenByText = BuildTargetLines(victims, d => d.DamageReceived);
+
+        // 成就按名称排序，同一成就的多次已由映射层写成「名称 ×N」。
+        // 显示层再做一次中文转换：早期入库的记录存的是英文名，
+        // 不必为了改名把整库回填一遍。
+        var achievements = (player.Achievements ?? [])
+            .Select(AchievementNames.ToChinese)
+            .ToList();
+        AchievementCount = achievements.Count;
+        AchievementsText = achievements.Count == 0
+            ? "无"
+            : string.Join(Environment.NewLine, achievements);
+        AchievementBadgeText = AchievementCount > 1
+            ? $"★{AchievementCount}"
+            : "★";
+
+        // 击杀数与存活时长同属战果摘要，合成一行挂在船名后面看。
+        ResultMark = player.Kills > 0 ? $"击杀 {player.Kills}" : string.Empty;
+    }
+
+    /// <summary>本局点亮伤害，历史对局列。0 表示整局没有点亮，与未知区分。</summary>
+    public string SpottingText { get; private set; } = "-";
+
+    /// <summary>本局承受伤害，历史对局列。</summary>
+    public string TakenText { get; private set; } = "-";
+
+    /// <summary>本局打出伤害的目标艘数，挂在伤害读数后用。</summary>
+    public int DamageTargetCount { get; private set; }
+
+    /// <summary>逐船输出明细，悬浮面板用，一行一艘船。</summary>
+    public string DamageTargetsText { get; private set; } = "无";
+
+    /// <summary>逐船承伤明细，悬浮面板用，一行一艘船。</summary>
+    public string DamageTakenByText { get; private set; } = "无";
+
+    /// <summary>本局获得的成就数量。</summary>
+    public int AchievementCount { get; private set; }
+
+    /// <summary>本局获得的成就清单，悬浮面板用。</summary>
+    public string AchievementsText { get; private set; } = "无";
+
+    /// <summary>成就徽记文本，带数量。</summary>
+    public string AchievementBadgeText { get; private set; } = "★";
+
+    /// <summary>击杀标记文本，无击杀为空串。</summary>
+    public string ResultMark { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// 把逐船明细拼成悬浮面板用的多行文本，一行一艘船。
+    /// </summary>
+    /// <remarks>
+    /// 不显示对方玩家名：复盘时关心的是哪艘船吃了伤害，昵称没有信息量，
+    /// 还会把悬浮框撑得很宽。目标船信息缺失时退回船 ID，至少能对回放。
+    /// </remarks>
+    private static string BuildTargetLines(
+        IReadOnlyList<DamageByTarget> items,
+        Func<DamageByTarget, long>? selector = null)
+    {
+        if (items.Count == 0)
+        {
+            return "无";
+        }
+
+        var lines = new List<string>(items.Count);
+        foreach (var item in items)
+        {
+            long damage = selector is null ? item.DamageDealt : selector(item);
+            string name = !string.IsNullOrWhiteSpace(item.TargetShipName)
+                ? item.TargetShipName
+                : item.TargetShipId;
+            lines.Add($"X {name} {damage:N0}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>昵称。</summary>

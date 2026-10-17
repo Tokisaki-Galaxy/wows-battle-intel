@@ -209,6 +209,10 @@ public sealed class ReplaysharkPlayer
     /// <summary>个人评分，可能为 null。</summary>
     [JsonProperty("personal_rating")]
     public double? PersonalRating { get; set; }
+
+    /// <summary>本局获得的成就。</summary>
+    [JsonProperty("achievements")]
+    public List<ReplaysharkAchievement> Achievements { get; set; } = [];
 }
 
 /// <summary>
@@ -263,6 +267,56 @@ public sealed class ReplaysharkServerResults
     /// <summary>航行距离。</summary>
     [JsonProperty("distance_traveled")]
     public double DistanceTraveled { get; set; }
+
+    /// <summary>
+    /// 与每艘目标船的伤害往来。键是目标玩家的 db_id，值是双方互相对同一艘船
+    /// 的伤害口径，由 replayshark 按目标聚合后给出。
+    /// </summary>
+    /// <remarks>
+    /// 键是 JSON 对象的属性名，必然是字符串，这里保持字符串形式不做转换。
+    /// </remarks>
+    [JsonProperty("damage_interactions")]
+    public Dictionary<string, ReplaysharkDamageInteraction> DamageInteractions { get; set; } = [];
+}
+
+/// <summary>
+/// 单个目标船维度的伤害往来。只声明用得到的两个字段，其余字段由反序列化器忽略。
+/// </summary>
+public sealed class ReplaysharkDamageInteraction
+{
+    /// <summary>我对该目标造成的伤害。</summary>
+    [JsonProperty("damage_dealt")]
+    public long DamageDealt { get; set; }
+
+    /// <summary>该目标对我造成的伤害。</summary>
+    [JsonProperty("damage_received")]
+    public long DamageReceived { get; set; }
+}
+
+/// <summary>
+/// 单条成就。
+/// </summary>
+public sealed class ReplaysharkAchievement
+{
+    /// <summary>成就的内部名称。</summary>
+    [JsonProperty("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>成就的展示名称，优先用它入库。</summary>
+    [JsonProperty("display_name")]
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>图标资源键，随游戏版本变化，暂不入库。</summary>
+    [JsonProperty("icon_key")]
+    public string IconKey { get; set; } = string.Empty;
+
+    /// <summary>本局该成就的计得次数。</summary>
+    [JsonProperty("count")]
+    public int Count { get; set; }
+
+    /// <summary>成就说明。</summary>
+    [JsonProperty("description")]
+    public string Description { get; set; } = string.Empty;
 }
 
 /// <summary>
