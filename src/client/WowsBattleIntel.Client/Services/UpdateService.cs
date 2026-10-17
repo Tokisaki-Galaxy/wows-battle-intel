@@ -31,28 +31,14 @@ public static class UpdateService
     /// <summary>仓库 releases 页根地址。</summary>
     private const string RepoUrl = "https://github.com/tokisaki-galaxy/wows-battle-intel";
 
-    /// <summary>重定向解析与下载共用的 HttpClient。长超时兼顾大包下载。</summary>
-    private static readonly HttpClient Http = CreateClient();
+    private static readonly Lock gate = new();
+    private static DateTimeOffset lastCheck = DateTimeOffset.MinValue;
 
     /// <summary>节流时间戳落盘路径。</summary>
     private static string StampPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "wows-battle-intel",
         "update-check.stamp");
-
-    private static readonly Lock gate = new();
-    private static DateTimeOffset lastCheck = DateTimeOffset.MinValue;
-
-    private static HttpClient CreateClient()
-    {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-        };
-        var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("wows-battle-intel-updater");
-        return client;
-    }
 
     /// <summary>
     /// 启动时调用：延迟后台检查，有新版提示并按用户意愿应用。不抛异常。
@@ -166,7 +152,7 @@ public static class UpdateService
                 "Bearer", config.GithubToken);
         }
 
-        using var response = await Http.SendAsync(request).ConfigureAwait(false);
+        using var response = await UpdateServiceHttp.Client.SendAsync(request).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         var finalUrl = response.RequestMessage?.RequestUri?.ToString();
@@ -301,10 +287,10 @@ internal sealed class AuthedFileDownloader : IFileDownloader
     }
 }
 
-/// <summary>下载器与更新服务共享的 HttpClient，长超时兼顾大包下载。</summary>
+/// <summary>更新服务与下载器共享的 HttpClient，长超时兼顾大包下载。</summary>
 internal static class UpdateServiceHttp
 {
-    /// <summary>懒初始化的共享客户端。</summary>
+    /// <summary>进程内唯一的共享客户端，避免重复构造 handler 耗尽连接池。</summary>
     internal static readonly HttpClient Client = CreateClient();
 
     private static HttpClient CreateClient()

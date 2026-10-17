@@ -1,4 +1,3 @@
-using System.Net;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 
@@ -36,10 +35,7 @@ public sealed class ClanCatalogService
         options.Validate();
         this.options = options;
         this.gradeCache = gradeCache;
-        this.httpClient = httpClient ?? new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(20),
-        };
+        this.httpClient = httpClient ?? WgHttp.CreateClient(TimeSpan.FromSeconds(20));
     }
 
     /// <summary>
@@ -267,18 +263,6 @@ public sealed class ClanCatalogService
         };
     }
 
-    private async Task<string> GetStringAsync(string url, CancellationToken cancellationToken)
-    {
-        using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            await Task.Delay(options.RateLimitBackoff, cancellationToken).ConfigureAwait(false);
-            using var retry = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            retry.EnsureSuccessStatusCode();
-            return await retry.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-    }
+    private Task<string> GetStringAsync(string url, CancellationToken cancellationToken) =>
+        WgHttp.GetStringAsync(httpClient, url, options.RateLimitBackoff, cancellationToken);
 }

@@ -1,4 +1,3 @@
-using System.Net;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
@@ -38,12 +37,7 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
         this.options = options;
-        this.httpClient = httpClient ?? new HttpClient
-        {
-            // 批量查询 20 人加分舰种聚合是两段串行请求，WG API 高峰期偶发
-            // 10 秒级慢响应，20 秒会在正常批次上误杀，放宽到 60 秒。
-            Timeout = TimeSpan.FromSeconds(60),
-        };
+        this.httpClient = httpClient ?? WgHttp.CreateClient(TimeSpan.FromSeconds(60));
     }
 
     /// <inheritdoc />
@@ -572,21 +566,8 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         return shipClass == ShipClass.Unknown ? null : shipClass.ToStorageKey();
     }
 
-    private async Task<string> GetStringAsync(string url, CancellationToken cancellationToken)
-    {
-        using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            // 限流时退避后重试一次。
-            await Task.Delay(options.RateLimitBackoff, cancellationToken).ConfigureAwait(false);
-            using var retry = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            retry.EnsureSuccessStatusCode();
-            return await retry.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-    }
+    private Task<string> GetStringAsync(string url, CancellationToken cancellationToken) =>
+        WgHttp.GetStringAsync(httpClient, url, options.RateLimitBackoff, cancellationToken);
 }
 
 /// <summary>
