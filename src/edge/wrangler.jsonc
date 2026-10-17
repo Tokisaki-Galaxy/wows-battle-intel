@@ -33,13 +33,18 @@
   ],
   // 静态资源目录：下载指引页。非 /api/ 路径由 Worker 内 env.ASSETS 转发，
   // 不启用 automatic 占位（not_found_handling 用 none，404 由 API 层或页面自行处理）。
+  // assets 只能留在顶层，wrangler preview 上传当前分支的 assets，
+  // 放进 previews 块会被配置校验判为非法，导致 previews 块整体失效。
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "none"
   },
+  // 非生产分支给预览分配 workers.dev 地址。
+  "preview_urls": true,
   // Previews 不继承顶层生产设置，绑定与 vars 必须在 previews 块内重新声明。
   // 当前 Preview 与生产共享同一批资源；需要隔离时改为独立的预览资源 ID。
+  // 注意：assets、compatibility、migrations、placement 一律留顶层，不放这里。
   "previews": {
     "vars": {
       "ENVIRONMENT": "preview"
@@ -54,8 +59,7 @@
       {
         "binding": "DB",
         "database_name": "wows-battle-intel",
-        "database_id": "a9d14c05-93b1-4065-9b2a-03dc666baad4",
-        "migrations_dir": "migrations"
+        "database_id": "a9d14c05-93b1-4065-9b2a-03dc666baad4"
       }
     ],
     "r2_buckets": [
@@ -63,11 +67,6 @@
         "binding": "MODELS",
         "bucket_name": "wows-battle-intel-models"
       }
-    ],
-    "assets": {
-      "directory": "./public",
-      "binding": "ASSETS",
-      "not_found_handling": "none"
-    }
+    ]
   }
 }
