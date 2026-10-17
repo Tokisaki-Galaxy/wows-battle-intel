@@ -6,8 +6,8 @@ using WowsBattleIntel.Core.Models;
 namespace WowsBattleIntel.Client.Tests;
 
 /// <summary>
-/// 赛前名单观测器测试。对齐 ApeRadar 口径：无时效门，文件比上次新即触发，
-/// 文件消失即判定对局结束。
+/// 赛前名单观测器测试。文件比上次新即触发，文件消失即判定对局结束；
+/// 修改时间超过新鲜度窗口的残留文件不触发。
 /// </summary>
 public class ArenaInfoWatcherTests : IDisposable
 {
@@ -85,9 +85,10 @@ public class ArenaInfoWatcherTests : IDisposable
     }
 
     [Fact]
-    public void ScanOnce_StaleFile_StillFires_BecauseNoAgeGate()
+    public void ScanOnce_StaleFile_DoesNotFire()
     {
-        // ApeRadar 无时效门：客户端在对局中途启动也必须看到正在进行的这一局。
+        // 崩溃或强退残留的 tempArenaInfo 修改时间很久远，不是进行中的对局，
+        // 必须挡掉，否则界面会把两个月前的旧对局当成当前对局。
         WriteArena("16.10.2026 08:00:00");
         File.SetLastWriteTimeUtc(
             Path.Combine(replayDir, "tempArenaInfo.json"),
@@ -99,7 +100,41 @@ public class ArenaInfoWatcherTests : IDisposable
 
         watcher.ScanOnce();
 
+        Assert.Equal(0, fired);
+    }
+
+    [Fact]
+    public void ScanOnce_MidBattleStartup_RecentFileFires()
+    {
+        // 对局进行中启动客户端：文件修改时间是最近几分钟，仍应触发。
+        WriteArena("16.10.2026 13:00:00");
+        File.SetLastWriteTimeUtc(
+            Path.Combine(replayDir, "tempArenaInfo.json"),
+            DateTime.UtcNow.AddMinutes(-2));
+
+        using var watcher = new ArenaInfoWatcher(CreateConfig());
+        int fired = 0;
+        watcher.PreBattleDiscovered += _ => fired++;
+
+        watcher.ScanOnce();
+
         Assert.Equal(1, fired);
+    }
+
+    [Fact]
+    public void ScanOnce_StaleFileAfterActive_FiresEnded()
+    {
+        // 已有一局在展示，随后文件变陈旧（例如游戏异常退出后残留），应收起。
+        string path = WriteArena("16.10.2026 13:00:00");
+        using var watcher = new ArenaInfoWatcher(CreateConfig());
+        bool ended = false;
+        watcher.PreBattleEnded += () => ended = true;
+
+        watcher.ScanOnce();
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-1));
+        watcher.ScanOnce();
+
+        Assert.True(ended);
     }
 
     [Fact]

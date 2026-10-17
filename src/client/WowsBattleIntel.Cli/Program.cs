@@ -1737,7 +1737,10 @@ internal static class Program
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
 
-    /// <summary>递归找修改时间最新的 tempArenaInfo.json。</summary>
+    /// <summary>
+    /// 递归找修改时间最新的 tempArenaInfo.json。修改时间超过窗口的视为崩溃
+    /// 残留，忽略，避免 live 命令把两个月前的旧对局当成当前对局。
+    /// </summary>
     private static string? FindLatestArenaInfo(string replayRoot)
     {
         if (!Directory.Exists(replayRoot))
@@ -1745,6 +1748,7 @@ internal static class Program
             return null;
         }
 
+        DateTime staleBefore = DateTime.UtcNow.AddMinutes(-10);
         string? best = null;
         DateTime bestTime = DateTime.MinValue;
         foreach (string file in Directory.EnumerateFiles(replayRoot, "tempArenaInfo.json", SearchOption.AllDirectories))
@@ -1755,6 +1759,11 @@ internal static class Program
                 wrote = File.GetLastWriteTimeUtc(file);
             }
             catch (IOException)
+            {
+                continue;
+            }
+
+            if (wrote <= staleBefore)
             {
                 continue;
             }
