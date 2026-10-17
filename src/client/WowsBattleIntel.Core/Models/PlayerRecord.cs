@@ -187,8 +187,20 @@ public sealed class PlayerRecord
     /// <summary>本局获得经验。</summary>
     public long ExpEarned { get; set; }
 
+    /// <summary>账号服务端实际服，用于快照查询。赛前记录只有 Auto，需由名单推断。</summary>
+    public GameServer StatsServer { get; set; } = GameServer.Auto;
+
     /// <summary>数据是否可用，隐藏战绩或查询失败时为 false。</summary>
     public bool HasStats => !IsHidden && AccountWinrate >= 0;
+
+    /// <summary>
+    /// 快照查询用的服务器。
+    /// </summary>
+    /// <remarks>
+    /// 赛前名单的 Server 恒为 Auto，真服只在 StatsServer 上。快照表按
+    /// server 列分区，两者都不给具体服就查不到任何快照。
+    /// </remarks>
+    public GameServer SnapshotServer => Server == GameServer.Auto ? StatsServer : Server;
 
     /// <summary>
     /// 账号、分舰种与单船三项统计是否都已到齐。
