@@ -192,6 +192,9 @@ public static class ArenaInfoParser
             ShipTier = shipTier,
             ShipClass = ShipClassExtensions.Parse(shipType),
             DivisionSize = 1,
+            // 赛前名单不含组队信息，DivisionId 保持为空，界面不画组队色块，
+            // 等赛后回放入库后再补。
+            DivisionId = null,
 
             // 赛前没有任何战绩与表现数据，全部走哨兵与零值默认。
             // PlayerRecord 的统计字段默认即 -1 哨兵，战后表现字段默认即 0，不显式赋值。

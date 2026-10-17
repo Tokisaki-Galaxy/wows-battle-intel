@@ -260,6 +260,43 @@ public class ReplaysharkMapperTests
         Assert.Equal(1, battle.Players.First(p => p.PlayerName == "EnemyTwo").DivisionSize);
     }
 
+    [Fact]
+    public void Map_DivisionId_PreservedAndDistinguishesTwoDuos()
+    {
+        var output = MakeOutput();
+        // 两个互不相干的双人队。人数相同，必须靠 division_id 区分。
+        output.Players[0].DivisionId = 111;
+        output.Players[1].DivisionId = 111;
+        output.Players[2].DivisionId = 222;
+        output.Players[3].DivisionId = 222;
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        string? id0 = battle.Players[0].DivisionId;
+        string? id1 = battle.Players[1].DivisionId;
+        string? id2 = battle.Players[2].DivisionId;
+        string? id3 = battle.Players[3].DivisionId;
+
+        Assert.Equal("111", id0);
+        Assert.Equal("111", id1);
+        Assert.Equal("222", id2);
+        Assert.Equal("222", id3);
+
+        // 人数一样，但小队不同。
+        Assert.Equal(battle.Players[0].DivisionSize, battle.Players[2].DivisionSize);
+        Assert.NotEqual(id0, id2);
+    }
+
+    [Fact]
+    public void Map_SoloPlayer_DivisionIdIsNull()
+    {
+        var output = MakeOutput();
+
+        var battle = ReplaysharkMapper.Map(output)!;
+
+        Assert.All(battle.Players, p => Assert.Null(p.DivisionId));
+    }
+
     [Theory]
     [InlineData("RandomBattle", BattleType.Random)]
     [InlineData("RankedBattle", BattleType.Ranked)]

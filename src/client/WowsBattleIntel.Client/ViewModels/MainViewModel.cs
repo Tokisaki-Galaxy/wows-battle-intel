@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using WowsBattleIntel.Client.Services;
+using WowsBattleIntel.Client.Views.Converters;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
@@ -599,6 +600,11 @@ public sealed class MainViewModel : ViewModelBase
 
             actualOutcome = full.Outcome;
 
+            // 组队配色在整场比赛范围内统一分配。只按小队标识取值、不按人数：
+            // 同一局里两个双人队人数相同，按人数取色会撞成同一个颜色。
+            // 本方与敌方共用一张映射，避免两边各起一套颜色导致整体画面混乱。
+            var divisionColors = AssignDivisionColors(full);
+
             // 名单排序：真人先于人机（:xxx: 名格式的系统号，不查战绩），
             // 再按舰种分组（航母、战列、巡洋、驱逐、潜艇）、等级高的在前，
             // 最后按账号标识稳定次序。
@@ -609,6 +615,7 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
+                row.SetDivisionColorIndex(divisionColors.GetValueOrDefault(p.DivisionId ?? string.Empty, -1));
                 allyRows[RowKey(p)] = row;
                 Allies.Add(row);
             }
@@ -620,6 +627,7 @@ public sealed class MainViewModel : ViewModelBase
                 .ThenBy(p => p.AccountId, StringComparer.Ordinal))
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
+                row.SetDivisionColorIndex(divisionColors.GetValueOrDefault(p.DivisionId ?? string.Empty, -1));
                 enemyRows[RowKey(p)] = row;
                 Enemies.Add(row);
             }
@@ -1029,6 +1037,37 @@ public sealed class MainViewModel : ViewModelBase
     /// 账号 ID 则在补拉前是 -1 哨兵，不能作键。
     /// </summary>
     private static string RowKey(PlayerRecord player) => player.PlayerName;
+
+    /// <summary>
+    /// 为一整场比赛里出现的每个小队分配配色下标。
+    /// </summary>
+    /// <remarks>
+    /// 按首次出现顺序取色，而不是哈希取模：12 色池下任意两个小队仍会有
+    /// 约 1/12 的撞色概率，一局六个队时几乎必撞。按顺序分配则只要小队数
+    /// 不超过配色池就不会有任何两队同色。
+    ///
+    /// 单排与赛前未知不进映射，调用方按 -1 处理，界面显示为透明。
+    /// 超过配色池容量时回绕，此时才可能出现同色。
+    /// </remarks>
+    private static Dictionary<string, int> AssignDivisionColors(BattleRecord battle)
+    {
+        var colors = new Dictionary<string, int>(StringComparer.Ordinal);
+        int next = 0;
+
+        foreach (var player in battle.Players)
+        {
+            string? id = player.DivisionId;
+            if (string.IsNullOrEmpty(id) || colors.ContainsKey(id))
+            {
+                continue;
+            }
+
+            colors[id] = next % DivisionBadgeBrushConverter.PaletteSize;
+            next++;
+        }
+
+        return colors;
+    }
 
     private bool IsDetailsCurrent(int version) => version == detailsVersion;
 

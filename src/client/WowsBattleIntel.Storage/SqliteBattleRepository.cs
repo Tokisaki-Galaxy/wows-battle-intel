@@ -106,9 +106,24 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // 军团分档缓存表。存量库走迁移补建，新库由 schema.sql 直接创建。
-        bool hasClanGrades = false;
+        // 组队标识列。人数只够区分单排与多排，同一局里两个双人队会撞色，
+        // 界面按小队着色需要原始 division_id。旧库补列后旧行保持 NULL。
+        var battlePlayerColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA table_info(battle_players);";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                battlePlayerColumns.Add(reader.GetString(1));
+            }
+        }
+
+        await AddColumnIfMissing(battlePlayerColumns, connection, "battle_players", "division_id", "TEXT");
+
+        // 军团分档缓存表。存量库走迁移补建，新库由 schema.sql 直接创建。
+        bool hasClanGrades = false;        await using (var command = connection.CreateCommand())
         {
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clan_grades';";
             hasClanGrades = Convert.ToInt64(
@@ -133,9 +148,18 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
     }
 
     /// <summary>列不存在时加列，已存在则跳过。迁移幂等，重复执行安全。</summary>
+    private static Task AddColumnIfMissing(
+        HashSet<string> existing,
+        SqliteConnection connection,
+        string columnName,
+        string columnType)
+        => AddColumnIfMissing(existing, connection, "player_snapshots", columnName, columnType);
+
+    /// <summary>按指定表加列，已存在则跳过。</summary>
     private static async Task AddColumnIfMissing(
         HashSet<string> existing,
         SqliteConnection connection,
+        string tableName,
         string columnName,
         string columnType)
     {
@@ -145,8 +169,8 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
         }
 
         await using var command = connection.CreateCommand();
-        // 列名与类型来自调用方字面量，不来自用户输入，拼接安全。
-        command.CommandText = $"ALTER TABLE player_snapshots ADD COLUMN {columnName} {columnType};";
+        // 表名、列名与类型来自调用方字面量，不来自用户输入，拼接安全。
+        command.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnType};";
         await command.ExecuteNonQueryAsync();
     }
 
@@ -249,12 +273,14 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 INSERT INTO battle_players (
                     battle_id, account_id, server, player_name, clan_tag,
                     ship_id, ship_name, ship_tier, ship_type, team, division_size,
+                    division_id,
                     is_bot, is_hidden, damage_dealt, damage_taken, kills,
                     spotting_damage, potential_damage, survived, survived_sec,
                     exp_earned, raw_json
                 ) VALUES (
                     $battleId, $accountId, $server, $name, $clan,
                     $shipId, $shipName, $tier, $shipType, $team, $div,
+                    $divId,
                     $bot, $hidden, $dmgDealt, $dmgTaken, $kills,
                     $spot, $potential, $survived, $survivedSec,
                     $exp, NULL
@@ -272,6 +298,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$shipType", p.ShipClass.ToStorageString());
             command.Parameters.AddWithValue("$team", p.IsAlly ? 0 : 1);
             command.Parameters.AddWithValue("$div", p.DivisionSize);
+            command.Parameters.AddWithValue("$divId", (object?)p.DivisionId ?? DBNull.Value);
             command.Parameters.AddWithValue("$bot", p.IsBot ? 1 : 0);
             command.Parameters.AddWithValue("$hidden", p.IsHidden ? 1 : 0);
             command.Parameters.AddWithValue("$dmgDealt", p.DamageDealt);
@@ -327,6 +354,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     clan_tag      = $clan,
                     player_name   = $name,
                     division_size = $div,
+                    division_id   = $divId,
                     is_bot        = $bot,
                     is_hidden     = $hidden
                 WHERE battle_id = $battleId
@@ -341,6 +369,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$clan", p.ClanTag ?? string.Empty);
             command.Parameters.AddWithValue("$name", p.PlayerName ?? string.Empty);
             command.Parameters.AddWithValue("$div", p.DivisionSize);
+            command.Parameters.AddWithValue("$divId", (object?)p.DivisionId ?? DBNull.Value);
             command.Parameters.AddWithValue("$bot", p.IsBot ? 1 : 0);
             command.Parameters.AddWithValue("$hidden", p.IsHidden ? 1 : 0);
             command.Parameters.AddWithValue("$battleId", battleId);
@@ -1335,6 +1364,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                 reader.GetString(reader.GetOrdinal("ship_type")), out var sc) ? sc : ShipClass.Unknown,
             IsAlly = reader.GetInt32(reader.GetOrdinal("team")) == 0,
             DivisionSize = reader.GetInt32(reader.GetOrdinal("division_size")),
+            DivisionId = reader.IsDBNull(reader.GetOrdinal("division_id"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("division_id")),
             IsBot = reader.GetInt32(reader.GetOrdinal("is_bot")) != 0,
             IsHidden = reader.GetInt32(reader.GetOrdinal("is_hidden")) != 0,
             DamageDealt = reader.GetInt64(reader.GetOrdinal("damage_dealt")),

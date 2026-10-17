@@ -131,6 +131,7 @@ public static class SnapshotFeatureBuilder
             ShipTier = player.ShipTier,
             ShipClass = player.ShipClass,
             DivisionSize = player.DivisionSize,
+            DivisionId = player.DivisionId,
 
             // 账号层特征，来自快照。空快照没有统计，场次回落 -1 未知，
             // 胜率本身已是 -1 哨兵，不会写成 0。

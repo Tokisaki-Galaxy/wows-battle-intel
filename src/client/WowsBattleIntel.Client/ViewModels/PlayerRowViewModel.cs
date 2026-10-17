@@ -112,6 +112,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(TierRoman));
         OnPropertyChanged(nameof(ShipClass));
         OnPropertyChanged(nameof(DivisionSize));
+        OnPropertyChanged(nameof(DivisionId));
         OnPropertyChanged(nameof(PlayerLineText));
         OnPropertyChanged(nameof(ShipLineText));
         OnPropertyChanged(nameof(WinrateText));
@@ -203,6 +204,36 @@ public sealed class PlayerRowViewModel : ViewModelBase
 
     /// <summary>组队人数，1 为单排。</summary>
     public int DivisionSize => source?.DivisionSize ?? 1;
+
+    /// <summary>
+    /// 组队标识，同一小队成员相同。单排或赛前未知时为空串。
+    /// </summary>
+    /// <remarks>
+    /// 界面不直接用它取色：同一局内不同小队需要保证颜色互不相同，
+    /// 由 <see cref="MainViewModel"/> 统一分配下标后经
+    /// <see cref="SetDivisionColorIndex"/> 写入。
+    /// </remarks>
+    public string DivisionId => source?.DivisionId ?? string.Empty;
+
+    /// <summary>
+    /// 组队配色下标，-1 表示不是组队成员或配色未知。
+    /// </summary>
+    public int DivisionColorIndex { get; private set; } = -1;
+
+    /// <summary>
+    /// 写入组队配色下标。由名单装配方按整场比赛统一分配后调用。
+    /// </summary>
+    /// <param name="index">配色池下标，-1 表示不着色。</param>
+    public void SetDivisionColorIndex(int index)
+    {
+        if (DivisionColorIndex == index)
+        {
+            return;
+        }
+
+        DivisionColorIndex = index;
+        OnPropertyChanged(nameof(DivisionColorIndex));
+    }
 
     /// <summary>
     /// 昵称完整形态：公会标签与昵称拼一段，ApeRadar 式单行展示。

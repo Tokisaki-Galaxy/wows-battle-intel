@@ -150,6 +150,38 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveBattle_DivisionId_RoundTripsAndStaysNullOtherwise()
+    {
+        var battle = MakeBattle();
+        // 两个玩家设为同一小队。
+        foreach (var p in battle.Players)
+        {
+            p.DivisionId = "555";
+        }
+
+        await repository.SaveBattleAsync(battle);
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+
+        Assert.All(loaded!.Players, p => Assert.Equal("555", p.DivisionId));
+    }
+
+    [Fact]
+    public async Task SaveBattle_NullDivisionId_StaysNull()
+    {
+        var battle = MakeBattle();
+        foreach (var p in battle.Players)
+        {
+            p.DivisionId = null;
+        }
+
+        await repository.SaveBattleAsync(battle);
+        var loaded = await repository.GetBattleAsync(battle.BattleId);
+
+        // 单排必须保持 null，不能写成空串，否则界面会当成组队。
+        Assert.All(loaded!.Players, p => Assert.Null(p.DivisionId));
+    }
+
+    [Fact]
     public async Task SaveBattle_IsIdempotent()
     {
         var battle = MakeBattle();

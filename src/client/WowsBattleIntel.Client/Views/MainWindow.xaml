@@ -353,7 +353,7 @@
                                   <Border VerticalAlignment="Center" Margin="4,0,0,0"
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
-                                          Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                          Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>
@@ -535,7 +535,7 @@
                                   <Border VerticalAlignment="Center" Margin="4,0,0,0"
                                           Width="7" Height="7" CornerRadius="2"
                                           ToolTip="小队"
-                                          Background="{Binding DivisionSize, Converter={StaticResource DivisionBadgeBrushConverter}}" />
+                                          Background="{Binding DivisionColorIndex, Converter={StaticResource DivisionBadgeBrushConverter}}" />
                                 </StackPanel>
                               </StackPanel>
                             </DataTemplate>

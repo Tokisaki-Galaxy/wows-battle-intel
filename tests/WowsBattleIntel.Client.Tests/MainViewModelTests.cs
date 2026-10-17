@@ -435,6 +435,70 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task SelectBattle_TwoDuosGetDifferentDivisionColors()
+    {
+        using var holder = await TestServices.CreateAsync();
+        // 复现 1016 23:34 那场：本方有两个互不相干的双人队，人数相同。
+        var battle = new BattleRecord
+        {
+            BattleId = "battle-two-duos",
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MapId = "spaces/54_Faroe",
+            BattleType = BattleType.Random,
+            GameVersion = "15.9.0",
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+            Players =
+            [
+                new PlayerRecord
+                {
+                    AccountId = "1", PlayerName = "DuoA1", Server = GameServer.Asia, IsAlly = true,
+                    ShipClass = ShipClass.Cruiser, ShipTier = 10, DivisionSize = 2, DivisionId = "111",
+                },
+                new PlayerRecord
+                {
+                    AccountId = "2", PlayerName = "DuoA2", Server = GameServer.Asia, IsAlly = true,
+                    ShipClass = ShipClass.Cruiser, ShipTier = 10, DivisionSize = 2, DivisionId = "111",
+                },
+                new PlayerRecord
+                {
+                    AccountId = "3", PlayerName = "DuoB1", Server = GameServer.Asia, IsAlly = true,
+                    ShipClass = ShipClass.Cruiser, ShipTier = 10, DivisionSize = 2, DivisionId = "222",
+                },
+                new PlayerRecord
+                {
+                    AccountId = "4", PlayerName = "DuoB2", Server = GameServer.Asia, IsAlly = true,
+                    ShipClass = ShipClass.Cruiser, ShipTier = 10, DivisionSize = 2, DivisionId = "222",
+                },
+                new PlayerRecord
+                {
+                    AccountId = "5", PlayerName = "SoloGuys", Server = GameServer.Asia, IsAlly = true,
+                    ShipClass = ShipClass.Cruiser, ShipTier = 10,
+                },
+            ],
+        };
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        var vm = new MainViewModel(holder.Services);
+        await vm.LoadRecentBattlesAsync();
+        vm.SelectedHistoryBattle = vm.RecentBattles[0];
+        await WaitUntilAsync(() => vm.Allies.Count == 5, "友方名单加载");
+
+        int IndexOf(string name) =>
+            vm.Allies.First(p => p.PlayerName == name).DivisionColorIndex;
+
+        // 同队同色。
+        Assert.Equal(IndexOf("DuoA1"), IndexOf("DuoA2"));
+        Assert.Equal(IndexOf("DuoB1"), IndexOf("DuoB2"));
+
+        // 异队异色，这是修复的关键：两边人数都是 2，不能再撞。
+        Assert.NotEqual(IndexOf("DuoA1"), IndexOf("DuoB1"));
+
+        // 单排不着色。
+        Assert.Equal(-1, IndexOf("SoloGuys"));
+    }
+
+    [Fact]
     public async Task SelectBattle_SortsBotsAfterHumans()
     {
         using var holder = await TestServices.CreateAsync();

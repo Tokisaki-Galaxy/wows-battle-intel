@@ -111,6 +111,10 @@ public static class ReplaysharkMapper
                 ? size
                 : 1,
 
+            // 人数只够区分单排与双排三排，同一局里两个双人队会撞成同一个颜色。
+            // 保留原始 division_id 才能让界面按小队着色。
+            DivisionId = rp.DivisionId?.ToString(CultureInfo.InvariantCulture),
+
             // 单局战斗表现，来自服务器权威结果。
             DamageDealt = sr?.Damage ?? 0,
             DamageTaken = sr?.ReceivedDamage ?? 0,

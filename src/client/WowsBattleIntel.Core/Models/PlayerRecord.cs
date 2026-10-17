@@ -50,7 +50,20 @@ public sealed class PlayerRecord
     public ShipClass ShipClass { get; set; } = ShipClass.Unknown;
 
     /// <summary>本局该玩家的组队规模，1 为单人，2 为双排，3 为三排。</summary>
+    /// <remarks>
+    /// 只知道人数，不足以区分同一局里的两个双人队。需要按小队着色时
+    /// 必须用 <see cref="DivisionId"/>。
+    /// </remarks>
     public int DivisionSize { get; set; } = 1;
+
+    /// <summary>
+    /// 本局组队标识。同一小队成员共享同一值，单排或赛前未知时为 null。
+    /// </summary>
+    /// <remarks>
+    /// 来自回放的 division_id。实时链路的 tempArenaInfo.json 不含组队信息，
+    /// 因此赛前名单上一律为 null，等赛后回放入库后才有值。
+    /// </remarks>
+    public string? DivisionId { get; set; }
 
     // --- 账号基础统计，-1 表示未知 ---
 

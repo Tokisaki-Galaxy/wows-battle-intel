@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS battle_players (
     ship_type        TEXT    NOT NULL DEFAULT 'Unknown',
     team             INTEGER NOT NULL DEFAULT 0,
     division_size    INTEGER NOT NULL DEFAULT 1,
+    division_id      TEXT,
     is_bot           INTEGER NOT NULL DEFAULT 0,
     is_hidden        INTEGER NOT NULL DEFAULT 0,
     damage_dealt     INTEGER NOT NULL DEFAULT 0,
