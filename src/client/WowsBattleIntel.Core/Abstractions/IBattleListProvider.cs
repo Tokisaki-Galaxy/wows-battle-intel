@@ -21,17 +21,6 @@ public interface IBattleListProvider
         int limit,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// 列出库里全部赛前占位记录。
-    /// </summary>
-    /// <remarks>
-    /// 占位记录指后端带 :pre 的标识。取全量而不是某一页：清理判据要对整库
-    /// 成立，按页码取会让截断之外的占位记录永远清不掉。
-    /// </remarks>
-    /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>全部占位记录的摘要。</returns>
-    Task<IReadOnlyList<BattleListEntry>> GetPrebattlePlaceholdersAsync(
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量移除赛前占位记录，连同其参战者与预测。
