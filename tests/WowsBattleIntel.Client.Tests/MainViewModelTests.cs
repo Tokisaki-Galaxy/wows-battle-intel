@@ -1,3 +1,4 @@
+using WowsBattleIntel.Client.Configuration;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Client.ViewModels;
 using WowsBattleIntel.Core.Abstractions;
@@ -7,6 +8,13 @@ namespace WowsBattleIntel.Client.Tests;
 
 public class MainViewModelTests
 {
+    /// <summary>取列表项的完整对局记录，为空时给出清晰的断言失败。</summary>
+    private static BattleRecord RequireBattle(BattleSummaryViewModel item)
+    {
+        Assert.NotNull(item.Battle);
+        return item.Battle;
+    }
+
     /// <summary>
     /// 轮询等待条件成立。详情加载是属性变更触发的后台任务，测试无法直接 await。
     /// 涉及在线补拉的等待需要更长窗口：统计来源开启分舰种目录后，失败前
@@ -97,17 +105,33 @@ public class MainViewModelTests
         await repository.BackfillOutcomeAsync(battleId, outcome);
     }
 
+    /// <summary>
+    /// 构造不使用真实回放目录的视图模型。补录服务指向一个空目录，
+    /// 列表只反映库里的记录，测试结果不依赖开发机上的回放文件。
+    /// </summary>
+    private static MainViewModel NewViewModel(AppServices services) =>
+        new(
+            services,
+            null,
+            new ReplayBackfillService(
+                () => new AppConfig(),
+                services.Repository,
+                services.Ingestion,
+                () => services.Repository.GetStartedAtValuesAsync(),
+                services.Logs,
+                rootOverride: string.Empty));
+
     [Fact]
     public async Task LoadRecentBattles_PopulatesListWithPrediction()
     {
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.68);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         var item = Assert.Single(vm.RecentBattles);
-        Assert.Equal("battle-001", item.Battle.BattleId);
+        Assert.Equal("battle-001", item.BattleId);
         Assert.Equal(0.68, item.PredictedWinProbability);
         Assert.Equal("胜利", item.ResultLabel);
         Assert.Equal("预测 68% (36%)", item.PredictionText);
@@ -126,8 +150,8 @@ public class MainViewModelTests
             Outcome = BattleOutcome.Win,
         };
 
-        var high = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.997);
-        var low = BattleSummaryViewModel.FromBattle(battle, string.Empty, 0.0004);
+        var high = BattleSummaryViewModel.FromBattle(battle, 0.997);
+        var low = BattleSummaryViewModel.FromBattle(battle, 0.0004);
 
         Assert.Equal("预测 95% (90%)", high.PredictionText);
         Assert.Equal("预测 5% (90%)", low.PredictionText);
@@ -139,7 +163,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.68);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
@@ -164,7 +188,7 @@ public class MainViewModelTests
         // 种子数据的 Confidence 为 0.75，模型置信度按 |0.68-0.5|*2 推导。
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.68);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -179,7 +203,7 @@ public class MainViewModelTests
         await holder.Services.Repository.SaveBattleAsync(
             MakeBattle("battle-001", BattleOutcome.Win, DateTimeOffset.UtcNow));
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -203,7 +227,7 @@ public class MainViewModelTests
             AllyWinProbability = 0.4,
         });
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         // 没有当前对局时实时区为空。
@@ -212,8 +236,8 @@ public class MainViewModelTests
 
         // 两局入库记录都进历史区。
         Assert.Equal(2, vm.HistoryBattles.Count);
-        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-live");
-        Assert.Contains(vm.HistoryBattles, s => s.Battle.BattleId == "battle-old");
+        Assert.Contains(vm.HistoryBattles, s => s.BattleId == "battle-live");
+        Assert.Contains(vm.HistoryBattles, s => s.BattleId == "battle-old");
     }
 
     [Fact]
@@ -224,13 +248,13 @@ public class MainViewModelTests
         var stale = MakeBattle("battle-old", BattleOutcome.Loss, DateTimeOffset.UtcNow.AddDays(-30));
         await holder.Services.Repository.SaveBattleAsync(stale);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         // 近 7 天筛选把 30 天前的记录排除。
         vm.HistoryDaysFilterIndex = 2;
         var history = Assert.Single(vm.HistoryBattles);
-        Assert.Equal("battle-fresh", history.Battle.BattleId);
+        Assert.Equal("battle-fresh", history.BattleId);
         Assert.Equal("WinBrush", history.ResultBrushKey);
     }
 
@@ -241,7 +265,7 @@ public class MainViewModelTests
         // 预测友方胜率 0.3，实际友方获胜，方向判错。
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.3);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -256,7 +280,7 @@ public class MainViewModelTests
         await holder.Services.Repository.SaveBattleAsync(
             MakeBattle("battle-001", BattleOutcome.Win, DateTimeOffset.UtcNow));
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -271,7 +295,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-tier", BattleOutcome.Win, 0.6);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         // 列表查询原本不带参战者，等级标签会退到 T?。补齐后应显示实际等级。
@@ -288,7 +312,7 @@ public class MainViewModelTests
             StartedAt = DateTimeOffset.UtcNow,
             Players = [],
         };
-        var summary = BattleSummaryViewModel.FromBattle(battle, string.Empty);
+        var summary = BattleSummaryViewModel.FromBattle(battle);
         Assert.Equal("T?", summary.TierText);
     }
 
@@ -296,7 +320,7 @@ public class MainViewModelTests
     public async Task ObservationStatus_AlwaysReportsObserving()
     {
         using var holder = await TestServices.CreateAsync();
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
 
         // 观测常驻，界面不再提供开始/停止开关，状态栏始终反映观测中。
         Assert.Contains("观测中", vm.ObservationStatusText);
@@ -308,7 +332,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.6);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "历史对局详情加载");
@@ -335,7 +359,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.6);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
 
@@ -352,7 +376,7 @@ public class MainViewModelTests
         // 入库 0.997 的极端概率，展示层必须夹到 95% 且不得出现 100%。
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.997);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -369,7 +393,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.5);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -423,7 +447,7 @@ public class MainViewModelTests
         };
         await holder.Services.Repository.SaveBattleAsync(battle);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 5, "友方名单加载");
@@ -479,7 +503,7 @@ public class MainViewModelTests
         };
         await holder.Services.Repository.SaveBattleAsync(battle);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 5, "友方名单加载");
@@ -538,7 +562,7 @@ public class MainViewModelTests
         };
         await holder.Services.Repository.SaveBattleAsync(battle);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count == 4, "友方名单加载");
@@ -567,7 +591,7 @@ public class MainViewModelTests
             WeightedWinrate = 0.5,
         });
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
         await WaitUntilAsync(() => vm.Allies.Count > 0, "友方名单加载");
@@ -817,7 +841,7 @@ public class MainViewModelTests
 
         await holder.Services.Repository.SaveBattleAsync(battle);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
         vm.SelectedHistoryBattle = vm.RecentBattles[0];
 
@@ -880,12 +904,13 @@ public class MainViewModelTests
     public async Task PreBattle_ShorterRosterDoesNotReplaceLongerOne()
     {
         using var holder = await TestServices.CreateAsync();
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
 
         // 长名单先到：24 人。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 24));
         await WaitUntilAsync(
-            () => vm.LiveBattles.Count == 1 && vm.LiveBattles[0].Battle.Players.Count == 24,
+            () => vm.LiveBattles.Count == 1
+                && vm.LiveBattles[0].Battle is { Players.Count: 24 },
             "长名单进入实时区");
 
         // 游戏重写文件时写出更短的名单，不得覆盖。
@@ -893,19 +918,19 @@ public class MainViewModelTests
         await Task.Delay(200);
 
         Assert.Single(vm.LiveBattles);
-        Assert.Equal(24, vm.LiveBattles[0].Battle.Players.Count);
+        Assert.Equal(24, RequireBattle(vm.LiveBattles[0]).Players.Count);
 
         // 人数涨回长名单之上：正常刷新。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-1", 30));
         await WaitUntilAsync(
-            () => vm.LiveBattles[0].Battle.Players.Count == 30,
+            () => vm.LiveBattles[0].Battle is { Players.Count: 30 },
             "更长的名单刷新实时区");
 
         // 换局：BattleId 变了，人数更少也照常替换。
         holder.Services.ArenaWatcher.PublishPreBattleForTest(MakePreBattle("pre-2", 4));
         await WaitUntilAsync(
-            () => vm.LiveBattles[0].Battle.BattleId == "pre-2"
-                && vm.LiveBattles[0].Battle.Players.Count == 4,
+            () => vm.LiveBattles[0].BattleId == "pre-2"
+                && vm.LiveBattles[0].Battle is { Players.Count: 4 },
             "新对局替换实时区");
     }
 
@@ -915,7 +940,7 @@ public class MainViewModelTests
         using var holder = await TestServices.CreateAsync();
         await SeedBattleAsync(holder.Services, "battle-001", BattleOutcome.Win, 0.6);
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         Assert.Equal(string.Empty, vm.HistoryTruncationHint);
@@ -938,7 +963,7 @@ public class MainViewModelTests
                 baseTime.AddSeconds(i)));
         }
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
         Assert.Equal(MainViewModel.HistoryBattleLimit, vm.RecentBattles.Count);
@@ -948,6 +973,6 @@ public class MainViewModelTests
             vm.HistoryTruncationHint);
 
         // 最新的一局留在最前，保证截断的是更早的记录。
-        Assert.Equal($"battle-{total - 1:0000}", vm.RecentBattles[0].Battle.BattleId);
+        Assert.Equal($"battle-{total - 1:0000}", vm.RecentBattles[0].BattleId);
     }
 }

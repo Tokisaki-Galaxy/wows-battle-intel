@@ -47,6 +47,13 @@ public sealed class AppServices : IDisposable
         PredictionInfo = predictionInfo;
         ReplayParser = new ReplayService(config);
         Ingestion = new BattleIngestionService(ReplayParser, repository, predictor);
+        // 补录持有配置读取委托与入库委托，配置换绑后自动指向新实例。
+        Backfill = new ReplayBackfillService(
+            () => Config,
+            repository,
+            Ingestion,
+            () => repository.GetStartedAtValuesAsync(),
+            Logs);
         Observer = observer;
         // 委托在调用时读取 Ingestion 属性，重配置后自动指向新实例。
         Monitor = new LiveBattleMonitor(
@@ -88,6 +95,12 @@ public sealed class AppServices : IDisposable
     /// <summary>回放解析服务。</summary>
     public ReplayService ReplayParser { get; private set; }
 
+    /// <summary>
+    /// 历史回放补录服务：找出回放目录里尚未入库的对局，供列表以占位项展示，
+    /// 点开时才解析入库。
+    /// </summary>
+    public ReplayBackfillService Backfill { get; private set; }
+
     /// <summary>战斗入库服务。</summary>
     public BattleIngestionService Ingestion { get; private set; }
 
@@ -125,10 +138,18 @@ public sealed class AppServices : IDisposable
             createResult.UsedFallback,
             createResult.FallbackReason);
 
-        var observer = new ReplayObserver(config);
+        // 启动场景：首次扫描补上应用没运行期间打完的场次。委托在调用时
+        // 读实例，观测器在构造之后才启动，那时 servicesRef 已赋值。
+        AppServices? servicesRef = null;
+        var observer = new ReplayObserver(
+            config,
+            (path, startedAt) => servicesRef is { } ready
+                ? ready.IsReplayKnownAsync(path, startedAt)
+                : Task.FromResult(true));
         var logs = new LogService(CreateLogWriter(config));
         var services = new AppServices(
             config, repository, statsProvider, clanCatalog, createResult.Predictor, info, logs, observer);
+        servicesRef = services;
 
         // 启动时按保留口径清一次旧日志。写入器内部已吞异常，不会阻断启动。
         logs.TrimLogFiles(config.LogOptions);
@@ -177,6 +198,18 @@ public sealed class AppServices : IDisposable
     }
 
     /// <summary>
+    /// 判断一份回放是否已入库。供观测器首次扫描逐份比对，
+    /// 库里没有的回放才进入解析队列。
+    /// </summary>
+    /// <param name="replayPath">回放路径，日志与诊断用。</param>
+    /// <param name="startedAt">文件名里的开战时间。</param>
+    public Task<bool> IsReplayKnownAsync(string replayPath, DateTimeOffset startedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(replayPath);
+        return Backfill.IsKnownAsync(startedAt);
+    }
+
+    /// <summary>
     /// 停止回放观测，保留服务以便再次启动。
     /// </summary>
     public void StopObservation()
@@ -210,7 +243,12 @@ public sealed class AppServices : IDisposable
         await repository.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         var createResult = PredictorFactory.Create(updated.ModelPath, updated.ModelVersion);
-        var observer = new ReplayObserver(updated);
+        // 换绑场景：首次扫描只登记不通知，避免设置页一保存就把目录里的
+        // 全部历史回放重新塞进解析队列。漏掉的场次由列表占位项按需补。
+        var observer = new ReplayObserver(
+            updated,
+            (path, startedAt) => IsReplayKnownAsync(path, startedAt),
+            reportOnFirstScan: false);
 
         lock (reconfigureLock)
         {
@@ -227,6 +265,12 @@ public sealed class AppServices : IDisposable
             ReplayParser = new ReplayService(updated);
             Ingestion = new BattleIngestionService(ReplayParser, repository, Predictor);
             Observer = observer;
+            Backfill = new ReplayBackfillService(
+                () => Config,
+                repository,
+                Ingestion,
+                () => repository.GetStartedAtValuesAsync(),
+                Logs);
         }
 
         // 换绑在锁外做，它会启停后台协程，不应长时间持锁。

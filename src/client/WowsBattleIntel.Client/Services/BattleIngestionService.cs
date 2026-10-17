@@ -83,12 +83,40 @@ public sealed class BattleIngestionService
             .ConfigureAwait(false);
         if (equivalent is not null)
         {
+            // 命中的可能是同一局的赛前占位记录（battle_id 带 :pre 后缀）。
+            // 它只有名单与预测、没有战果，留在库里会让列表出现两条几乎相同
+            // 的记录，那条还永远标着未判定。正式记录要重新落库，再清掉占位
+            // 记录。
+            if (equivalent.BattleId.EndsWith(":pre", StringComparison.Ordinal))
+            {
+                await repository.SaveBattleAsync(battle, cancellationToken).ConfigureAwait(false);
+                if (repository is IBattleListProvider listProvider)
+                {
+                    await listProvider
+                        .DeletePrebattlePlaceholdersAsync([equivalent.BattleId], cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                // 占位记录的目标标识由赛前名单算出，与正式标识不同，预测
+                // 需要按正式标识重新生成，否则详情区读不到。
+                return await SavePredictionAsync(battle, cancellationToken).ConfigureAwait(false);
+            }
+
             return IngestionResult.Duplicate(battle, equivalent.BattleId);
         }
 
         // 落库。相同对局标识幂等。
         await repository.SaveBattleAsync(battle, cancellationToken).ConfigureAwait(false);
+        return await SavePredictionAsync(battle, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// 为已落库的对局生成并保存预测。
+    /// </summary>
+    private async Task<IngestionResult> SavePredictionAsync(
+        BattleRecord battle,
+        CancellationToken cancellationToken)
+    {
         // 非 PvP 对局不出预测。Coop 全 bot、Unknown 无法定性，预测只会
         // 产出无意义数字，与训练端的类型白名单保持同一口径。
         if (!battle.BattleType.IsPvpType())

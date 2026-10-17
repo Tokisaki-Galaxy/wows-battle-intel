@@ -1,5 +1,6 @@
 using System.IO;
 using WowsBattleIntel.Client.Configuration;
+using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Client.ViewModels;
 using WowsBattleIntel.Core.Models;
 
@@ -90,13 +91,14 @@ public class PreBattleLifecycleTests : IDisposable
     {
         string arenaPath = WriteArena();
         using var holder = await TestServices.CreateAsync(CreateConfig());
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
 
         // 观测器捕获赛前名单。
         holder.Services.ArenaWatcher.ScanOnce();
         await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
 
         var live = Assert.Single(vm.LiveBattles);
+        Assert.NotNull(live.Battle);
         Assert.Equal("AllyPlayer", live.Battle.Allies.First().PlayerName);
         // 服务器从 clientrunner.log 探测，不是 Auto。
         Assert.Equal(GameServer.Asia, live.Battle.Server);
@@ -119,7 +121,7 @@ public class PreBattleLifecycleTests : IDisposable
     {
         WriteArena();
         using var holder = await TestServices.CreateAsync(CreateConfig());
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
 
         holder.Services.ArenaWatcher.ScanOnce();
         await WaitUntilAsync(() => vm.HasLiveBattles, "当前对局出现");
@@ -155,7 +157,7 @@ public class PreBattleLifecycleTests : IDisposable
             ],
         });
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
         await vm.LoadRecentBattlesAsync();
 
         // 先切到历史回放再切回赛前对局，详情区重建后观察补拉进度。
@@ -197,7 +199,7 @@ public class PreBattleLifecycleTests : IDisposable
         // 预测都留不下。这里锁住"名单确实灌进详情区"。
         WriteArena();
         using var holder = await TestServices.CreateAsync(CreateConfig());
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
 
         holder.Services.ArenaWatcher.ScanOnce();
 
@@ -235,7 +237,7 @@ public class PreBattleLifecycleTests : IDisposable
             ],
         });
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
         await vm.LoadRecentBattlesAsync();
 
         holder.Services.ArenaWatcher.ScanOnce();
@@ -270,7 +272,7 @@ public class PreBattleLifecycleTests : IDisposable
         // 必须停止并把倒计时转成危险色，不能无限空转。
         WriteArena();
         using var holder = await TestServices.CreateAsync(CreateConfig());
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
 
         holder.Services.ArenaWatcher.ScanOnce();
 
@@ -308,7 +310,7 @@ public class PreBattleLifecycleTests : IDisposable
             ],
         });
 
-        var vm = new MainViewModel(holder.Services);
+        var vm = new MainViewModel(holder.Services, null, EmptyBackfill(holder.Services));
         await vm.LoadRecentBattlesAsync();
 
         holder.Services.ArenaWatcher.ScanOnce();
@@ -330,4 +332,11 @@ public class PreBattleLifecycleTests : IDisposable
         vm.SelectedLiveBattle = live;
         await WaitUntilAsync(() => vm.CountdownText.Length > 0, "切回后赛前文案恢复");
     }
+
+    /// <summary>
+    /// 不扫真实回放目录的补录服务。赛前链路测试只关心名单与倒计时，
+    /// 不该被开发机上的回放文件掺进来。
+    /// </summary>
+    private static ReplayBackfillService EmptyBackfill(WowsBattleIntel.Client.Services.AppServices services) =>
+        ReplayBackfillTests.CreateEmptyBackfill(services);
 }
