@@ -139,7 +139,8 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>当前使用的列表补录服务，换绑后随之切换。</summary>
-    internal ReplayBackfillService BackfillForTest => backfill;
+    internal ReplayBackfillService Backfill => backfill;
+
     /// <summary>校准统计子视图模型。</summary>
     public CalibrationViewModel Calibration { get; }
 

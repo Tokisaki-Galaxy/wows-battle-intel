@@ -351,7 +351,7 @@ public class ReplayBackfillTests
         // 换绑后视图模型要切到新的补录实例，否则实时入库会记进作废旧缓存。
         vm.Settings.ApplyForTest();
         await WaitUntilAsync(
-            () => ReferenceEquals(vm.BackfillForTest, holder.Services.Backfill),
+            () => ReferenceEquals(vm.Backfill, holder.Services.Backfill),
             5000);
     }
 

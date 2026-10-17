@@ -33,7 +33,6 @@ public interface IBattleListProvider
     Task<IReadOnlyList<BattleListEntry>> GetPrebattlePlaceholdersAsync(
         CancellationToken cancellationToken = default);
 
-
     /// <summary>
     /// 批量移除赛前占位记录，连同其参战者与预测。
     /// </summary>
