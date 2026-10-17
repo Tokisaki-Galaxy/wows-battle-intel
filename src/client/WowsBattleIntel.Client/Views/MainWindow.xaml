@@ -628,10 +628,20 @@
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0"
-                       Text="运行日志"
-                       Style="{StaticResource HeadingTextStyle}"
-                       Margin="{StaticResource SpacingSm}" />
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{StaticResource SpacingSm}">
+              <TextBlock Text="运行日志"
+                         Style="{StaticResource HeadingTextStyle}"
+                         VerticalAlignment="Center" />
+              <TextBlock Text="{Binding Settings.LogDirectory}"
+                         Style="{StaticResource SecondaryTextStyle}"
+                         VerticalAlignment="Center"
+                         Margin="12,0,0,0"
+                         TextTrimming="CharacterEllipsis" />
+              <Button Content="打开日志文件夹"
+                      Command="{Binding Settings.OpenLogFolderCommand}"
+                      Margin="12,0,0,0"
+                      VerticalAlignment="Center" />
+            </StackPanel>
 
             <ListBox x:Name="LogEntriesList"
                      Grid.Row="1"
@@ -1029,6 +1039,72 @@
                   <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="120" HorizontalAlignment="Left"
                            Text="{Binding PollIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
                 </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="运行日志" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="日志按天写入独立文件，文本格式，可直接用编辑器打开查看。达到保留条件时自动删除最旧的文件。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="日志目录"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LogDirectory, UpdateSourceTrigger=PropertyChanged}"
+                           Margin="0,0,8,8" />
+                  <Button Grid.Row="0" Grid.Column="2" Content="打开日志文件夹"
+                          Command="{Binding OpenLogFolderCommand}" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="保留天数"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBox Width="100" VerticalAlignment="Center"
+                             Text="{Binding LogRetentionDays, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="天，0 表示不限天数" Style="{StaticResource SecondaryTextStyle}"
+                               VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="总量上限"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBox Width="100" VerticalAlignment="Center"
+                             Text="{Binding LogMaxSizeMb, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="MB，0 表示不限体积" Style="{StaticResource SecondaryTextStyle}"
+                               VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Text="清理方式"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                    <ComboBox Width="150" VerticalAlignment="Center"
+                              SelectedIndex="{Binding LogRetentionModeIndex, UpdateSourceTrigger=PropertyChanged}">
+                      <ComboBoxItem Content="天数与体积同时生效" />
+                      <ComboBoxItem Content="只按天数" />
+                      <ComboBoxItem Content="只按体积" />
+                    </ComboBox>
+                    <Button Content="立即清理" Command="{Binding TrimLogsCommand}" Margin="12,0,0,0" />
+                  </StackPanel>
+                </Grid>
+
+                <TextBlock Text="{Binding LogRetentionSummary}"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="140,10,0,0" />
               </StackPanel>
             </Border>
 
