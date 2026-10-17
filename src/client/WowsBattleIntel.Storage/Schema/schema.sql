@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS battle_players (
     survived         INTEGER NOT NULL DEFAULT 0,
     survived_sec     INTEGER NOT NULL DEFAULT 0,
     exp_earned       INTEGER NOT NULL DEFAULT 0,
+    -- 逐船伤害明细 JSON 数组，形如 [{"targetShipId":"...","damageDealt":123,...}]。
+    damage_by_target TEXT,
+    -- 成就展示文本 JSON 数组，形如 ["不死鸟","击毁 ×2"]。
+    achievements     TEXT,
     raw_json         TEXT,
     FOREIGN KEY (battle_id) REFERENCES battles (battle_id) ON DELETE CASCADE,
     UNIQUE (battle_id, account_id, server)

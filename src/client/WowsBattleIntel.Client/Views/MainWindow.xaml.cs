@@ -46,7 +46,86 @@ public partial class MainWindow : Window
         // 新回放入库后校准数据会变，顺手刷新，用户不用手动点。
         viewModel.BattleListChanged += OnBattleListChanged;
         viewModel.Logs.EntriesAppended += OnLogEntriesAppended;
+
+        // 名单列结构随选中项在实时与历史之间切换，视图模型没有直接暴露
+        // 这次切换的事件，靠属性变更通知驱动。
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
         Loaded += OnLoaded;
+    }
+
+    /// <summary>
+    /// 选中对局变化时重建名单列。
+    /// </summary>
+    /// <remarks>
+    /// 列可见性没有走 XAML 绑定：模板列不在可视化树里，RelativeSource 与
+    /// ElementName 都拿不到界面数据上下文，绑不上就会一直显示。放在代码
+    /// 后台按列名切换最直接，也方便测试断言。
+    /// </remarks>
+    private void OnViewModelPropertyChanged(
+        object? sender,
+        System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MainViewModel.IsHistoricalBattle)
+            or nameof(MainViewModel.SelectedBattle)
+            or nameof(MainViewModel.SelectedHistoryBattle)
+            or nameof(MainViewModel.SelectedLiveBattle))
+        {
+            ApplyColumnLayout();
+        }
+    }
+
+    /// <summary>
+    /// 按当前是否历史对局切换两套列。
+    /// </summary>
+    /// <remarks>
+    /// 历史对局看重的是这一局打了什么，实时对局只有赛前名单与前几场的账号
+    /// 底子。两套列互斥展示，不做叠加，否则每侧要塞下九列，读数全被挤扁。
+    /// </remarks>
+    private void ApplyColumnLayout()
+    {
+        bool historical = viewModel.IsHistoricalBattle;
+
+        // DataGridTemplateColumn.Visibility 在列已生成后不会立即让列消失，
+        // 这里同时把 MinWidth 与 Width 一起收掉，双保险。
+        foreach (var column in new[] { LiveAccountColumnAlly, LiveWeightedColumnAlly,
+                     LiveClassColumnAlly, LiveShipColumnAlly,
+                     LiveAccountColumnEnemy, LiveWeightedColumnEnemy,
+                     LiveClassColumnEnemy, LiveShipColumnEnemy })
+        {
+            SetColumnVisible(column, !historical);
+        }
+
+        foreach (var column in new[] { DetailDamageColumnAlly, DetailSpottingColumnAlly,
+                     DetailTakenColumnAlly, DetailAchievementColumnAlly,
+                     DetailDamageColumnEnemy, DetailSpottingColumnEnemy,
+                     DetailTakenColumnEnemy, DetailAchievementColumnEnemy })
+        {
+            SetColumnVisible(column, historical);
+        }
+    }
+
+    /// <summary>
+    /// 切换单列显隐。隐藏时把宽度收到零，不靠 Visibility 单独生效。
+    /// </summary>
+    private static void SetColumnVisible(DataGridColumn column, bool visible)
+    {
+        if (visible)
+        {
+            column.Visibility = Visibility.Visible;
+            column.Width = column switch
+            {
+                _ when column.Header is "账号" => new DataGridLength(86),
+                _ => new DataGridLength(1, DataGridLengthUnitType.Star),
+            };
+            column.MinWidth = column.Header is "账号" ? 86 : 42;
+        }
+        else
+        {
+            column.Width = new DataGridLength(0);
+            column.MinWidth = 0;
+            column.Visibility = Visibility.Collapsed;
+        }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -59,6 +138,9 @@ public partial class MainWindow : Window
         pendingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         pendingTimer.Tick += (_, _) => viewModel.RefreshObservationStatus();
         pendingTimer.Start();
+
+        // 首次进入时还没有选中任何对局，按实时布局起步。
+        ApplyColumnLayout();
 
         initialLoadCompleted = true;
     }

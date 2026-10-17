@@ -45,8 +45,15 @@ public sealed class MainViewModel : ViewModelBase
     private PredictionResult? currentPrediction;
     private BattleOutcome actualOutcome = BattleOutcome.Unknown;
     private string statusMessage = "就绪";
+
+    // 历史列表被上限截断时的提示。与 StatusMessage 分开持有：状态栏会被
+    // 入库、补拉进度、重算结果等消息反复覆盖，截断这件事属于列表本身的
+    // 状态，需要在列表附近常驻展示。未截断时保持空串。
+    private string historyTruncationHint = string.Empty;
+
     private string allySummaryText = "-";
-    private string enemySummaryText = "-";    private bool isBusy;
+    private string enemySummaryText = "-";
+    private bool isBusy;
     private string countdownText = string.Empty;
 
     // 赛前链路在途状态：临时名单触发过展示后为 true，正式回放入库后复位。
@@ -77,6 +84,17 @@ public sealed class MainViewModel : ViewModelBase
     private const string StatsFetchStatusPrefix = "正在补充 ";
 
     /// <summary>
+    /// 历史列表一次最多读取的对局数。
+    /// </summary>
+    /// <remarks>
+    /// 不取无限是为了启动速度：列表逐局补齐名单与预测，每条都是一次库查询，
+    /// 行数越多启动越慢，界面线程在加载期间一直占着。两千行在实测里是
+    /// 秒级量级的上限，覆盖绝大多数玩家的全部历史；真被截断时界面会明确
+    /// 提示，不让用户以为"就这么多"。
+    /// </remarks>
+    internal const int HistoryBattleLimit = 2000;
+
+    /// <summary>
     /// 构造视图模型。
     /// </summary>
     /// <param name="services">应用服务。</param>
@@ -100,6 +118,7 @@ public sealed class MainViewModel : ViewModelBase
         services.Monitor.IngestionFailed += OnIngestionFailed;
         services.ArenaWatcher.PreBattleDiscovered += OnPreBattleDiscovered;
         services.ArenaWatcher.PreBattleEnded += OnPreBattleEnded;
+        services.ArenaWatcher.ShrinkNotice += OnPreBattleShrink;
 
         UpdatePredictionStatus();
     }
@@ -214,6 +233,19 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>一局新回放入库后触发，供视图刷新校准等派生数据。</summary>
     public event Action? BattleListChanged;
 
+    /// <summary>
+    /// 当前详情区展示的是否为已入库的历史对局。
+    /// </summary>
+    /// <remarks>
+    /// 历史对局有完整战果，名单右侧改成这一局的战斗数据列；实时对局只有
+    /// 赛前名单，拿不到任何战果，仍显示账号底子。两者列结构不同，界面
+    /// 按这个标记切换。
+    ///
+    /// 判定依据是结果是否已知：赛前记录 Outcome 恒为 Unknown 且带 :pre
+    /// 标识，正式入库的对局结果必为胜负之一。
+    /// </remarks>
+    public bool IsHistoricalBattle => selectedBattle is { Outcome: not BattleOutcome.Unknown };
+
     /// <summary>当前选中的对局。</summary>
     public BattleRecord? SelectedBattle
     {
@@ -227,6 +259,8 @@ public sealed class MainViewModel : ViewModelBase
                 // 倒计时只在详情区显示当前赛前对局时可见，切换选中要重算。
                 OnPropertyChanged(nameof(CountdownText));
                 OnPropertyChanged(nameof(CountdownBrushKey));
+                // 历史对局与实时对局的名单列结构不同，由这里统一判定。
+                OnPropertyChanged(nameof(IsHistoricalBattle));
                 _ = LoadBattleDetailsAsync(value);
             }
         }
@@ -395,6 +429,20 @@ public sealed class MainViewModel : ViewModelBase
         private set => SetField(ref statusMessage, value);
     }
 
+    /// <summary>
+    /// 历史列表被 <see cref="HistoryBattleLimit"/> 截断时的提示，未截断时为空串。
+    /// </summary>
+    /// <remarks>
+    /// 单独持有而不是塞进 <see cref="StatusMessage"/>：状态栏在加载完成后会被
+    /// 入库通知、补拉进度、重算结果接连覆盖，截断提示放进去存活不了几秒。
+    /// 这里只随 <see cref="LoadRecentBattlesAsync"/> 的加载结果变化。
+    /// </remarks>
+    public string HistoryTruncationHint
+    {
+        get => historyTruncationHint;
+        private set => SetField(ref historyTruncationHint, value);
+    }
+
     /// <summary>友方队伍汇总，平均胜率与平均伤害，参照 PotatoAlert 底部汇总条。</summary>
     public string AllySummaryText
     {
@@ -478,11 +526,22 @@ public sealed class MainViewModel : ViewModelBase
         IsBusy = true;
         StatusMessage = "正在加载对局列表...";
 
+        // 上一轮的截断提示先清掉：本轮的结果重新判定，避免加载失败时
+        // 留着一条与当前列表对不上的旧提示。
+        HistoryTruncationHint = string.Empty;
+
         try
         {
+            // 多取一条用来判断是否被截断：取回条数超过上限，说明库里还有更早的。
             var battles = await services.Repository
-                .GetRecentBattlesAsync(limit: 300, cancellationToken)
+                .GetRecentBattlesAsync(limit: HistoryBattleLimit + 1, cancellationToken)
                 .ConfigureAwait(true);
+
+            bool truncated = battles.Count > HistoryBattleLimit;
+            if (truncated)
+            {
+                battles = battles.Take(HistoryBattleLimit).ToList();
+            }
 
             // 列表查询不带参战者，批量补齐，列表项的等级标签需要名单。
             await services.Repository
@@ -520,6 +579,14 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     SelectedHistoryBattle = reselect;
                 }
+            }
+
+            if (truncated)
+            {
+                HistoryTruncationHint =
+                    $"仅显示最近 {HistoryBattleLimit} 场，更早的对局未列出";
+                LogSink.Warn(
+                    $"历史对局超过上限，仅加载最近 {HistoryBattleLimit} 场，更早的记录不在列表中");
             }
         }
         catch (OperationCanceledException)
@@ -1156,16 +1223,46 @@ public sealed class MainViewModel : ViewModelBase
         });
     }
 
+    /// <summary>
+    /// 观测器发现名单人数比上次少时回调。非空才记日志，人数正常推进时
+    /// 不产生噪音。
+    /// </summary>
+    private void OnPreBattleShrink(string? notice)
+    {
+        if (notice is null)
+        {
+            return;
+        }
+
+        LogSink.Warn(notice);
+    }
+
     private async Task HandlePreBattleAsync(BattleRecord battle)
     {
         // 同局判重：键 = BattleId + 人数。加载过程中 tempArenaInfo 会随
         // 玩家陆续加入多次重写，BattleId 不变但人数递增，人数变化要放行
         // 刷新名单；人数相同的重复读取（watcher 轮询）被挡掉。
+        //
+        // 人数变少不放行：游戏写文件时可能先落一份不全的名单，再被完整名单
+        // 覆盖，若照单全收，界面上已经显示的一整个队伍会凭空消失。列表只增
+        // 不减，人数回退时保留旧名单。
         string key = $"{battle.BattleId}:{battle.Players.Count}";
         if (preBattleKey == key)
         {
             return;
         }
+
+        if (currentBattle is not null
+            && string.Equals(currentBattle.Battle.BattleId, battle.BattleId, StringComparison.Ordinal)
+            && battle.Players.Count < currentBattle.Battle.Players.Count)
+        {
+            // 键不推进：后续再来同样人数的读数是同一次回退的重复现象，
+            // 同样不该覆盖；等人数涨回旧值或更多时自然放行。
+            LogSink.Warn(
+                $"赛前名单人数回退，保留旧名单: {battle.Players.Count} < {currentBattle.Battle.Players.Count}");
+            return;
+        }
+
         preBattleKey = key;
 
         // 服务器兜底链：观测器已优先从 clientrunner.log 探测（ApeRadar 口径）。
@@ -1191,6 +1288,7 @@ public sealed class MainViewModel : ViewModelBase
         LogSink.Info($"赛前名单捕获: {battle.Players.Count} 名玩家 · {battle.BattleType} · {battle.Server}");
 
         // 放进实时区。单独字段持有，正式回放入库触发的列表重建抹不掉它。
+        BattleSummaryViewModel? previousLive = currentBattle;
         var summary = BattleSummaryViewModel.FromPreBattle(battle);
         currentBattle = summary;
         OnPropertyChanged(nameof(LiveBattles));
@@ -1209,8 +1307,18 @@ public sealed class MainViewModel : ViewModelBase
         // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
         // 渐进补拉链路。Outcome 保持 Unknown，对照徽章自然显示"待对照"。
         // 走实时区选中属性：两个列表互斥，当前对局属于实时区。
-        SelectedHistoryBattle = null;
-        SelectedLiveBattle = summary;
+        //
+        // 但用户正在看历史回放时不抢：这时切走会把详情区里正在读的历史
+        // 名单与预测冲掉，而赛前名单本身已经进了左侧实时区，用户想看
+        // 点一下就切过去。只在新对局开始时自动切，同一局的名单刷新
+        // 不打断浏览。
+        bool isNewBattle = previousLive is null
+            || !string.Equals(previousLive.Battle.BattleId, battle.BattleId, StringComparison.Ordinal);
+        if (isNewBattle || selectedHistoryBattle is null)
+        {
+            SelectedHistoryBattle = null;
+            SelectedLiveBattle = summary;
+        }
 
         // 赛前收敛循环在后台独立跑，不阻塞本方法。它每 3 秒重算一次预测，
         // 期间后台补拉持续推进，直到数据齐全或连续无进展。

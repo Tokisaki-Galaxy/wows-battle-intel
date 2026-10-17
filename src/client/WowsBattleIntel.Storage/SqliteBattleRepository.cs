@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using WowsBattleIntel.Core.Abstractions;
 using WowsBattleIntel.Core.Calibration;
@@ -122,8 +125,14 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
 
         await AddColumnIfMissing(battlePlayerColumns, connection, "battle_players", "division_id", "TEXT");
 
+        // 逐船伤害明细与成就列。两列都是回放解析的衍生数据，只做展示，
+        // 旧行补列后保持 NULL，读取时按空列表处理。
+        await AddColumnIfMissing(battlePlayerColumns, connection, "battle_players", "damage_by_target", "TEXT");
+        await AddColumnIfMissing(battlePlayerColumns, connection, "battle_players", "achievements", "TEXT");
+
         // 军团分档缓存表。存量库走迁移补建，新库由 schema.sql 直接创建。
-        bool hasClanGrades = false;        await using (var command = connection.CreateCommand())
+        bool hasClanGrades = false;
+        await using (var command = connection.CreateCommand())
         {
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clan_grades';";
             hasClanGrades = Convert.ToInt64(
@@ -276,14 +285,14 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
                     division_id,
                     is_bot, is_hidden, damage_dealt, damage_taken, kills,
                     spotting_damage, potential_damage, survived, survived_sec,
-                    exp_earned, raw_json
+                    exp_earned, damage_by_target, achievements, raw_json
                 ) VALUES (
                     $battleId, $accountId, $server, $name, $clan,
                     $shipId, $shipName, $tier, $shipType, $team, $div,
                     $divId,
                     $bot, $hidden, $dmgDealt, $dmgTaken, $kills,
                     $spot, $potential, $survived, $survivedSec,
-                    $exp, NULL
+                    $exp, $dmgByTarget, $achievements, NULL
                 );
                 """;
 
@@ -309,6 +318,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             command.Parameters.AddWithValue("$survived", p.Survived ? 1 : 0);
             command.Parameters.AddWithValue("$survivedSec", p.SurvivedSeconds);
             command.Parameters.AddWithValue("$exp", p.ExpEarned);
+            command.Parameters.AddWithValue("$dmgByTarget",
+                SerializeDamageByTarget(p.DamageByTarget));
+            command.Parameters.AddWithValue("$achievements", SerializeAchievements(p.Achievements));
 
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -1377,7 +1389,98 @@ public sealed class SqliteBattleRepository : IBattleRepository, IPlayerSnapshotS
             Survived = reader.GetInt32(reader.GetOrdinal("survived")) != 0,
             SurvivedSeconds = reader.GetInt32(reader.GetOrdinal("survived_sec")),
             ExpEarned = reader.GetInt64(reader.GetOrdinal("exp_earned")),
+
+            // 逐船伤害明细与成就。坏 JSON 只丢这一行这两个字段，不能连累整局列表。
+            DamageByTarget = DeserializeDamageByTarget(reader, "damage_by_target"),
+            Achievements = DeserializeAchievements(reader),
         };
+    }
+
+    /// <summary>
+    /// 逐船伤害明细的落盘 JSON 选项。
+    /// </summary>
+    /// <remarks>
+    /// 字段名用小写驼峰，与库内其余 JSON 列保持一致。枚举按名字写出，
+    /// 免得将来调整 <see cref="ShipClass"/> 的顺序时把旧数据读错。
+    /// </remarks>
+    private static readonly JsonSerializerOptions DamageByTargetJsonOptions = new()
+    {
+        WriteIndented = false,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    /// <summary>把逐船伤害明细序列化成 JSON。空列表写 null，与旧行同形。</summary>
+    private static object SerializeDamageByTarget(IReadOnlyList<DamageByTarget>? items)
+    {
+        if (items is null || items.Count == 0)
+        {
+            return DBNull.Value;
+        }
+
+        return JsonSerializer.Serialize(items, DamageByTargetJsonOptions);
+    }
+
+    /// <summary>把成就展示文本序列化成 JSON 数组。空列表写 null。</summary>
+    private static object SerializeAchievements(IReadOnlyList<string>? items)
+    {
+        if (items is null || items.Count == 0)
+        {
+            return DBNull.Value;
+        }
+
+        return JsonSerializer.Serialize(items, DamageByTargetJsonOptions);
+    }
+
+    /// <summary>
+    /// 读取逐船伤害明细。列缺失、为 NULL 或 JSON 损坏时返回空列表。
+    /// </summary>
+    /// <remarks>
+    /// 这两列是派生数据，损坏了也不影响整局的可读性。为保证单行坏数据
+    /// 不炸掉整个参战者列表，解析失败一律静默降级为空，只留一行调试输出。
+    /// </remarks>
+    private static IReadOnlyList<DamageByTarget> DeserializeDamageByTarget(
+        SqliteDataReader reader,
+        string columnName)
+    {
+        string? json = TryGetString(reader, columnName);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return Array.Empty<DamageByTarget>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<DamageByTarget>>(json, DamageByTargetJsonOptions)
+                ?? (IReadOnlyList<DamageByTarget>)Array.Empty<DamageByTarget>();
+        }
+        catch (JsonException ex)
+        {
+            Debug.WriteLine($"[SqliteBattleRepository] 逐船伤害明细解析失败，按空列表处理：{ex.Message}");
+            return Array.Empty<DamageByTarget>();
+        }
+    }
+
+    /// <summary>读取成就展示文本。列缺失、为 NULL 或 JSON 损坏时返回空列表。</summary>
+    private static IReadOnlyList<string> DeserializeAchievements(SqliteDataReader reader)
+    {
+        string? json = TryGetString(reader, "achievements");
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json, DamageByTargetJsonOptions)
+                ?? (IReadOnlyList<string>)Array.Empty<string>();
+        }
+        catch (JsonException ex)
+        {
+            Debug.WriteLine($"[SqliteBattleRepository] 成就列表解析失败，按空列表处理：{ex.Message}");
+            return Array.Empty<string>();
+        }
     }
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)

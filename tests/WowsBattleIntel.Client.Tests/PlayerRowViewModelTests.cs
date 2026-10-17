@@ -542,4 +542,119 @@ public class PlayerRowViewModelTests
         Assert.Contains("账号-场 -胜率 场均-", text);
         Assert.Contains("单船-场 -胜率 -场均", text);
     }
+
+    [Fact]
+    public void FromPlayer_DamageByTarget_DropZeroAndKeepOrder()
+    {
+        // 历史回放的输出明细：只保留真的打出了伤害的目标，按伤害降序。
+        var player = MakePlayer("A", 0.5, 100);
+        player.DamageDealt = 42000;
+        player.DamageByTarget =
+        [
+            new DamageByTarget { TargetShipName = "Yamato", DamageDealt = 31000, DamageReceived = 12000 },
+            new DamageByTarget { TargetShipName = "Shinano", DamageDealt = 11000, DamageReceived = 0 },
+            new DamageByTarget { TargetShipName = "K-1", DamageDealt = 0, DamageReceived = 9000 },
+        ];
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(2, vm.DamageTargetCount);
+
+        // 船名统一走船目录：Yamato 能查到中文，Shinano 未收录则保留原名。
+        Assert.Equal(
+            "X 大和 31,000" + Environment.NewLine + "X Shinano 11,000",
+            vm.DamageTargetsText);
+
+        // 承伤方向单独算，目标是打我的那艘。
+        Assert.Equal("X 大和 12,000" + Environment.NewLine + "X K-1 9,000", vm.DamageTakenByText);
+    }
+
+    [Fact]
+    public void FromPlayer_NoDamageDetail_ShowsPlaceholder()
+    {
+        // 旧库与赛前名单没有明细，不能显示成 0 伤害。
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+
+        Assert.Equal(0, vm.DamageTargetCount);
+        Assert.Equal("无", vm.DamageTargetsText);
+        Assert.Equal("无", vm.AchievementsText);
+        Assert.Equal(0, vm.AchievementCount);
+    }
+
+    [Fact]
+    public void FromPlayer_Achievements_ShowCountBadge()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.Achievements = ["Dreadnought", "Confederate ×2"];
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(2, vm.AchievementCount);
+        Assert.Equal("★2", vm.AchievementBadgeText);
+
+        // 成就名统一亚服中文口径，数量后缀保留。
+        Assert.Contains("无人能挡", vm.AchievementsText);
+        Assert.Contains("支援 ×2", vm.AchievementsText);
+    }
+
+    [Fact]
+    public void AchievementNames_UnknownStaysOriginal()
+    {
+        // 新版本新增的成就没收录时保留原文，不能翻成空白。
+        Assert.Equal("Brand New Award", AchievementNames.ToChinese("Brand New Award"));
+        Assert.Equal(string.Empty, AchievementNames.ToChinese(string.Empty));
+    }
+
+    [Fact]
+    public void AchievementNames_CountSuffixPreserved()
+    {
+        Assert.Equal("第一滴血 ×3", AchievementNames.ToChinese("First Blood ×3"));
+    }
+
+    [Theory]
+    [InlineData("Kraken Unleashed", "海怪出没！")]
+    [InlineData("Kraken Unleashed!", "海怪出没！")]
+    [InlineData("It's Just a Flesh Wound", "轻伤不下火线！")]
+    [InlineData("It's Just a Flesh Wound!", "轻伤不下火线！")]
+    [InlineData("Brothers in Arms", "兄弟连")]
+    [InlineData("Brothers-in-Arms", "兄弟连")]
+    public void AchievementNames_ToleratesPunctuationVariants(string input, string expected)
+    {
+        // 回放与游戏内文本常差一个叹号、撇号或连字符，归一化后必须命中同一条。
+        Assert.Equal(expected, AchievementNames.ToChinese(input));
+    }
+
+    [Theory]
+    [InlineData("Dreadnought", "无人能挡")]
+    [InlineData("High Caliber", "重创")]
+    [InlineData("Confederate", "支援")]
+    [InlineData("Witherer", "天灾人祸")]
+    [InlineData("Devastating Strike", "毁灭打击")]
+    public void AchievementNames_UsesAsiaServerWording(string input, string expected)
+    {
+        // 译名以世界服简中（zh_sg）为准，不是国服口径。
+        Assert.Equal(expected, AchievementNames.ToChinese(input));
+    }
+
+    [Fact]
+    public void FromPlayer_KillText_WrapsCountInParens()
+    {
+        // 击杀数并进输出列显示成红色 (4)，无击杀时不占位。
+        var killer = MakePlayer("A", 0.5, 100);
+        killer.Kills = 4;
+
+        var vm = PlayerRowViewModel.FromPlayer(killer);
+        Assert.Equal("(4) ", vm.KillText);
+        Assert.Equal("4", vm.ResultMark);
+        Assert.True(vm.HasKills);
+    }
+
+    [Fact]
+    public void FromPlayer_NoKill_KillTextIsEmpty()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+
+        Assert.Equal(string.Empty, vm.KillText);
+        Assert.False(vm.HasKills);
+    }
 }

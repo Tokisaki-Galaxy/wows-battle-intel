@@ -200,6 +200,24 @@ public sealed class PlayerRecord
     /// <summary>本局获得经验。</summary>
     public long ExpEarned { get; set; }
 
+    /// <summary>
+    /// 本局对每艘目标船的伤害往来，按我对目标造成的伤害降序。
+    /// </summary>
+    /// <remarks>
+    /// 来自回放的 damage_interactions，按目标逐条展开并补上目标船信息。
+    /// 只做复盘展示，不参与特征。旧库与赛前记录没有这份数据，保持空列表。
+    /// </remarks>
+    public IReadOnlyList<DamageByTarget> DamageByTarget { get; set; } = Array.Empty<DamageByTarget>();
+
+    /// <summary>
+    /// 本局获得的成就，已格式化为展示文本，同一成就多次计得写成「名称 ×N」。
+    /// </summary>
+    /// <remarks>
+    /// 只存展示文本而不存原始结构，是因为图标资源随游戏版本变化，
+    /// 反向映射回图标不可靠。旧库与赛前记录保持空列表。
+    /// </remarks>
+    public IReadOnlyList<string> Achievements { get; set; } = Array.Empty<string>();
+
     /// <summary>账号服务端实际服，用于快照查询。赛前记录只有 Auto，需由名单推断。</summary>
     public GameServer StatsServer { get; set; } = GameServer.Auto;
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using WowsBattleIntel.Client.Services;
 using WowsBattleIntel.Core.Models;
 using WowsBattleIntel.Core.Scoring;
@@ -113,6 +114,17 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShipClass));
         OnPropertyChanged(nameof(DivisionSize));
         OnPropertyChanged(nameof(DivisionId));
+        OnPropertyChanged(nameof(SpottingText));
+        OnPropertyChanged(nameof(TakenText));
+        OnPropertyChanged(nameof(DamageTargetCount));
+        OnPropertyChanged(nameof(DamageTargetsText));
+        OnPropertyChanged(nameof(DamageTakenByText));
+        OnPropertyChanged(nameof(AchievementCount));
+        OnPropertyChanged(nameof(AchievementsText));
+        OnPropertyChanged(nameof(AchievementBadgeText));
+        OnPropertyChanged(nameof(ResultMark));
+        OnPropertyChanged(nameof(HasKills));
+        OnPropertyChanged(nameof(KillText));
         OnPropertyChanged(nameof(PlayerLineText));
         OnPropertyChanged(nameof(ShipLineText));
         OnPropertyChanged(nameof(WinrateText));
@@ -165,12 +177,10 @@ public sealed class PlayerRowViewModel : ViewModelBase
             ? ((int)player.AccountBattles).ToString("N0")
             : "-";
 
-        // 临时名单的 ShipName 为空，先查船目录，再退回船 ID。
-        ShipText = string.IsNullOrEmpty(player.ShipName)
-            ? ShipCatalog.TryGetChineseName(player.ShipId, out string? preName) && preName is not null
-                ? preName
-                : player.ShipId
-            : player.ShipName;
+        // 船名统一走船目录：数字 ID 优先，英文名反查兜底。
+        // 早先这里英文优先、ShipLineText 中文优先，两个属性口径不一致，
+        // 复制出战绩文本时会突然变成英文。
+        ShipText = ShipCatalog.Resolve(player.ShipId, player.ShipName);
 
         ShipTypeText = $"{ShipClassLabel(player.ShipClass)} {player.ShipTier}";
 
@@ -179,6 +189,133 @@ public sealed class PlayerRowViewModel : ViewModelBase
             ? player.WeightedWinrate.ToString("P1")
             : "-";
         TierRoman = ToRoman(player.ShipTier);
+
+        ApplyBattlePerformance(player);
+    }
+
+    /// <summary>
+    /// 换算本局战斗表现列。只有回放入库的对局才有这些数据，赛前名单与
+    /// 旧版本存的记录一律为空。
+    /// </summary>
+    /// <remarks>
+    /// 历史对局的列结构与实时名单不同：实时看的是账号底子，历史看的是
+    /// 这一局打了什么。这些字段在实时阶段拿不到，所以单独成一组，
+    /// 由界面按是否历史对局决定展示哪一组。
+    /// </remarks>
+    private void ApplyBattlePerformance(PlayerRecord player)
+    {
+        SpottingText = player.SpottingDamage.ToString("N0");
+        TakenText = player.DamageTaken.ToString("N0");
+
+        // 输出明细按伤害降序，只列出真的打出了伤害的目标。
+        var hits = (player.DamageByTarget ?? [])
+            .Where(d => d.DamageDealt > 0)
+            .ToList();
+        DamageTargetCount = hits.Count;
+        DamageTargetsText = BuildTargetLines(hits);
+
+        // 承伤明细按对方打出的伤害降序，方向与输出相反。
+        var victims = (player.DamageByTarget ?? [])
+            .Where(d => d.DamageReceived > 0)
+            .OrderByDescending(d => d.DamageReceived)
+            .ToList();
+        DamageTakenByText = BuildTargetLines(victims, d => d.DamageReceived);
+
+        // 成就按名称排序，同一成就的多次已由映射层写成「名称 ×N」。
+        // 显示层再做一次中文转换：早期入库的记录存的是英文名，
+        // 不必为了改名把整库回填一遍。
+        var achievements = (player.Achievements ?? [])
+            .Select(AchievementNames.ToChinese)
+            .ToList();
+        AchievementCount = achievements.Count;
+        AchievementsText = achievements.Count == 0
+            ? "无"
+            : string.Join(Environment.NewLine, achievements);
+        AchievementBadgeText = AchievementCount > 1
+            ? $"★{AchievementCount}"
+            : "★";
+
+        // 击杀数单独成列，只放红色数字，不再带「击杀」二字：
+        // 玩家列已经被昵称和船名占满，加文字必被截断。
+        ResultMark = player.Kills > 0
+            ? player.Kills.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    /// <summary>本局点亮伤害，历史对局列。0 表示整局没有点亮，与未知区分。</summary>
+    public string SpottingText { get; private set; } = "-";
+
+    /// <summary>本局承受伤害，历史对局列。</summary>
+    public string TakenText { get; private set; } = "-";
+
+    /// <summary>本局打出伤害的目标艘数，挂在伤害读数后用。</summary>
+    public int DamageTargetCount { get; private set; }
+
+    /// <summary>逐船输出明细，悬浮面板用，一行一艘船。</summary>
+    public string DamageTargetsText { get; private set; } = "无";
+
+    /// <summary>逐船承伤明细，悬浮面板用，一行一艘船。</summary>
+    public string DamageTakenByText { get; private set; } = "无";
+
+    /// <summary>本局获得的成就数量。</summary>
+    public int AchievementCount { get; private set; }
+
+    /// <summary>本局获得的成就清单，悬浮面板用。</summary>
+    public string AchievementsText { get; private set; } = "无";
+
+    /// <summary>成就徽记文本，带数量。</summary>
+    public string AchievementBadgeText { get; private set; } = "★";
+
+    /// <summary>击杀标记文本，无击杀为空串。</summary>
+    public string ResultMark { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// 输出列前缀的击杀文本，形如 "(4)"，无击杀为空串。
+    /// </summary>
+    /// <remarks>
+    /// 括号只包住击杀数，伤害数字独立着色，所以拆成单独的 Run 给输出列拼。
+    /// 用全角括号会与伤害数字挤在一起，这里用半角并带一个尾随空格。
+    /// </remarks>
+    public string KillText => source is { Kills: > 0 } player
+        ? $"({player.Kills}) "
+        : string.Empty;
+
+    /// <summary>本局是否有击杀，供击杀列在 0 时显示占位符。</summary>
+    public bool HasKills => source?.Kills > 0;
+
+    /// <summary>
+    /// 把逐船明细拼成悬浮面板用的多行文本，一行一艘船。
+    /// </summary>
+    /// <remarks>
+    /// 不显示对方玩家名：复盘时关心的是哪艘船吃了伤害，昵称没有信息量，
+    /// 还会把悬浮框撑得很宽。目标船信息缺失时退回船 ID，至少能对回放。
+    /// </remarks>
+    private static string BuildTargetLines(
+        IReadOnlyList<DamageByTarget> items,
+        Func<DamageByTarget, long>? selector = null)
+    {
+        if (items.Count == 0)
+        {
+            return "无";
+        }
+
+        var lines = new List<string>(items.Count);
+        foreach (var item in items)
+        {
+            long damage = selector is null ? item.DamageDealt : selector(item);
+
+            // 统一走船目录：有数字船 ID 按 ID 查，没有就按英文名反查，
+            // 都查不到保留英文名。名单与明细必须是同一套口径。
+            string name = ShipCatalog.Resolve(item.TargetShipId, item.TargetShipName);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = item.TargetPlayerId;
+            }
+
+            lines.Add($"X {name} {damage:N0}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>昵称。</summary>
@@ -327,25 +464,20 @@ public sealed class PlayerRowViewModel : ViewModelBase
 
     /// <summary>舰船完整形态：舰种缩写、罗马数字等级与船名拼一段，如 "DD X 君权"。</summary>
     /// <remarks>
-    /// 船名优先取词典中文，按数字船 ID 匹配。存量库里旧记录的 ship_id 是
-    /// 内部索引码，词典查不到，保持英文船名回落。
+    /// 船名统一走 <see cref="ShipCatalog.Resolve"/>：数字 ID 优先，英文名兜底。
+    /// 存量库里旧记录的 ship_id 是内部索引码，ID 查不到时靠英文名反查补上。
     /// </remarks>
     public string ShipLineText
     {
         get
         {
-            string ship;
-            if (source is null)
+            string ship = source is null
+                ? string.Empty
+                : ShipCatalog.Resolve(source.ShipId, source.ShipName);
+
+            if (string.IsNullOrEmpty(ship))
             {
                 ship = string.Empty;
-            }
-            else if (ShipCatalog.TryGetChineseName(source.ShipId, out string? chinese))
-            {
-                ship = chinese!;
-            }
-            else
-            {
-                ship = string.IsNullOrEmpty(source.ShipName) ? source.ShipId : source.ShipName;
             }
 
             string prefix = $"{ShipClassLabel(ShipClass)} {TierRoman}".Trim();
