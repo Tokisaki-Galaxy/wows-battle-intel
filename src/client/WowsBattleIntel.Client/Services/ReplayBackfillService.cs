@@ -94,11 +94,13 @@ public sealed class ReplayBackfillService
     {
         // 占位记录清理要覆盖全库：列表页被上限截断时，页外的占位记录
         // 永远不在这一页里，只看本页会让它永久残留成一条赛前项。
-        var placeholders = await listProvider.GetPrebattlePlaceholdersAsync(cancellationToken)
+        // 全量摘要同时用于按标识区分正式记录，早于回放扫描读出来。
+        var allEntries = await listProvider.GetBattleListAsync(int.MaxValue, cancellationToken)
             .ConfigureAwait(false);
+        var placeholders = allEntries.Where(e => e.IsPrebattle).ToList();
         var known = await EnsureKnownTimesAsync().ConfigureAwait(false);
 
-        var merges = FindPlaceholderMerges(placeholders, known);
+        var merges = FindPlaceholderMerges(placeholders, allEntries);
         if (merges.Count > 0)
         {
             // 同一局的赛前占位记录已能被正式记录代表，先从库里清掉再出快照。
@@ -108,6 +110,12 @@ public sealed class ReplayBackfillService
             if (removed > 0)
             {
                 logs?.Info($"清理赛前占位记录 {removed} 条，同局已有正式记录");
+
+                // 库里少了几条，已知时间与全量摘要都要跟着重读。
+                ForgetKnownTimes();
+                known = await EnsureKnownTimesAsync().ConfigureAwait(false);
+                allEntries = await listProvider.GetBattleListAsync(int.MaxValue, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -184,6 +192,17 @@ public sealed class ReplayBackfillService
     }
 
     /// <summary>
+    /// 丢弃已知时间缓存，下次比对重新读库。数据库或补录实例换绑后调用。
+    /// </summary>
+    public void ForgetKnownTimes()
+    {
+        lock (knownTimesLock)
+        {
+            knownTimes = null;
+        }
+    }
+
+    /// <summary>
     /// 加载并缓存库里全部开战时间。缓存活一个进程周期，期间新入库的对局
     /// 由 <see cref="RememberIngested"/> 补记。
     /// </summary>
@@ -216,26 +235,36 @@ public sealed class ReplayBackfillService
     /// 找出可以删除的赛前占位记录。
     /// </summary>
     /// <remarks>
-    /// 判据：库里存在开战时间在容差内的正式记录，且开始时间不早于占位记录。
-    /// 占位记录来自 tempArenaInfo，与它的正式回放几乎同时开始；而同一时间
-    /// 窗口里更早的记录不可能是它的正式版本，不能拿来当依据。正式记录一条不动。
+    /// 判据：库里存在开战时间落在 [占位记录开始, 占位记录开始 + 容差] 的正式
+    /// 记录。占位记录来自 tempArenaInfo，不会晚于它的正式回放；窗口里更早的
+    /// 记录不可能是它的正式版本，不能拿来当依据。正式记录一条不动。
     ///
-    /// 不再比地图：占位记录的地图来自赛前名单，口径与回放的解析结果不一定
-    /// 一致，拿它做校验反而会让占位记录永远清不掉。
+    /// 按标识区分正式记录与占位记录，不能按时间去重：同一秒写入的正式记录
+    /// 与占位记录时间相同，按时间剔会把正式记录也一并剔掉。
     /// </remarks>
     /// <param name="placeholders">库里的全部占位记录。</param>
-    /// <param name="knownTimes">库里的全部开战时间。</param>
+    /// <param name="entries">库里的全部记录摘要。</param>
     private static List<string> FindPlaceholderMerges(
         IReadOnlyList<BattleListEntry> placeholders,
-        List<DateTimeOffset> knownTimes)
+        IReadOnlyList<BattleListEntry> entries)
     {
+        if (placeholders.Count == 0)
+        {
+            return [];
+        }
+
+        var formalTimes = entries
+            .Where(e => !e.IsPrebattle)
+            .Select(e => e.StartedAt)
+            .OrderBy(t => t)
+            .ToList();
+
         var merges = new List<string>();
         foreach (var placeholder in placeholders)
         {
-            // 占位记录自己的开战时间也在集合里，必须排除它自己的那一条。
-            bool covered = knownTimes.Any(t =>
-                (t - placeholder.StartedAt).Duration() > TimeSpan.Zero
-                && (t - placeholder.StartedAt).Duration() <= MatchTolerance);
+            bool covered = formalTimes.Any(t =>
+                t >= placeholder.StartedAt
+                && t - placeholder.StartedAt <= MatchTolerance);
             if (covered)
             {
                 merges.Add(placeholder.BattleId);
