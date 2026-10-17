@@ -14,6 +14,7 @@
 | [0006](0006-central-package-management.md) | 集中式包版本管理 | 已采纳 |
 | [0007](0007-auto-update.md) | 客户端自动更新采用 Velopack | 建议采纳 |
 | [0008](0008-stats-cache-decorator.md) | 战绩缓存做成提供商的装饰器 | 已采纳 |
+| [0009](0009-log-persistence.md) | 运行日志落盘并按时长与体积双限清理 | 已采纳 |
 
 ## 格式
 
