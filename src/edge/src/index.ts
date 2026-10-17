@@ -1,8 +1,15 @@
-import type { ApiResponse, Env } from "./types.js";
+import type { Env } from "./types.js";
 import { handleUploadBatch } from "./handlers/upload.js";
 import { handleGetStats, handlePutStats } from "./handlers/stats.js";
 import { handleGetModel, handleListModels } from "./handlers/models.js";
 import { handleGetBaselines, handleGetCalibration } from "./handlers/analytics.js";
+import { fail, json, preflight } from "./http.js";
+
+/** 统计接口的路径前缀。 */
+const STATS_PREFIX = "/api/v1/stats/";
+
+/** 模型接口的路径前缀。 */
+const MODELS_PREFIX = "/api/v1/models/";
 
 /**
  * 中央协调库边缘后端入口。
@@ -26,6 +33,11 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
+    // 跨域预检统一在入口应答，handler 不重复处理。
+    if (request.method === "OPTIONS") {
+      return preflight();
+    }
+
     // 健康检查，不鉴权。
     if (path === "/api/health") {
       return json<{ status: string; environment: string }>({
@@ -40,11 +52,11 @@ export default {
         return response;
       }
 
-      return json({ ok: false, error: "未找到路由" }, 404);
+      return fail(404, "未找到路由");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`请求处理失败 ${path}: ${message}`);
-      return json({ ok: false, error: message }, 500);
+      return fail(500, message);
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -66,8 +78,8 @@ async function route(
   }
 
   // 玩家统计缓存
-  if (path.startsWith("/api/v1/stats/")) {
-    const accountId = path.slice("/api/v1/stats/".length);
+  if (path.startsWith(STATS_PREFIX)) {
+    const accountId = path.slice(STATS_PREFIX.length);
     if (method === "GET") {
       return handleGetStats(accountId, env);
     }
@@ -80,8 +92,8 @@ async function route(
   if (path === "/api/v1/models" && method === "GET") {
     return handleListModels(env);
   }
-  if (path.startsWith("/api/v1/models/") && method === "GET") {
-    const version = path.slice("/api/v1/models/".length);
+  if (path.startsWith(MODELS_PREFIX) && method === "GET") {
+    const version = path.slice(MODELS_PREFIX.length);
     return handleGetModel(version, request, env);
   }
 
@@ -94,17 +106,4 @@ async function route(
   }
 
   return null;
-}
-
-/**
- * 构造 JSON 响应。
- */
-export function json<T>(body: ApiResponse<T>, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
 }
