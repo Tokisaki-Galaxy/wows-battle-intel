@@ -35,10 +35,7 @@ public static class UpdateService
     private static DateTimeOffset lastCheck = DateTimeOffset.MinValue;
 
     /// <summary>节流时间戳落盘路径。</summary>
-    private static string StampPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "wows-battle-intel",
-        "update-check.stamp");
+    private static string StampPath => AppPaths.CombineAppData("update-check.stamp");
 
     /// <summary>
     /// 启动时调用：延迟后台检查，有新版提示并按用户意愿应用。不抛异常。
