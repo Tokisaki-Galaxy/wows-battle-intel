@@ -610,4 +610,26 @@ public class PlayerRowViewModelTests
     {
         Assert.Equal("第一滴血 ×3", AchievementNames.ToChinese("First Blood ×3"));
     }
+
+    [Fact]
+    public void FromPlayer_KillText_WrapsCountInParens()
+    {
+        // 击杀数并进输出列显示成红色 (4)，无击杀时不占位。
+        var killer = MakePlayer("A", 0.5, 100);
+        killer.Kills = 4;
+
+        var vm = PlayerRowViewModel.FromPlayer(killer);
+        Assert.Equal("(4) ", vm.KillText);
+        Assert.Equal("4", vm.ResultMark);
+        Assert.True(vm.HasKills);
+    }
+
+    [Fact]
+    public void FromPlayer_NoKill_KillTextIsEmpty()
+    {
+        var vm = PlayerRowViewModel.FromPlayer(MakePlayer("A", 0.5, 100));
+
+        Assert.Equal(string.Empty, vm.KillText);
+        Assert.False(vm.HasKills);
+    }
 }

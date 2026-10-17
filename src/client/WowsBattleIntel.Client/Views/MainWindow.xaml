@@ -450,12 +450,14 @@
                         <DataGridTemplateColumn x:Name="DetailDamageColumnAlly" Header="输出" Width="*" MinWidth="54">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                              <TextBlock Text="{Binding DamageText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         HorizontalAlignment="Stretch"
+                              <!-- 击杀数用红色括号并进输出列，后面跟常规颜色的伤害数字。
+                                   两个 Run 分开着色，TextBlock 自身不绑定文本 -->
+                              <TextBlock HorizontalAlignment="Stretch"
                                          TextAlignment="Right"
                                          VerticalAlignment="Center"
                                          Background="Transparent">
+                                <Run Text="{Binding KillText, Mode=OneWay}"
+                                     Foreground="{StaticResource LossBrush}" /><Run Text="{Binding DamageText, Mode=OneWay}" />
                                 <TextBlock.ToolTip>
                                   <TextBlock Text="{Binding DamageTargetsText}"
                                              MaxWidth="260"
@@ -521,28 +523,6 @@
                                     <Style.Triggers>
                                       <DataTrigger Binding="{Binding AchievementCount}" Value="0">
                                         <Setter Property="Text" Value="无" />
-                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
-                                      </DataTrigger>
-                                    </Style.Triggers>
-                                  </Style>
-                                </TextBlock.Style>
-                              </TextBlock>
-                            </DataTemplate>
-                          </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                        <!-- 本局击杀数，红色数字，只占两三个字符 -->
-                        <DataGridTemplateColumn x:Name="DetailKillColumnAlly" Header="击杀" Width="*" MinWidth="36">
-                          <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
-                                         HorizontalAlignment="Stretch">
-                                <TextBlock.Style>
-                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
-                                    <Setter Property="Text" Value="{Binding ResultMark}" />
-                                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
-                                    <Style.Triggers>
-                                      <DataTrigger Binding="{Binding HasKills}" Value="False">
-                                        <Setter Property="Text" Value="-" />
                                         <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
                                       </DataTrigger>
                                     </Style.Triggers>
@@ -740,12 +720,14 @@
                         <DataGridTemplateColumn x:Name="DetailDamageColumnEnemy" Header="输出" Width="*" MinWidth="54">
                           <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                              <TextBlock Text="{Binding DamageText}"
-                                         Style="{StaticResource BodyTextStyle}"
-                                         HorizontalAlignment="Stretch"
+                              <!-- 击杀数用红色括号并进输出列，后面跟常规颜色的伤害数字。
+                                   两个 Run 分开着色，TextBlock 自身不绑定文本 -->
+                              <TextBlock HorizontalAlignment="Stretch"
                                          TextAlignment="Right"
                                          VerticalAlignment="Center"
                                          Background="Transparent">
+                                <Run Text="{Binding KillText, Mode=OneWay}"
+                                     Foreground="{StaticResource LossBrush}" /><Run Text="{Binding DamageText, Mode=OneWay}" />
                                 <TextBlock.ToolTip>
                                   <TextBlock Text="{Binding DamageTargetsText}"
                                              MaxWidth="260"
@@ -811,28 +793,6 @@
                                     <Style.Triggers>
                                       <DataTrigger Binding="{Binding AchievementCount}" Value="0">
                                         <Setter Property="Text" Value="无" />
-                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
-                                      </DataTrigger>
-                                    </Style.Triggers>
-                                  </Style>
-                                </TextBlock.Style>
-                              </TextBlock>
-                            </DataTemplate>
-                          </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                        <!-- 本局击杀数，红色数字，只占两三个字符 -->
-                        <DataGridTemplateColumn x:Name="DetailKillColumnEnemy" Header="击杀" Width="*" MinWidth="36">
-                          <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                              <TextBlock TextAlignment="Right" VerticalAlignment="Center"
-                                         HorizontalAlignment="Stretch">
-                                <TextBlock.Style>
-                                  <Style TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
-                                    <Setter Property="Text" Value="{Binding ResultMark}" />
-                                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
-                                    <Style.Triggers>
-                                      <DataTrigger Binding="{Binding HasKills}" Value="False">
-                                        <Setter Property="Text" Value="-" />
                                         <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
                                       </DataTrigger>
                                     </Style.Triggers>

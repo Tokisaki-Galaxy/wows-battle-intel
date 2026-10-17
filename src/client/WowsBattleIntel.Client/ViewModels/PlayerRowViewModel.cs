@@ -124,6 +124,7 @@ public sealed class PlayerRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(AchievementBadgeText));
         OnPropertyChanged(nameof(ResultMark));
         OnPropertyChanged(nameof(HasKills));
+        OnPropertyChanged(nameof(KillText));
         OnPropertyChanged(nameof(PlayerLineText));
         OnPropertyChanged(nameof(ShipLineText));
         OnPropertyChanged(nameof(WinrateText));
@@ -267,6 +268,17 @@ public sealed class PlayerRowViewModel : ViewModelBase
 
     /// <summary>击杀标记文本，无击杀为空串。</summary>
     public string ResultMark { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// 输出列前缀的击杀文本，形如 "(4)"，无击杀为空串。
+    /// </summary>
+    /// <remarks>
+    /// 括号只包住击杀数，伤害数字独立着色，所以拆成单独的 Run 给输出列拼。
+    /// 用全角括号会与伤害数字挤在一起，这里用半角并带一个尾随空格。
+    /// </remarks>
+    public string KillText => source is { Kills: > 0 } player
+        ? $"({player.Kills}) "
+        : string.Empty;
 
     /// <summary>本局是否有击杀，供击杀列在 0 时显示占位符。</summary>
     public bool HasKills => source?.Kills > 0;
