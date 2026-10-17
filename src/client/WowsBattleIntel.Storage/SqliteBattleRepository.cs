@@ -740,6 +740,41 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
     }
 
     /// <summary>
+    /// 列出库里全部赛前占位记录。
+    /// </summary>
+    /// <remarks>
+    /// 占位记录指后端带 :pre 的标识。取全量而不是某一页：清理判据要对整库
+    /// 成立，按页码取会让截断之外的占位记录永远清不掉。
+    /// </remarks>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>全部占位记录的摘要。</returns>
+    public async Task<IReadOnlyList<BattleListEntry>> GetPrebattlePlaceholdersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT battle_id, started_at, map_id, battle_type, server,
+                   result, duration_sec, 0 AS ally_tier,
+                   NULL AS ally_win_prob,
+                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players
+            FROM battles b
+            WHERE substr(b.battle_id, -4) = ':pre'
+            ORDER BY started_at DESC;
+            """;
+
+        var entries = new List<BattleListEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            entries.Add(ReadListEntry(reader));
+        }
+
+        return entries;
+    }
+
+    /// <summary>
     /// 批量移除赛前占位记录，连同其参战者与预测。
     /// </summary>
     /// <remarks>
