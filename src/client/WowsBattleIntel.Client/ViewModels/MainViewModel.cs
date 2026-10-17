@@ -24,8 +24,8 @@ public sealed class MainViewModel : ViewModelBase
     private readonly AppServices services;
     private readonly SynchronizationContext? syncContext;
 
-    // 测试用回放目录覆盖。为空时读配置，避免测试去扫本机真实回放目录。
-    private readonly string? replayDirectory;
+    // 列表补录服务。测试可注入固定回放目录的实例。
+    private readonly ReplayBackfillService backfill;
 
     // 详情加载的代次与取消源。每次选择新对局都递增代次并取消旧的
     // 后台补拉，防止快速连点时旧任务的回写污染新对局的名单。
@@ -35,6 +35,9 @@ public sealed class MainViewModel : ViewModelBase
     // 历史对局筛选条件。null 表示不限。
     private BattleType? historyBattleTypeFilter;
     private int? historyDaysFilter;
+
+    // 历史区选中的代次。占位项解析要几秒，期间用户可能改选，旧结果不得回写。
+    private int historySelectionVersion;
 
     // 名单行按玩家身份键的索引，阶段二增量刷新行内容时定位用。
     // 键取昵称：赛前名单的账号 ID 先是 -1 哨兵，补拉阶段才解析成真账号，
@@ -102,21 +105,17 @@ public sealed class MainViewModel : ViewModelBase
     /// </summary>
     /// <param name="services">应用服务。</param>
     /// <param name="pathPicker">配置界面的路径选择器。为空时配置项只能手动输入。</param>
-    /// <param name="replayDirectory">回放目录。为空时读当前配置的回放目录。</param>
+    /// <param name="backfill">
+    /// 列表补录服务。为空时用应用服务装配好的那个；测试可注入固定回放目录。
+    /// </param>
     public MainViewModel(
         AppServices services,
         IPathPicker? pathPicker = null,
-        string? replayDirectory = null)
+        ReplayBackfillService? backfill = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         this.services = services;
-        this.replayDirectory = replayDirectory;
-
-        // 测试用空目录按“没有回放目录不会列占位项”处理，生产读配置。
-        if (this.replayDirectory is null && BuildEnvironment.IsTestHost)
-        {
-            this.replayDirectory = string.Empty;
-        }
+        this.backfill = backfill ?? services.Backfill;
 
         syncContext = SynchronizationContext.Current;
         Calibration = new CalibrationViewModel(services);
@@ -337,15 +336,22 @@ public sealed class MainViewModel : ViewModelBase
     /// <summary>
     /// 处理历史区选中：库中已有的直接读详情，占位项先解析入库。
     /// </summary>
+    /// <remarks>
+    /// 解析要跑几秒，期间用户可能改选别的条目。这里用代次号兜底：每次进入
+    /// 解析都递增版本，任何一步 await 回来后版本过期就放弃回写，避免旧任务
+    /// 把详情区换成用户已经不看的对局，也避免 IsBusy 被提前清掉。
+    /// </remarks>
     private async Task SelectHistoryBattleAsync(BattleSummaryViewModel summary)
     {
+        int version = ++historySelectionVersion;
+
         if (!summary.IsPlaceholder)
         {
             // 列表只带摘要，详情按标识读完整记录。
             var full = await services.Repository
                 .GetBattleAsync(summary.BattleId)
                 .ConfigureAwait(true);
-            if (full is not null)
+            if (full is not null && version == historySelectionVersion)
             {
                 SelectedBattle = full;
             }
@@ -367,6 +373,12 @@ public sealed class MainViewModel : ViewModelBase
                 .IngestAsync(replayPath)
                 .ConfigureAwait(true);
 
+            if (version != historySelectionVersion)
+            {
+                // 用户已改选别的条目，这份解析结果只入库，不再回写界面。
+                return;
+            }
+
             if (!result.Success || result.Battle is null)
             {
                 StatusMessage = result.Message ?? "回放解析失败";
@@ -385,22 +397,37 @@ public sealed class MainViewModel : ViewModelBase
                 summary.Update(match);
             }
 
+            if (version != historySelectionVersion)
+            {
+                return;
+            }
+
             // 队列里可能有同一份回放，补录成功后入库路径自带幂等。
             SelectedBattle = result.Battle;
             StatusMessage = result.IsDuplicate ? "该局已存在" : "回放已入库";
         }
         catch (OperationCanceledException)
         {
-            StatusMessage = "解析已取消";
+            if (version == historySelectionVersion)
+            {
+                StatusMessage = "解析已取消";
+            }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"回放解析失败: {ex.Message}";
+            if (version == historySelectionVersion)
+            {
+                StatusMessage = $"回放解析失败: {ex.Message}";
+            }
+
             LogSink.Error($"回放补录异常: {Path.GetFileName(replayPath)} · {ex.Message}");
         }
         finally
         {
-            IsBusy = false;
+            if (version == historySelectionVersion)
+            {
+                IsBusy = false;
+            }
         }
     }
 
@@ -633,7 +660,9 @@ public sealed class MainViewModel : ViewModelBase
         {
             // 列表只取摘要字段，回放目录里尚未入库的对局以占位项一并返回。
             // 占位项不在这里解析：几百份回放全跑一遍会让启动卡上几分钟。
-            var snapshot = await LoadSnapshotAsync(cancellationToken).ConfigureAwait(true);
+            var snapshot = await backfill
+                .BuildSnapshotAsync(HistoryBattleLimit + 1, cancellationToken)
+                .ConfigureAwait(true);
 
             bool truncated = snapshot.Battles.Count > HistoryBattleLimit;
             var stored = truncated
@@ -699,33 +728,6 @@ public sealed class MainViewModel : ViewModelBase
             IsBusy = false;
             NotifyListChanged();
         }
-    }
-
-    /// <summary>
-    /// 取列表快照。测试里可以覆盖回放目录，生产走补录服务读配置。
-    /// </summary>
-    private async Task<BattleListSnapshot> LoadSnapshotAsync(CancellationToken cancellationToken)
-    {
-        if (replayDirectory is null)
-        {
-            return await services.Backfill
-                .BuildSnapshotAsync(HistoryBattleLimit + 1, cancellationToken)
-                .ConfigureAwait(true);
-        }
-
-        // 测试与托管场景用固定目录：直接读库，占位项按文件名时间比对。
-        var stored = await services.Repository
-            .GetBattleListAsync(HistoryBattleLimit + 1, cancellationToken)
-            .ConfigureAwait(false);
-        string root = replayDirectory;
-        var replays = await Task.Run(
-            () => ReplayDirectoryScanner.Scan(root, TimeSpan.FromSeconds(5), cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-
-        var pending = replays
-            .Where(r => stored.All(s => (s.StartedAt - r.StartedAt).Duration() > TimeSpan.FromMinutes(1)))
-            .ToList();
-        return new BattleListSnapshot(stored, pending);
     }
 
     /// <summary>

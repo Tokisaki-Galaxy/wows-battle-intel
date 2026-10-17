@@ -145,13 +145,13 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// <summary>
     /// 从库中已有的完整记录构造。
     /// </summary>
+    /// <param name="battle">对局记录。</param>
+    /// <param name="predictedWinProbability">预测胜率，无预测时为空。</param>
     public static BattleSummaryViewModel FromBattle(
         BattleRecord battle,
-        string sourcePath = "",
         double? predictedWinProbability = null)
     {
         ArgumentNullException.ThrowIfNull(battle);
-        _ = sourcePath;
 
         return new BattleSummaryViewModel
         {

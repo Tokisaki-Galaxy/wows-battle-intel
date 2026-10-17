@@ -456,66 +456,6 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// 把同一局的赛前占位记录换成正式回放入库的记录。
-    /// </summary>
-    /// <remarks>
-    /// 占位记录来自 tempArenaInfo，只有名单与预测、没有战果，标识带 :pre
-    /// 后缀。正式回放入库命中它时，直接把主键改名为正式标识，参战者与预测
-    /// 记录一并跟随，再抹掉占位记录独有的空地图与未判定结果。这样同一局
-    /// 在库里只留一条完整记录，不会出现两条几乎相同的列表项。
-    ///
-    /// 已经不使用：改名会把占位记录上的旧预测一并搬过来，与正式记录重新
-    /// 生成的预测重复。保留仅为兼容外部调用，入库流程改为先写正式记录
-    /// 再删占位记录。
-    /// </remarks>
-    /// <param name="placeholderId">占位记录标识。</param>
-    /// <param name="battleId">正式回放记录标识。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
-    public async Task ReplacePrebattlePlaceholderAsync(
-        string placeholderId,
-        string battleId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(placeholderId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(battleId);
-
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        // 子表先改名再改主表：两张子表都没有指向 battles 的外键约束，
-        // 顺序无所谓，但先改子表能让主键改名始终落在一张已存在的父记录上。
-        foreach (string table in new[] { "battle_players", "predictions" })
-        {
-            await using var rename = connection.CreateCommand();
-            rename.Transaction = (SqliteTransaction)transaction;
-            // 表名来自上面的字面量集合，不来自外部输入。
-            rename.CommandText = $"UPDATE {table} SET battle_id = $new WHERE battle_id = $old;";
-            rename.Parameters.AddWithValue("$new", battleId);
-            rename.Parameters.AddWithValue("$old", placeholderId);
-            await rename.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await using (var update = connection.CreateCommand())
-        {
-            update.Transaction = (SqliteTransaction)transaction;
-            update.CommandText = """
-                UPDATE battles SET
-                    battle_id     = $new,
-                    map_id        = CASE WHEN map_id = '' THEN $map ELSE map_id END,
-                    battle_type   = CASE WHEN battle_type = 'Unknown' THEN $type ELSE battle_type END
-                WHERE battle_id = $old;
-                """;
-            update.Parameters.AddWithValue("$new", battleId);
-            update.Parameters.AddWithValue("$old", placeholderId);
-            update.Parameters.AddWithValue("$map", string.Empty);
-            update.Parameters.AddWithValue("$type", BattleType.Unknown.ToStorageString());
-            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <inheritdoc />
     public async Task<BattleRecord?> GetBattleAsync(
         string battleId,

@@ -28,6 +28,23 @@ public static class ReplayFileName
     /// <returns>文件名合规则为 true。</returns>
     public static bool TryParseTimestamp(string? fileName, out DateTimeOffset startedAt)
     {
+        return TryParseTimestamp(fileName, TimeZoneInfo.Local, out startedAt);
+    }
+
+    /// <summary>
+    /// 从回放文件名中取出开战时间，按指定时区补偏移。
+    /// </summary>
+    /// <param name="fileName">文件名或完整路径。</param>
+    /// <param name="timeZone">文件名时间所属的时区。</param>
+    /// <param name="startedAt">解析出的开战时间。</param>
+    /// <returns>文件名合规则为 true。</returns>
+    public static bool TryParseTimestamp(
+        string? fileName,
+        TimeZoneInfo timeZone,
+        out DateTimeOffset startedAt)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+
         startedAt = default;
         if (string.IsNullOrWhiteSpace(fileName))
         {
@@ -35,8 +52,9 @@ public static class ReplayFileName
         }
 
         string name = Path.GetFileName(fileName);
-        if (name.Length < TimestampLength)
+        if (name.Length <= TimestampLength || name[TimestampLength] != '_')
         {
+            // 时间戳之后必须紧跟分隔符，否则只是碰巧以数字开头的名字。
             return false;
         }
 
@@ -50,8 +68,8 @@ public static class ReplayFileName
             return false;
         }
 
-        // 文件名只写到秒，用本地时区补上偏移，与解析出来的记录同一口径。
-        startedAt = new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local));
+        // 文件名只写到秒，用给定时区补上偏移，与解析出来的记录同一口径。
+        startedAt = new DateTimeOffset(local, timeZone.GetUtcOffset(local));
         return true;
     }
 }
