@@ -657,4 +657,115 @@ public class PlayerRowViewModelTests
         Assert.Equal(string.Empty, vm.KillText);
         Assert.False(vm.HasKills);
     }
+
+    [Fact]
+    public void BuildDetailedRecordUrl_ComposesServerAccountAndName()
+    {
+        var player = MakePlayer("Komari_Chika_", 0.5, 100);
+        player.AccountId = "2052237289";
+        player.Server = GameServer.Asia;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(
+            "https://wows.shinoaki.com/#record?server=asia&accountId=2052237289"
+            + "&name=Komari_Chika_&tab=info",
+            vm.BuildDetailedRecordUrl());
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("")]
+    public void BuildDetailedRecordUrl_UnresolvedAccount_ReturnsEmpty(string accountId)
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountId = accountId;
+        player.Server = GameServer.Asia;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(string.Empty, vm.BuildDetailedRecordUrl());
+    }
+
+    [Fact]
+    public void BuildDetailedRecordUrl_AutoServer_ReturnsEmpty()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountId = "12345";
+        player.Server = GameServer.Auto;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+
+        Assert.Equal(string.Empty, vm.BuildDetailedRecordUrl());
+    }
+
+    [Fact]
+    public async Task RefreshStatsCommand_InvokesHostCallbackWithPlayer()
+    {
+        var player = MakePlayer("A", -1, -1);
+        player.AccountId = "9999";
+        player.Server = GameServer.Asia;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        PlayerRecord? received = null;
+        vm.StatsRefreshRequested = p =>
+        {
+            received = p;
+            return Task.CompletedTask;
+        };
+
+        vm.RefreshStatsCommand.Execute(null);
+        await Task.Delay(50);
+
+        Assert.NotNull(received);
+        Assert.Equal("9999", received!.AccountId);
+    }
+
+    [Fact]
+    public void OpenDetailedRecordCommand_LaunchesComposedUrl()
+    {
+        var player = MakePlayer("Tokisaki_Galaxy", 0.5, 100);
+        player.AccountId = "2024108865";
+        player.Server = GameServer.Asia;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        var fake = new FakeWebLauncher();
+        vm.WebLauncher = fake;
+
+        vm.OpenDetailedRecordCommand.Execute(null);
+
+        Assert.True(fake.Launched);
+        Assert.Contains("accountId=2024108865", fake.LastUrl);
+    }
+
+    [Fact]
+    public void OpenDetailedRecordCommand_EmptyUrl_DoesNotLaunch()
+    {
+        var player = MakePlayer("A", 0.5, 100);
+        player.AccountId = "-1";
+        player.Server = GameServer.Asia;
+
+        var vm = PlayerRowViewModel.FromPlayer(player);
+        var fake = new FakeWebLauncher();
+        vm.WebLauncher = fake;
+
+        vm.OpenDetailedRecordCommand.Execute(null);
+
+        Assert.False(fake.Launched);
+    }
+
+    /// <summary>记录打开请求的网页启动器替身。</summary>
+    private sealed class FakeWebLauncher : WowsBattleIntel.Client.Services.IWebLauncher
+    {
+        public bool Launched { get; private set; }
+
+        public string LastUrl { get; private set; } = string.Empty;
+
+        public bool Open(string url)
+        {
+            LastUrl = url;
+            Launched = true;
+            return true;
+        }
+    }
 }

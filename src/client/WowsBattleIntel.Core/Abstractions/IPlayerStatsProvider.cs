@@ -26,6 +26,23 @@ public interface IPlayerStatsProvider
 }
 
 /// <summary>
+/// 支持绕过缓存强制联网的统计来源。
+/// </summary>
+/// <remarks>
+/// 由缓存装饰器实现。用户主动刷新单个玩家时调用：跳过缓存命中取最新数据，
+/// 但保留装饰器统一的落库逻辑，拉到的快照照常写回。
+/// </remarks>
+public interface IForcedStatsFetch
+{
+    /// <summary>
+    /// 为一批玩家强制拉取统计，跳过缓存命中。
+    /// </summary>
+    Task<IReadOnlyList<PlayerRecord>> ForceFetchStatsAsync(
+        IReadOnlyList<PlayerRecord> players,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// 本地历史数据来源。提供近期状态与会话状态所需的逐场记录。
 /// </summary>
 /// <remarks>

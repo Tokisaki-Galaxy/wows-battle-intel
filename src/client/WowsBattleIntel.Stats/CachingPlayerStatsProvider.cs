@@ -20,7 +20,7 @@ namespace WowsBattleIntel.Stats;
 ///
 /// 缓存读写失败、缓存仓储缺失一律回落网络，不让加速通道拖垮战绩查询本身。
 /// </remarks>
-public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
+public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedStatsFetch
 {
     private readonly IPlayerStatsProvider inner;
     private readonly IPlayerStatsCache? cache;
@@ -64,6 +64,36 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
             return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
         }
 
+        return await FetchStatsCoreAsync(players, bypassCache: false, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PlayerRecord>> ForceFetchStatsAsync(
+        IReadOnlyList<PlayerRecord> players,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        // 用户主动刷新要的是最新数据：跳过缓存命中，但仍走本层统一落库，
+        // 拉到的快照照常写回，之后的普通查询继续享受缓存加速。
+        if (cache is null)
+        {
+            return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await FetchStatsCoreAsync(players, bypassCache: true, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 拉取主体。读缓存命中与网络回写都集中在这里，bypassCache 只关掉读缓存。
+    /// </summary>
+    private async Task<IReadOnlyList<PlayerRecord>> FetchStatsCoreAsync(
+        IReadOnlyList<PlayerRecord> players,
+        bool bypassCache,
+        CancellationToken cancellationToken)
+    {
         // 隐藏战绩玩家也要交给 inner：他们没有统计，但军团标签仍要落库，
         // 供后续跨局回填。是否缺数据由 IsFullyCovered 判定，隐藏者恒缺。
         var targets = players
@@ -76,7 +106,7 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider
 
         // 读缓存受开关控制：关闭时跳过命中，每次都联网取最新。写快照不受开关
         // 影响，始终落库，否则关掉加速的同时会把训练数据的累积一起关掉。
-        if (options.Enabled)
+        if (options.Enabled && !bypassCache)
         {
             await ResolveFromLocalHistoryAsync(targets, cancellationToken).ConfigureAwait(false);
             await HydrateFromCacheAsync(targets, cancellationToken).ConfigureAwait(false);
