@@ -54,4 +54,17 @@ public sealed class BattleRecord
 
     /// <summary>排除机器人后的参战者。</summary>
     public IEnumerable<PlayerRecord> HumanPlayers => Players.Where(p => !p.IsBot);
+
+    /// <summary>
+    /// 敌方是否没有真人：全机器人，或敌方真人均为隐藏战绩。
+    /// </summary>
+    /// <remarks>
+    /// 纯人机局里模型只见一方有人，双方胜率差被推到极端，概率打满到展示
+    /// 上限，读数没有意义。预测器识别这类对局后走专用分支，给出不依赖
+    /// 模型的保守读数，置信度同步压低。隐藏战绩真人虽是真人，但拿不到
+    /// 任何特征，模型对敌方同样一无所知，一并归入此分支。
+    /// </remarks>
+    public bool EnemyHasNoObservableHumans =>
+        Enemies.All(p => p.IsBot)
+        || Enemies.Where(p => !p.IsBot).All(p => p.IsHidden);
 }

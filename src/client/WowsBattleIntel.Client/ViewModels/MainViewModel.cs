@@ -625,6 +625,7 @@ public sealed class MainViewModel : ViewModelBase
         preBattleCts = null;
         preBattlePrediction = null;
         preBattleFailed = false;
+        preBattleLoopActive = false;
 
         currentBattle = null;
         preBattleKey = null;
@@ -862,6 +863,13 @@ public sealed class MainViewModel : ViewModelBase
         // 补拉结果落地后增量刷新。赛前对局由收敛循环统一负责拉取与刷新，
         // 这里不重复拉，避免两处并发请求同一批玩家。
         StartBackgroundLoading(full, version, isPreBattle, token);
+
+        // 赛前对局且收敛循环已死但名单仍有缺口时，重新拉起循环。
+        // 这是熔断后的复活入口，用户切一次选中就能触发。
+        if (isPreBattle)
+        {
+            RevivePreBattleLoopIfNeeded(battle);
+        }
     }
 
     /// <summary>
@@ -899,7 +907,8 @@ public sealed class MainViewModel : ViewModelBase
         IEnumerable<PlayerRecord> players) =>
         players
             .Where(p => p.IsStatsCandidate)
-            .Where(p => !p.IsFullyCovered);
+            .Where(p => !p.IsFullyCovered)
+            .Where(p => !p.IsUnresolvable);
 
     /// <summary>
     /// 用仓库里的最新快照补齐对局特征。
@@ -1541,6 +1550,7 @@ public sealed class MainViewModel : ViewModelBase
         preBattleCts = new CancellationTokenSource();
         preBattlePrediction = null;
         preBattleFailed = false;
+        preBattleLoopActive = false;
         SetCountdownText(string.Empty);
 
         // 直接把赛前记录灌进详情区：复用既有名单展示、快照合并与
@@ -1561,6 +1571,7 @@ public sealed class MainViewModel : ViewModelBase
 
         // 赛前收敛循环在后台独立跑，不阻塞本方法。它每 3 秒重算一次预测，
         // 期间后台补拉持续推进，直到数据齐全或连续无进展。
+        preBattleLoopActive = true;
         _ = RunPreBattleConvergenceAsync(battle, summary, preBattleCts.Token);
     }
 
@@ -1582,6 +1593,12 @@ public sealed class MainViewModel : ViewModelBase
         CancellationToken token)
     {
         int consecutiveMisses = 0;
+
+        // 上一轮的缺口名单键。与这一轮完全一致且拉取零处理时，说明缺口是
+        // 解析性死结（昵称查不到账号、单船从未打过等），不是网络失败。
+        // 这样的玩家留在缺口里只会拖着循环熔断，剔除后其余玩家照常收敛。
+        string? previousMissingKey = null;
+
         try
         {
             int round = 0;
@@ -1593,16 +1610,62 @@ public sealed class MainViewModel : ViewModelBase
                 var missing = SelectPlayersNeedingStats(battle.Players).ToList();
                 int before = CountCoveredPlayers(battle);
 
+                // 死结剔除：名单与上轮完全一致，且上一轮整个缺口一个都没处理成。
+                string missingKey = string.Join(';', missing.Select(p => p.PlayerName).OrderBy(n => n, StringComparer.Ordinal));
+                bool isStalledGap = missing.Count > 0 && missingKey == previousMissingKey;
+
                 if (missing.Count > 0)
                 {
                     try
                     {
-                        await services.Stats.FetchAndCacheAsync(missing, token).ConfigureAwait(true);
+                        // 分块推进时增量刷行：PlayerStatsService 按块拉取，每块
+                        // 落库后即可把已到的数据刷上界面，不等整轮结束。轮询
+                        // 间隔与历史对局补拉路径一致。
+                        var fetchTask = services.Stats.FetchAndCacheAsync(missing, token);
+                        while (!fetchTask.IsCompleted)
+                        {
+                            await Task.Delay(StatsProgressInterval, token).ConfigureAwait(true);
+                            if (ReferenceEquals(selectedBattle, battle))
+                            {
+                                RefreshRowsOnUiThread(detailsVersion, battle.Players);
+                            }
+                        }
+
+                        // 拉完一个都没成（全部批次失败或全部空手），把名单记下来，
+                        // 若下一轮还是同一批人同样颗粒无收，就按死结剔除。
+                        var outcome = await fetchTask.ConfigureAwait(true);
+                        if (outcome.Processed == 0)
+                        {
+                            previousMissingKey ??= missingKey;
+                        }
+                        else
+                        {
+                            previousMissingKey = null;
+                        }
                     }
                     catch (OperationCanceledException)
                     {
                         return;
                     }
+                }
+                else
+                {
+                    previousMissingKey = null;
+                }
+
+                if (isStalledGap && missing.Count > 0)
+                {
+                    // 连续两轮同一批缺口且零处理：结构性死结，剔除出补拉名单。
+                    // 标记隐藏不合适（未确认是隐藏战绩），只跳过拉取，展示层
+                    // 继续显示占位符。剔除后 coverage 不再把他们算进不完整。
+                    foreach (var player in missing)
+                    {
+                        player.IsUnresolvable = true;
+                    }
+
+                    LogSink.Warn(
+                        $"赛前补拉缺口连续两轮无进展，剔除出补拉名单: {string.Join(", ", missing.Select(p => p.PlayerName))}");
+                    previousMissingKey = null;
                 }
 
                 // 重新合并快照后推理：补拉的数据只落快照表，不合并拿不到。
@@ -1710,6 +1773,49 @@ public sealed class MainViewModel : ViewModelBase
             SetCountdownText($"预测失败: {ex.Message}");
             LogSink.Warn($"赛前预测失败: {ex.Message}");
         }
+        finally
+        {
+            // 循环退出即清标记，详情区重建时据此判断是否需要复活循环。
+            preBattleLoopActive = false;
+        }
+    }
+
+    /// <summary>
+    /// 收敛循环是否还在跑。循环退出时复位，复活入口据此判断。
+    /// </summary>
+    private bool preBattleLoopActive;
+
+    /// <summary>
+    /// 收敛循环已停但名单仍有缺口时重新拉起循环。
+    /// </summary>
+    /// <remarks>
+    /// 熔断或异常退出后循环彻底死掉，之前只能靠用户手动切选中触发快照
+    /// 重读来"治好"界面。这里把那个动作自动化：详情区每次重建都检查一次，
+    /// 循环死了、名单还没齐、且详情区正显示这一局，就换新取消源重启。
+    /// 已被死结剔除的玩家不会再进补拉名单，重启不会空转。
+    /// </remarks>
+    private void RevivePreBattleLoopIfNeeded(BattleRecord battle)
+    {
+        if (preBattleLoopActive
+            || currentBattle?.Battle is null
+            || !ReferenceEquals(currentBattle.Battle, battle))
+        {
+            return;
+        }
+
+        var (_, _, _, _, incomplete) = DescribeCoverage(battle);
+        if (incomplete == 0)
+        {
+            return;
+        }
+
+        preBattleCts?.Cancel();
+        preBattleCts?.Dispose();
+        preBattleCts = new CancellationTokenSource();
+        preBattleFailed = false;
+        preBattleLoopActive = true;
+        LogSink.Info("收敛循环已停且名单仍有缺口，重新拉起赛前收敛");
+        _ = RunPreBattleConvergenceAsync(battle, currentBattle, preBattleCts.Token);
     }
 
     /// <summary>
@@ -1732,7 +1838,8 @@ public sealed class MainViewModel : ViewModelBase
         var humans = battle.HumanPlayers.ToList();
         int hidden = humans.Count(p => p.IsHidden);
         int covered = humans.Count(p => !p.IsHidden && p.IsFullyCovered);
-        int incomplete = humans.Count(p => !p.IsHidden && !p.IsFullyCovered);
+        // 死结玩家已判"补不上"，与隐藏同属已有着落，不算不完整。
+        int incomplete = humans.Count(p => !p.IsHidden && !p.IsUnresolvable && !p.IsFullyCovered);
         return (battle.Players.Count, humans.Count, covered, hidden, incomplete);
     }
 
@@ -1749,7 +1856,7 @@ public sealed class MainViewModel : ViewModelBase
 
     /// <summary>已覆盖的真人数量，用于判定本轮是否有进展。</summary>
     private static int CountCoveredPlayers(BattleRecord battle) =>
-        battle.HumanPlayers.Count(p => !p.IsHidden && p.IsFullyCovered);
+        battle.HumanPlayers.Count(p => !p.IsHidden && !p.IsUnresolvable && p.IsFullyCovered);
 
     private async Task RefreshAfterIngestionAsync()
     {

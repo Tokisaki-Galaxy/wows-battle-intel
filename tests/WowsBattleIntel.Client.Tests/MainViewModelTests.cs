@@ -737,8 +737,10 @@ public class MainViewModelTests
     [Fact]
     public void SelectPlayersNeedingStats_IncompleteClassOrShipStats_StillIncluded()
     {
-        // 只到账号胜率不算齐全：舰种或单船数据缺了要继续拉，
-        // 否则表格的舰种列与单船列会一直空着。
+        // 只到账号胜率不算齐全：舰种数据缺了要继续拉，
+        // 否则表格的舰种列会一直空着。
+        // 单船缺失不再算缺数据：ships/stats 只返回开过的船，本局这条船
+        // 若从未打过就没有记录，反复拉永远空手，收敛循环会被拖到熔断。
         var missingClass = new PlayerRecord
         {
             AccountId = "3001",
@@ -768,7 +770,8 @@ public class MainViewModelTests
             .SelectPlayersNeedingStats([missingClass, missingShip, emptyClass])
             .ToList();
 
-        Assert.Equal(3, result.Count);
+        Assert.Equal(2, result.Count);
+        Assert.DoesNotContain(result, p => p.PlayerName == "NoShip");
     }
 
     [Fact]

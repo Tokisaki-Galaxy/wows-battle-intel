@@ -37,6 +37,17 @@ public sealed class PlayerRecord
     /// <summary>是否隐藏战绩。</summary>
     public bool IsHidden { get; set; }
 
+    /// <summary>
+    /// 是否为解析性死结玩家：补拉反复处理仍拿不到数据。
+    /// </summary>
+    /// <remarks>
+    /// 会话内标记，不持久化。来源有昵称换账号失败、账号对局数据结构性缺失等。
+    /// 被标记的玩家不再进入补拉名单，覆盖统计与熔断判定也不再算他们"不完整"，
+    /// 否则一个补不上的缺口会把整个收敛循环拖到熔断，其余玩家的后续刷新
+    /// 一起停摆。展示层仍显示占位符，与隐藏战绩的"隐藏"文案区分。
+    /// </remarks>
+    public bool IsUnresolvable { get; set; }
+
     /// <summary>船 ID。</summary>
     public string ShipId { get; set; } = "-1";
 
@@ -225,6 +236,16 @@ public sealed class PlayerRecord
     public bool HasStats => !IsHidden && AccountWinrate >= 0;
 
     /// <summary>
+    /// 覆盖统计是否有"着落"：已有数据、确认隐藏或已判死结。
+    /// </summary>
+    /// <remarks>
+    /// 死结玩家拉不到是确定性结局，覆盖统计把他们算作已有着落，收敛循环
+    /// 不再为其中途熔断。与 HasStats 区分：HasStats 只看数据，含着落判定
+    /// 是覆盖口径的需要。
+    /// </remarks>
+    public bool IsAccountedFor => HasStats || IsHidden || IsUnresolvable;
+
+    /// <summary>
     /// 快照查询用的服务器。
     /// </summary>
     /// <remarks>
@@ -234,17 +255,22 @@ public sealed class PlayerRecord
     public GameServer SnapshotServer => Server == GameServer.Auto ? StatsServer : Server;
 
     /// <summary>
-    /// 账号、分舰种与单船三项统计是否都已到齐。
+    /// 账号与分舰种统计是否都已到齐。
     /// </summary>
     /// <remarks>
     /// 判据用原始记录字段：提供商把分舰种数据写进 <see cref="ClassStatsJson"/>，
-    /// 单船层落 <see cref="ShipBattles"/>，账号层落 <see cref="AccountWinrate"/>。
-    /// ClassStatsJson 为空串或 "{}" 都表示没有分舰种数据。
+    /// 账号层落 <see cref="AccountWinrate"/>。ClassStatsJson 为空串或 "{}" 都表示
+    /// 没有分舰种数据。
+    ///
+    /// 单船项不参与判定：ships/stats 只返回该账号开过的船，本局这条船若是
+    /// 新船或活动船，pvp 记录里就没有它，单船数据永远拉不到。把它算进缺数据
+    /// 会让收敛循环对着结构性缺口反复空拉直到熔断，界面上那一个人永远显示
+    /// "不完整"。单船列缺失时展示层显示 "-"，与"拉取失败"的占位符区分。
+    ///
     /// 需要在线补拉与缓存命中判定共用这一处，避免两侧口径漂移。
     /// </remarks>
     public bool IsFullyCovered =>
         AccountWinrate >= 0
-        && ShipBattles >= 0
         && !string.IsNullOrEmpty(ClassStatsJson)
         && ClassStatsJson.Length > 2;
 
@@ -255,5 +281,5 @@ public sealed class PlayerRecord
     /// 隐藏战绩者不计入，WG API 不返回他们的数据。是否真的缺数据由
     /// <see cref="IsFullyCovered"/> 再判一次。
     /// </remarks>
-    public bool IsStatsCandidate => !IsBot && !IsHidden && !string.IsNullOrEmpty(PlayerName);
+    public bool IsStatsCandidate => !IsBot && !IsHidden && !IsUnresolvable && !string.IsNullOrEmpty(PlayerName);
 }

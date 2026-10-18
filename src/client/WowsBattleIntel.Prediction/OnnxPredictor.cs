@@ -75,6 +75,33 @@ public sealed class OnnxPredictor : IPredictor, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
 
         var vector = FeatureVectorBuilder.FromBattle(battle, aggregationOptions);
+
+        // 纯人机局分支：敌方没有可观测的真人，特征向量是"有人对无人"的
+        // 假象，模型没见过这种输入，读数不可信。与基线预测器同口径：固定
+        // 0.5，置信度压半，标记特征不可用。
+        if (battle.EnemyHasNoObservableHumans)
+        {
+            int allBotHumans = battle.HumanPlayers.Count();
+            int allBotWithStats = battle.HumanPlayers.Count(p => p.HasStats);
+            double allBotCoverage = allBotHumans > 0 ? (double)allBotWithStats / allBotHumans : 0;
+
+            var allBotAlly = TeamAggregator.Aggregate(battle.Allies, aggregationOptions);
+            var allBotEnemy = TeamAggregator.Aggregate(battle.Enemies, aggregationOptions);
+            var allBotDiff = TeamAggregator.ComputeDiff(allBotAlly, allBotEnemy);
+
+            return Task.FromResult(new PredictionResult
+            {
+                BattleId = battle.BattleId,
+                PredictedAt = DateTimeOffset.UtcNow,
+                AllyWinProbability = 0.5,
+                Confidence = Math.Min(allBotCoverage, 0.5),
+                ModelVersion = ModelVersion,
+                ModelHash = ModelHash,
+                FeaturesAvailable = false,
+                FeatureSnapshotJson = FeatureSnapshot.Serialize(allBotAlly, allBotEnemy, allBotDiff),
+            });
+        }
+
         double probability = RunInference(vector);
 
         int totalHumans = battle.HumanPlayers.Count();

@@ -64,34 +64,60 @@ public sealed class BaselinePredictor : IPredictor
         ArgumentNullException.ThrowIfNull(battle);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var allyFeatures = TeamAggregator.Aggregate(battle.Allies, aggregationOptions);
-        var enemyFeatures = TeamAggregator.Aggregate(battle.Enemies, aggregationOptions);
-        var diff = TeamAggregator.ComputeDiff(allyFeatures, enemyFeatures);
+        // 纯人机局分支：敌方没有可观测的真人，特征差全是"有人对无人"的
+        // 假象，逻辑函数会把概率推满。给出固定保守读数：胜率 0.5，
+        // 置信度按数据覆盖正常算但压到 0.5 以下，明确表达"读数不可信"。
+        if (battle.EnemyHasNoObservableHumans)
+        {
+            var allyFeatures = TeamAggregator.Aggregate(battle.Allies, aggregationOptions);
+            var enemyFeatures = TeamAggregator.Aggregate(battle.Enemies, aggregationOptions);
+            var diff = TeamAggregator.ComputeDiff(allyFeatures, enemyFeatures);
+
+            int totalHumans = battle.HumanPlayers.Count();
+            int withStats = battle.HumanPlayers.Count(p => p.HasStats);
+            double coverage = totalHumans > 0 ? (double)withStats / totalHumans : 0;
+
+            return Task.FromResult(new PredictionResult
+            {
+                BattleId = battle.BattleId,
+                PredictedAt = DateTimeOffset.UtcNow,
+                AllyWinProbability = 0.5,
+                Confidence = Math.Min(coverage, 0.5),
+                ModelVersion = ModelVersion,
+                ModelHash = ModelHash,
+                FeaturesAvailable = false,
+                FeatureSnapshotJson = FeatureSnapshot.Serialize(allyFeatures, enemyFeatures, diff),
+            });
+        }
+
+        var allyAgg = TeamAggregator.Aggregate(battle.Allies, aggregationOptions);
+        var enemyAgg = TeamAggregator.Aggregate(battle.Enemies, aggregationOptions);
+        var teamDiff = TeamAggregator.ComputeDiff(allyAgg, enemyAgg);
 
         // 优先用加权胜率差，缺失时退回账号胜率差。
-        bool weightedAvailable = allyFeatures.AvgWeightedWinrate > 0
-            || enemyFeatures.AvgWeightedWinrate > 0;
+        bool weightedAvailable = allyAgg.AvgWeightedWinrate > 0
+            || enemyAgg.AvgWeightedWinrate > 0;
         double primaryDiff = weightedAvailable
-            ? diff.WeightedWinrateDiff
-            : diff.WinrateDiff;
+            ? teamDiff.WeightedWinrateDiff
+            : teamDiff.WinrateDiff;
 
         double probability = Logistic(primaryDiff * slope);
 
         // 置信度：数据越完整越自信。这里用有统计数据的玩家占比衡量。
-        int totalHumans = battle.HumanPlayers.Count();
-        int withStats = battle.HumanPlayers.Count(p => p.HasStats);
-        double coverage = totalHumans > 0 ? (double)withStats / totalHumans : 0;
+        int normalHumans = battle.HumanPlayers.Count();
+        int normalWithStats = battle.HumanPlayers.Count(p => p.HasStats);
+        double normalCoverage = normalHumans > 0 ? (double)normalWithStats / normalHumans : 0;
 
         var result = new PredictionResult
         {
             BattleId = battle.BattleId,
             PredictedAt = DateTimeOffset.UtcNow,
             AllyWinProbability = probability,
-            Confidence = coverage,
+            Confidence = normalCoverage,
             ModelVersion = ModelVersion,
             ModelHash = ModelHash,
-            FeaturesAvailable = coverage >= 0.999,
-            FeatureSnapshotJson = FeatureSnapshot.Serialize(allyFeatures, enemyFeatures, diff),
+            FeaturesAvailable = normalCoverage >= 0.999,
+            FeatureSnapshotJson = FeatureSnapshot.Serialize(allyAgg, enemyAgg, teamDiff),
         };
 
         return Task.FromResult(result);
