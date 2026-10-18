@@ -32,6 +32,13 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     private bool isPlaceholder;
     private bool isPrebattle;
 
+    // 占位项解析确认未完成对局（中途退出）。列表显示"未完成"，
+    // 不再提示点击解析——重试永远是同一个结果。
+    private bool isUnfinished;
+
+    /// <summary>占位项是否已被确认是未完成对局。</summary>
+    public bool IsUnfinished => isUnfinished;
+
     /// <summary>领域模型的对局记录。列表项按需填充，仅赛前与测试场景直接给出。</summary>
     public BattleRecord? Battle { get; private set; }
 
@@ -50,19 +57,19 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// <summary>对局类型。</summary>
     public BattleType BattleType => battleType;
 
-    /// <summary>
-    /// 列表首行显示文本：对局类型、船名与地图名。
-    /// </summary>
+    /// <summary>列表首行显示文本：对局类型、船名与地图名。</summary>
     /// <remarks>
     /// 船名来自回放文件名。正式入库的记录带 replay_path，占位项自带路径，
     /// 都能取到；批量导入等无回放来源的记录退化为只有类型与地图。
     /// </remarks>
     public string DisplayText =>
-        isPlaceholder
-            ? $"待解析回放 · {ShipNameFromPath}"
-            : mapId.Length == 0
-                ? $"赛前名单 · {BattleTypeLabel}"
-                : ComposeDisplayText();
+        isUnfinished
+            ? $"未完成对局 · {ShipNameFromPath}"
+            : isPlaceholder
+                ? $"待解析回放 · {ShipNameFromPath}"
+                : mapId.Length == 0
+                    ? $"赛前名单 · {BattleTypeLabel}"
+                    : ComposeDisplayText();
 
     private string ComposeDisplayText()
     {
@@ -92,12 +99,14 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// <summary>
     /// 列表次行显示文本：时间、服务器与时长。占位项没有时长，显示点击解析。
     /// </summary>
-    public string SecondaryText => isPlaceholder
-        ? $"{StartedAt.ToLocalTime():MM-dd HH:mm} · 点击解析"
-        : mapId.Length == 0
-            ? $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(server)} · 赛前名单"
-            : $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(server)} · "
-              + $"{DisplayLabels.Duration(durationSeconds)}";
+    public string SecondaryText => isUnfinished
+        ? $"{StartedAt.ToLocalTime():MM-dd HH:mm} · 中途退出，无战果数据"
+        : isPlaceholder
+            ? $"{StartedAt.ToLocalTime():MM-dd HH:mm} · 点击解析"
+            : mapId.Length == 0
+                ? $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(server)} · 赛前名单"
+                : $"{StartedAt.ToLocalTime():MM-dd HH:mm} · {DisplayLabels.Server(server)} · "
+                  + $"{DisplayLabels.Duration(durationSeconds)}";
 
     /// <summary>
     /// 预测概率小字，无预测时提示未预测。
@@ -113,6 +122,11 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     {
         get
         {
+            if (isUnfinished)
+            {
+                return "未完成";
+            }
+
             if (isPlaceholder)
             {
                 return "待解析";
@@ -171,11 +185,13 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     };
 
     /// <summary>结果单字。</summary>
-    public string ResultLabel => isPlaceholder
-        ? "待解析"
-        : mapId.Length == 0
-            ? "赛前"
-            : DisplayLabels.Outcome(outcome);
+    public string ResultLabel => isUnfinished
+        ? "未完"
+        : isPlaceholder
+            ? "待解析"
+            : mapId.Length == 0
+                ? "赛前"
+                : DisplayLabels.Outcome(outcome);
 
     /// <summary>结果徽章颜色键，胜绿负红，未知与平局用灰。</summary>
     public string ResultBrushKey => outcome switch
@@ -251,6 +267,29 @@ public sealed class BattleSummaryViewModel : ViewModelBase
             startedAt = replay.StartedAt,
             isPlaceholder = true,
         };
+    }
+
+    /// <summary>
+    /// 占位项解析确认是未完成对局后原地刷新展示。
+    /// </summary>
+    /// <remarks>
+    /// 中途退出、游戏没写入战果的回放永远解析不出来，标记后列表显示
+    /// "未完成对局"，用户不再误以为点击可以重试。数据本体不动，之后
+    /// 若上游解析器能产出部分结果，重新加载列表即恢复占位态。
+    /// </remarks>
+    public void MarkUnfinished()
+    {
+        if (isUnfinished)
+        {
+            return;
+        }
+
+        isUnfinished = true;
+        OnPropertyChanged(nameof(DisplayText));
+        OnPropertyChanged(nameof(SecondaryText));
+        OnPropertyChanged(nameof(PredictionText));
+        OnPropertyChanged(nameof(ResultLabel));
+        OnPropertyChanged(nameof(IsUnfinished));
     }
 
     /// <summary>

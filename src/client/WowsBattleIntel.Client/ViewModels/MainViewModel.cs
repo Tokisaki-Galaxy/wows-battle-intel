@@ -390,6 +390,15 @@ public sealed class MainViewModel : ViewModelBase
             {
                 StatusMessage = result.Message ?? "回放解析失败";
                 LogSink.Warn($"回放补录失败: {Path.GetFileName(replayPath)} · {result.Message}");
+
+                // 未完成对局（中途退出、游戏没写入结果）永远不会解析成功，
+                // 占位项标记为未完成，列表不再呈现可重试的假象。其他失败
+                // （网络、版本缺失）保留原样，条件变化后重试仍有意义。
+                if (result.Message?.Contains("未完成对局", StringComparison.Ordinal) == true)
+                {
+                    summary.MarkUnfinished();
+                }
+
                 return;
             }
 

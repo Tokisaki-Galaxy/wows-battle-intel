@@ -24,11 +24,40 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!--
+      版本号默认占位。正式发布由 publish.ps1 经 -p:Version= 注入 tag 对应
+      的 semver；本地构建时 BuildVersionTarget 会在构建前从 git tag 推导，
+      无标签仓库回退短哈希日期，保证设置页显示的版本号始终与源码状态一致。
+    -->
     <Version>0.1.0</Version>
     <Authors>wows-battle-intel contributors</Authors>
     <Product>wows-battle-intel</Product>
     <Copyright>Copyright (c) wows-battle-intel contributors</Copyright>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
+
+  <!--
+    本地构建的版本推导。挂在 AddSourceRevisionToInformationalVersion 之前：
+    InformationalVersion 由该 target 用当时的 $(Version) 拼接源码修订号，
+    晚于它修改 Version 就来不及了。只在未显式传 -p:Version 时生效（CI
+    传入的属性优先级更高）。Exec 失败静默，保持占位值。
+  -->
+  <Target Name="ResolveVersionFromGit" BeforeTargets="AddSourceRevisionToInformationalVersion;CoreBuild" Condition="'$(Version)' == '0.1.0'">
+    <Exec Command="git describe --tags --always" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitDescribe" />
+    </Exec>
+    <Message Importance="high" Text="GitDescribe=[$(GitDescribe)]" Condition="'$(GitDescribe)' != ''" />
+    <PropertyGroup Condition="'$(GitDescribe)' != ''">
+      <!-- v0.9.1-3-gabcdef 与 v0.9.1 都取前三段；短哈希回退原值。 -->
+      <GitSemver>$([System.Text.RegularExpressions.Regex]::Match('$(GitDescribe)', 'v?(\d+\.\d+\.\d+)').Groups[1].Value)</GitSemver>
+      <Version Condition="'$(GitSemver)' != ''">$(GitSemver)</Version>
+      <!--
+        InformationalVersion 必须同步覆盖：它已在评估期从旧 Version 派生，
+        AddSourceRevisionToInformationalVersion 只在它后面追加源码修订号，
+        不会重读 Version。不同步的话程序集里永远是 0.1.0+hash。
+      -->
+      <InformationalVersion Condition="'$(GitSemver)' != ''">$(GitSemver)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
 </Project>

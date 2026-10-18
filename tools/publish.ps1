@@ -103,7 +103,10 @@ try {
         "-c", "Release", "-r", "win-x64",
         "-p:PublishSingleFile=true",
         "-p:IncludeNativeLibrariesForSelfExtract=true",
-        "-p:SelfContained=false", "-p:PublishTrimmed=false"
+        "-p:SelfContained=false", "-p:PublishTrimmed=false",
+        # 版本号注入：设置页"关于"读程序集 InformationalVersion，不传的话
+        # 永远显示 Directory.Build.props 里的占位 0.1.0，与 tag 脱节。
+        "-p:Version=$semver"
     )
     Write-Host "[publish] 发布客户端..."
     dotnet @publishArgs
@@ -136,6 +139,7 @@ try {
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:SelfContained=false `
+            -p:Version=$semver `
             -o (Join-Path $OutputDir "cli-tmp")
         if ($LASTEXITCODE -ne 0) { throw "CLI 发布失败，退出码 $LASTEXITCODE" }
 
