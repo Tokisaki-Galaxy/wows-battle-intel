@@ -94,7 +94,12 @@ public partial class App : Application
             // 消息钩子（单实例前台广播的接收端）。显式关闭模式下窗口关闭
             // 不自动退应用，这里补上：主窗口关了就该整份退出。
             var window = new MainWindow();
+
+            // WPF 窗口句柄在 Show 之前不存在，先显式创建句柄再挂钩子，
+            // 否则 HwndSource.FromHwnd(0) 返回空，广播接收端永远不会生效。
+            new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
             RegisterShowSelfHandler(window);
+
             MainWindow = window;
             window.Closed += (_, _) => Shutdown();
             window.Show();
@@ -125,9 +130,7 @@ public partial class App : Application
     /// </summary>
     private nint HookShowSelf(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
-        // 与 SingleInstanceGuard 里的 WmShowSelf 同值。
-        const uint WmShowSelf = 0x0400 + 0x5117;
-        if ((uint)msg == WmShowSelf)
+        if ((uint)msg == SingleInstanceGuard.WmShowSelf)
         {
             if (MainWindow is Views.MainWindow { } main)
             {

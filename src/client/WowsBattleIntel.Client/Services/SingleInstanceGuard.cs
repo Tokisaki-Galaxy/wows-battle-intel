@@ -16,8 +16,10 @@ namespace WowsBattleIntel.Client.Services;
 /// </remarks>
 public sealed class SingleInstanceGuard : IDisposable
 {
+    /// <summary>单实例广播用的自定义消息。取 WM_APP 段，避开窗口类私有的 WM_USER 段。</summary>
+    internal const uint WmShowSelf = 0x8000 + 0x5117;
+
     private const string MutexName = "Local\\WowsBattleIntel.Client.SingleInstance";
-    private const uint WmShowSelf = 0x0400 + 0x5117;
 
     private Mutex? mutex;
 
@@ -25,14 +27,29 @@ public sealed class SingleInstanceGuard : IDisposable
     /// 尝试成为第一实例。
     /// </summary>
     /// <remarks>
-    /// 只申请互斥体，不做前台广播，供第二实例判断前的第一步使用。申请失败
-    /// 说明已有实例在跑。
+    /// 先创建互斥体再尝试立即接管。上个实例崩溃时 OS 会把互斥体标记为
+    /// abandoned，WaitOne 抛 <see cref="AbandonedMutexException"/>，此时持有权
+    /// 已落到本线程，视为成功——否则崩溃后第一次启动会被误判成第二实例。
     /// </remarks>
     /// <returns>成为第一实例返回 true。</returns>
     public bool TryAcquire()
     {
-        mutex = new Mutex(initiallyOwned: true, MutexName, out bool createdNew);
-        return createdNew;
+        mutex = new Mutex(initiallyOwned: false, MutexName, out bool createdNew);
+        if (createdNew)
+        {
+            return true;
+        }
+
+        try
+        {
+            // 立即接管：拿得到说明没有活着的实例（或它刚崩溃被标记 abandoned）。
+            return mutex.WaitOne(TimeSpan.Zero);
+        }
+        catch (AbandonedMutexException)
+        {
+            // 前一个实例异常退出，持有权已由本次 WaitOne 接管，照常成为第一实例。
+            return true;
+        }
     }
 
     /// <summary>
@@ -41,6 +58,9 @@ public sealed class SingleInstanceGuard : IDisposable
     /// <remarks>
     /// 按窗口标题找 MainWindow。标题固定含应用名，不会撞上其它进程的窗口。
     /// 找到后发一条自定义消息，窗口过程里还原并激活自己。
+    ///
+    /// 局限：第二实例权限低于第一实例时（如前者以管理员运行），UIPI 会
+    /// 静默丢弃消息，此时退化为第二实例只退出，与旧版行为一致。
     /// </remarks>
     public static void SignalExistingInstance()
     {
