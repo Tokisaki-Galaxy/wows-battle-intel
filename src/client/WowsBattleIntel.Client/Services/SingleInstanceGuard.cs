@@ -34,15 +34,13 @@ public sealed class SingleInstanceGuard : IDisposable
     /// <returns>成为第一实例返回 true。</returns>
     public bool TryAcquire()
     {
-        mutex = new Mutex(initiallyOwned: false, MutexName, out bool createdNew);
-        if (createdNew)
-        {
-            return true;
-        }
+        mutex = new Mutex(initiallyOwned: false, MutexName, out _);
 
+        // 不管互斥体是不是本次新建，所有权都必须真正拿到手。createdNew 只
+        // 说明命名对象刚被创建，不等于持有：initiallyOwned 传 false 时第一
+        // 实例不拥有它，第二实例的 WaitOne 就能成功接管，单实例形同虚设。
         try
         {
-            // 立即接管：拿得到说明没有活着的实例（或它刚崩溃被标记 abandoned）。
             return mutex.WaitOne(TimeSpan.Zero);
         }
         catch (AbandonedMutexException)
