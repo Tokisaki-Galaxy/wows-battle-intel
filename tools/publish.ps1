@@ -162,26 +162,45 @@ try {
     # 只随包分发 replayshark 本身。解析所需的游戏定义与 GameParams 由
     # replayshark 的 -g 参数直接从游戏安装目录的 res_packages 里读，
     # 不再打包预提取的 gamedata 与 constants（那批数据曾让包体达到 150 MB）。
+    #
+    # 本地 data/tools 不存在时（典型场景：CI checkout，data/** 被
+    # gitignore 排除）从上游 wows-toolkit release 下载。缺了它用户装好
+    # 就无法解析回放，报"必须指定 replayshark 可执行文件路径"。
     $toolsSource = Join-Path $repoRoot "data/tools/replayshark.exe"
+    if (-not (Test-Path $toolsSource)) {
+        Write-Host "[publish] 本地无 replayshark，从上游 wows-toolkit release 下载..."
+        $toolkitZip = Join-Path $env:RUNNER_TEMP "wows_toolkit_tools.zip"
+        Invoke-WebRequest `
+            -Uri "https://github.com/landaire/wows-toolkit/releases/latest/download/wows_toolkit_tools_win64.zip" `
+            -OutFile $toolkitZip
+        $toolkitExtract = Join-Path $env:RUNNER_TEMP "wows_toolkit"
+        if (Test-Path $toolkitExtract) { Remove-Item $toolkitExtract -Recurse -Force }
+        Expand-Archive -Path $toolkitZip -DestinationPath $toolkitExtract
+        $shark = Get-ChildItem $toolkitExtract -Recurse -Filter "replayshark.exe" | Select-Object -First 1
+        if ($shark) {
+            New-Item (Join-Path $repoRoot "data/tools") -ItemType Directory -Force | Out-Null
+            Copy-Item $shark.FullName $toolsSource
+            Write-Host "[publish] replayshark 已就位: $($shark.FullName)"
+        }
+        else {
+            Write-Host "[publish] 警告: 上游 release 里找不到 replayshark.exe" -ForegroundColor Yellow
+        }
+    }
+
     if (Test-Path $toolsSource) {
         New-Item (Join-Path $stage "tools") -ItemType Directory -Force | Out-Null
         Copy-Item $toolsSource (Join-Path $stage "tools/replayshark.exe")
     }
     else {
-        Write-Host "[publish] 警告: replayshark 不存在，包内不含解析器" -ForegroundColor Yellow
+        Write-Host "[publish] 警告: replayshark 不存在，包内不含解析器，用户将无法解析回放" -ForegroundColor Yellow
     }
 
-    # config 模板与说明文档。
-    Copy-Item (Join-Path $repoRoot "tools/publish/config.sample.json") $stage
-    Copy-Item (Join-Path $repoRoot "tools/publish/README.txt") $stage
-
-    # 关键资源自检。单文件发布下原生库嵌在 exe 里，目录中看不到，
-    # 所以改为检查 exe 体积是否达到"确实打包了原生库"的量级。
-    # 历史上曾漏传 IncludeNativeLibrariesForSelfExtract，出一个 2.5 MB 的
-    # 残缺包：能双击启动，一碰数据库就崩。15 MB 是含 onnxruntime 后的下限。
+    # 关键文件自检把 replayshark 也纳入：缺失时直接失败而不是带病发布。
+    # 上游下载失败或本地缺失都应阻断发布，让问题在 CI 暴露而非用户端。
     $required = @(
         "WowsBattleIntel.Client.exe",
-        "models/baseline.onnx"
+        "models/baseline.onnx",
+        "tools/replayshark.exe"
     )
     $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
     if ($missing.Count -gt 0) {
