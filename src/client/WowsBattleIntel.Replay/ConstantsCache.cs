@@ -33,6 +33,12 @@ public sealed class ConstantsCache
     private readonly string mirrorBase;
     private readonly HttpClient http;
 
+    // 负缓存：下载失败后短时间内直接判定该 build 不可用，不再发起网络
+    // 请求。镜像不可达是持续状态（SSL 阻断、断网），没有负缓存的话每次
+    // 解析都要白等一轮 15 秒超时，批量解析时叠加成分钟级卡顿。
+    private readonly Dictionary<uint, DateTimeOffset> failedUntil = new();
+    private static readonly TimeSpan FailureBackoff = TimeSpan.FromMinutes(10);
+
     /// <summary>
     /// 构造缓存。
     /// </summary>
@@ -82,6 +88,13 @@ public sealed class ConstantsCache
             return cached;
         }
 
+        // 负缓存期内直接放弃，错误原因沿用上次失败文案，不发网络请求。
+        if (failedUntil.TryGetValue(build, out var until) && DateTimeOffset.UtcNow < until)
+        {
+            LastError = lastFailureReason;
+            return null;
+        }
+
         string url = $"{mirrorBase}/data/versions/{build}.json";
         string body;
         try
@@ -98,6 +111,7 @@ public sealed class ConstantsCache
                 {
                     LastError = $"constants 镜像返回 HTTP {(int)response.StatusCode}";
                 }
+                RecordFailure(build);
                 return null;
             }
 
@@ -110,6 +124,7 @@ public sealed class ConstantsCache
         catch (Exception ex)
         {
             LastError = $"constants 镜像不可达: {ex.Message}";
+            RecordFailure(build);
             return null;
         }
 
@@ -117,14 +132,26 @@ public sealed class ConstantsCache
         if (!body.TrimStart().StartsWith('{'))
         {
             LastError = "constants 镜像返回了非 JSON 内容";
+            RecordFailure(build);
             return null;
         }
 
         Directory.CreateDirectory(cacheDirectory);
         await File.WriteAllTextAsync(cached, body, cancellationToken).ConfigureAwait(false);
+        failedUntil.Remove(build);
         Prune();
 
         return cached;
+    }
+
+    /// <summary>最近一次失败的具体原因，负缓存命中时复用。</summary>
+    private string? lastFailureReason;
+
+    /// <summary>记录一次失败，进入负缓存期。</summary>
+    private void RecordFailure(uint build)
+    {
+        lastFailureReason = LastError;
+        failedUntil[build] = DateTimeOffset.UtcNow + FailureBackoff;
     }
 
     /// <summary>

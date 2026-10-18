@@ -371,6 +371,7 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         IsBusy = true;
+        IsParsingReplay = true;
         StatusMessage = "正在解析回放...";
         try
         {
@@ -430,6 +431,7 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
+            IsParsingReplay = false;
             if (version == historySelectionVersion)
             {
                 IsBusy = false;
@@ -602,6 +604,21 @@ public sealed class MainViewModel : ViewModelBase
             }
         }
     }
+
+    /// <summary>
+    /// 详情区是否正在解析占位回放。
+    /// </summary>
+    /// <remarks>
+    /// 占位项解析要跑 replayshark 几秒到十几秒，期间详情区被清空。没有这个
+    /// 标记时详情区一片空白，用户以为程序卡死。视图据此显示"解析中"动画。
+    /// </remarks>
+    public bool IsParsingReplay
+    {
+        get => isParsingReplay;
+        private set => SetField(ref isParsingReplay, value);
+    }
+
+    private bool isParsingReplay;
 
     /// <summary>观测状态说明。观测常驻，展示是否忙碌与待处理数量。</summary>
     public string ObservationStatusText => isBusy
@@ -1144,6 +1161,7 @@ public sealed class MainViewModel : ViewModelBase
         });
         LogSink.Info($"快照在线补拉开始，缺统计玩家 {missing.Count} 名");
 
+        StatsFetchOutcome outcome;
         try
         {
             var fetchTask = services.Stats.FetchAndCacheAsync(missing, token);
@@ -1156,7 +1174,7 @@ public sealed class MainViewModel : ViewModelBase
                 RefreshRowsOnUiThread(version, battle.Players);
             }
 
-            var outcome = await fetchTask.ConfigureAwait(false);
+            outcome = await fetchTask.ConfigureAwait(false);
             LogSink.Info($"快照在线补拉完成，处理 {outcome.Processed} 条，失败批次 {outcome.FailedBatches}/{outcome.TotalBatches}");
 
             if (outcome.Processed > 0)
@@ -1216,6 +1234,75 @@ public sealed class MainViewModel : ViewModelBase
                 StatusMessage = "就绪";
             }
         });
+
+        // 补拉拿到了新数据就自动重算一次预测。入库时的预测基于解析期残缺
+        // 名单，5% 这类极端读数就是这么来的；补齐后的名单与入库时差异明显，
+        // 等用户手动点重算才能看到正常值，这里把那一下自动做掉。
+        if (outcome.Processed > 0)
+        {
+            await RecomputePredictionCoreAsync(enriched, version, token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 用补齐后的名单重算预测并回写界面与库。
+    /// </summary>
+    /// <remarks>
+    /// 与手动重算 <see cref="RecomputePredictionAsync"/> 的差别：名单已就绪
+    /// 由调用方传入，不再查库合并；代次校验防旧任务回写；失败静默，不影响
+    /// 名单展示。赛前对局不落库，历史对局落库供校准与下次打开直接命中。
+    /// </remarks>
+    private async Task RecomputePredictionCoreAsync(
+        BattleRecord battle,
+        int version,
+        CancellationToken token)
+    {
+        try
+        {
+            var prediction = await services.Predictor
+                .PredictAsync(battle, token)
+                .ConfigureAwait(false);
+
+            if (!IsDetailsCurrent(version) || token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (!battle.BattleId.EndsWith(":pre", StringComparison.Ordinal))
+            {
+                await services.Repository
+                    .SavePredictionAsync(prediction, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+
+            Post(() =>
+            {
+                if (!IsDetailsCurrent(version))
+                {
+                    return;
+                }
+
+                currentPrediction = prediction;
+                NotifyDetailsChanged();
+
+                // 同步刷新左侧列表项与实时区的预测小字。
+                var summary = RecentBattles.FirstOrDefault(s =>
+                    !s.IsPlaceholder && s.BattleId == battle.BattleId);
+                summary?.UpdatePrediction(prediction.AllyWinProbability);
+                currentBattle?.UpdatePrediction(prediction.AllyWinProbability);
+
+                LogSink.Info($"补拉后自动重算: {battle.BattleId[..Math.Min(12, battle.BattleId.Length)]}"
+                    + $" 概率 {prediction.AllyWinProbability:F3}");
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // 已被新选择作废，静默退出。
+        }
+        catch (Exception ex)
+        {
+            LogSink.Warn($"补拉后自动重算失败: {ex.Message}");
+        }
     }
 
     /// <summary>

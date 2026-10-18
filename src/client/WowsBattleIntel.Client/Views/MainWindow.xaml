@@ -266,6 +266,42 @@
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
 
+              <!-- 占位回放解析中：覆盖在名单区上的提示层。解析要跑 replayshark
+                   几秒到十几秒，期间详情区被清空，没有这层时一片空白像卡死 -->
+              <Border Grid.Column="0"
+                      Grid.ColumnSpan="3"
+                      Background="{DynamicResource BgBrush}"
+                      Opacity="0.85"
+                      Visibility="{Binding IsParsingReplay, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                  <Ellipse Width="28" Height="28"
+                           Stroke="{StaticResource PrimaryBrush}"
+                           StrokeThickness="3"
+                           StrokeDashArray="12 36"
+                           RenderTransformOrigin="0.5,0.5">
+                    <Ellipse.RenderTransform>
+                      <RotateTransform x:Name="ParsingSpinnerTransform" Angle="0" />
+                    </Ellipse.RenderTransform>
+                    <Ellipse.Triggers>
+                      <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                          <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation
+                              Storyboard.TargetName="ParsingSpinnerTransform"
+                              Storyboard.TargetProperty="Angle"
+                              From="0" To="360" Duration="0:0:1" />
+                          </Storyboard>
+                        </BeginStoryboard>
+                      </EventTrigger>
+                    </Ellipse.Triggers>
+                  </Ellipse>
+                  <TextBlock Text="正在解析回放..."
+                             Style="{StaticResource SecondaryTextStyle}"
+                             HorizontalAlignment="Center"
+                             Margin="0,12,0,0" />
+                </StackPanel>
+              </Border>
+
               <!-- 友方 -->
               <Border Grid.Column="0" Style="{StaticResource CardStyle}">
                 <Grid>
