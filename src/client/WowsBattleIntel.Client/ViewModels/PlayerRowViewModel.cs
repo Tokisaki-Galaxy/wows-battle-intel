@@ -31,6 +31,9 @@ public sealed class PlayerRowViewModel : ViewModelBase
 
     private PlayerRecord? source;
 
+    /// <summary>本行背后的领域记录。汇总条重算时取最新数据用。</summary>
+    internal PlayerRecord? Source => source;
+
     /// <summary>单玩家数据刷新回调。宿主（详情区）在构造行后注入。</summary>
     internal Func<PlayerRecord, Task>? StatsRefreshRequested;
 

@@ -966,13 +966,35 @@ public sealed class MainViewModel : ViewModelBase
                     if (fresh is not null)
                     {
                         // 用返回的新数据刷新对应行；行对象按引用持有在名单集合里。
-                        var row = (allyRows.Values.Concat(enemyRows.Values)).FirstOrDefault(r =>
-                            r.PlayerName == player.PlayerName);
-                        row?.RefreshFrom(fresh);
+                        // 汇总条由行背后的记录计算，行换了汇总要跟着重算一次。
+                        bool isAlly = allyRows.Values.Any(r => r.Source?.AccountId == player.AccountId);
+                        var rows = isAlly ? allyRows.Values : enemyRows.Values;
+                        var row = rows.FirstOrDefault(r => r.Source?.AccountId == player.AccountId);
+                        if (row is not null)
+                        {
+                            row.RefreshFrom(fresh);
+                            var summary = BuildTeamSummary(rows
+                                .Select(r => r.Source)
+                                .Where(p => p is not null)
+                                .Select(p => p!));
+                            if (isAlly)
+                            {
+                                AllySummaryText = summary;
+                            }
+                            else
+                            {
+                                EnemySummaryText = summary;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 提供商没返回这条玩家（隐藏、拉取失败等），按失败处理。
+                        LogSink.Warn($"刷新玩家数据未返回: {player.PlayerName}");
                     }
                 }
 
-                success = true;
+                success = provider is not null;
             }
             catch (Exception ex)
             {
