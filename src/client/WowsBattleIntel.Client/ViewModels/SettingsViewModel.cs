@@ -42,6 +42,19 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool isBusy;
     private bool hasUnsavedChanges;
 
+    private readonly IWebLauncher webLauncher;
+
+    private const string GitHubRepo = "https://github.com/Tokisaki-Galaxy/wows-battle-intel";
+
+    /// <summary>项目仓库地址，设置页落款跳转用。</summary>
+    public string RepositoryUrl => GitHubRepo;
+
+    /// <summary>问题反馈页地址。</summary>
+    public string IssuesUrl => GitHubRepo + "/issues";
+
+    /// <summary>解析引擎 replayshark 的上游仓库地址。</summary>
+    public string ToolkitUrl => "https://github.com/landaire/wows-toolkit";
+
     /// <summary>
     /// 构造视图模型，字段初值取自当前配置。
     /// </summary>
@@ -77,6 +90,11 @@ public sealed class SettingsViewModel : ViewModelBase
         SaveCommand = new RelayCommand(
             async _ => await SaveAsync().ConfigureAwait(true),
             _ => !IsBusy);
+
+        webLauncher = new ShellWebLauncher();
+        OpenRepositoryCommand = SyncCommand(_ => webLauncher.Open(RepositoryUrl));
+        OpenIssuesCommand = SyncCommand(_ => webLauncher.Open(IssuesUrl));
+        OpenToolkitCommand = SyncCommand(_ => webLauncher.Open(ToolkitUrl));
     }
 
     /// <summary>
@@ -340,6 +358,15 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>保存并应用命令。</summary>
     public System.Windows.Input.ICommand SaveCommand { get; }
+
+    /// <summary>打开项目 GitHub 仓库命令。设置页落款跳转用。</summary>
+    public System.Windows.Input.ICommand OpenRepositoryCommand { get; }
+
+    /// <summary>打开问题反馈页命令。</summary>
+    public System.Windows.Input.ICommand OpenIssuesCommand { get; }
+
+    /// <summary>打开 replayshark 上游仓库命令。</summary>
+    public System.Windows.Input.ICommand OpenToolkitCommand { get; }
 
     /// <summary>
     /// 程序集版本号，用于设置页落款展示，如 v0.1.0。

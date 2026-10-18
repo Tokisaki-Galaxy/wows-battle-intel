@@ -1411,6 +1411,30 @@
                            Style="{StaticResource SecondaryTextStyle}"
                            Margin="0,3,0,0" />
               </StackPanel>
+              <!-- 仓库入口：项目主页、问题反馈、replayshark 上游，点击走系统默认浏览器 -->
+              <StackPanel VerticalAlignment="Center" Margin="24,0,0,0">
+                <TextBlock Style="{StaticResource SecondaryTextStyle}" Margin="0,1,0,0">
+                  <Hyperlink NavigateUri="{Binding RepositoryUrl, Mode=OneWay}"
+                             Command="{Binding OpenRepositoryCommand}"
+                             Foreground="{StaticResource PrimaryFgBrush}">
+                    <Run Text="GitHub 项目主页" />
+                  </Hyperlink>
+                </TextBlock>
+                <TextBlock Style="{StaticResource SecondaryTextStyle}" Margin="0,1,0,0">
+                  <Hyperlink NavigateUri="{Binding IssuesUrl, Mode=OneWay}"
+                             Command="{Binding OpenIssuesCommand}"
+                             Foreground="{StaticResource PrimaryFgBrush}">
+                    <Run Text="问题反馈（Issues）" />
+                  </Hyperlink>
+                </TextBlock>
+                <TextBlock Style="{StaticResource SecondaryTextStyle}" Margin="0,1,0,0">
+                  <Hyperlink NavigateUri="{Binding ToolkitUrl, Mode=OneWay}"
+                             Command="{Binding OpenToolkitCommand}"
+                             Foreground="{StaticResource PrimaryFgBrush}">
+                    <Run Text="解析引擎 replayshark（wows-toolkit）" />
+                  </Hyperlink>
+                </TextBlock>
+              </StackPanel>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
