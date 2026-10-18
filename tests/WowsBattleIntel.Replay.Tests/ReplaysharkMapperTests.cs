@@ -37,7 +37,7 @@ public class ReplaysharkMapperTests
         long id,
         string name,
         string realm,
-        int teamId,
+        long teamId,
         bool isSelf = false,
         string shipClass = "Cruiser",
         int tier = 8,
