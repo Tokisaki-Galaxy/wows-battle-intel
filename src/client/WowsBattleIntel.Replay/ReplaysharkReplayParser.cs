@@ -183,8 +183,13 @@ public sealed class ReplaysharkReplayParser : IReplayParser
 
         if (process.ExitCode != 0)
         {
+            // constants 走了原路时（本地缺镜像缓存、replayshark 自主联网），
+            // 上层的下载失败原因是报错定位的关键，拼进异常文案。
+            string hint = string.IsNullOrWhiteSpace(options.LastConstantsWarning)
+                ? string.Empty
+                : $"\nconstants 下载失败原因: {options.LastConstantsWarning}";
             throw new ReplayParseException(
-                $"replayshark 退出码 {process.ExitCode}: {stderr.ToString().Trim()}");
+                $"replayshark 退出码 {process.ExitCode}: {stderr.ToString().Trim()}{hint}");
         }
     }
 
@@ -237,6 +242,12 @@ public sealed class ReplaysharkOptions
     /// 自行从游戏数据里取。
     /// </summary>
     public string ConstantsPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 本地 constants 准备失败的原因。解析进程仍走原路时用于报错定位，
+    /// 留空表示本地准备成功或从未尝试。
+    /// </summary>
+    public string? LastConstantsWarning { get; set; }
 
     /// <summary>单份回放的解析超时，默认 60 秒。</summary>
     public TimeSpan ParseTimeout { get; set; } = TimeSpan.FromSeconds(60);

@@ -20,14 +20,21 @@ namespace WowsBattleIntel.Client.Services;
 public sealed class ReplayService
 {
     private readonly AppConfig config;
+    private readonly ConstantsCache constants;
 
     /// <summary>
     /// 构造服务。
     /// </summary>
-    public ReplayService(AppConfig config)
+    /// <param name="config">应用配置。</param>
+    /// <param name="constants">
+    /// constants 缓存。为空时按应用数据目录新建，测试可注入。
+    /// </param>
+    public ReplayService(AppConfig config, ConstantsCache? constants = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         this.config = config;
+        this.constants = constants
+            ?? new ConstantsCache(Configuration.AppPaths.CombineAppData("constants"));
     }
 
     /// <summary>
@@ -40,7 +47,7 @@ public sealed class ReplayService
         string replayPath,
         CancellationToken cancellationToken = default)
     {
-        var parser = CreateParser(replayPath);
+        var parser = await CreateParserAsync(replayPath).ConfigureAwait(false);
         return await parser.ParseAsync(replayPath, cancellationToken).ConfigureAwait(false);
     }
 
@@ -61,7 +68,14 @@ public sealed class ReplayService
     /// <summary>
     /// 为指定回放创建解析器。数据源固定为游戏安装目录。
     /// </summary>
-    private ReplaysharkReplayParser CreateParser(string replayPath)
+    /// <remarks>
+    /// constants 由本地缓存提供：先按回放 build 号查缓存，未命中走 jsdelivr
+    /// 下载后传 -c。镜像不可达或数据源未收录时拿不到路径，退回不传 -c 的
+    /// 原路，让 replayshark 自己再试一次。玩家在可用网络下这仍能成功，
+    /// 失败则由解析异常自然上抛，文案里带上 constants 的失败原因。
+    /// </remarks>
+    private async Task<ReplaysharkReplayParser> CreateParserAsync(
+        string replayPath)
     {
         if (string.IsNullOrWhiteSpace(config.GamePath) || !Directory.Exists(config.GamePath))
         {
@@ -74,6 +88,22 @@ public sealed class ReplayService
             ReplaysharkPath = config.ReplaysharkPath,
             GamePath = config.GamePath,
         };
+
+        uint? build = ReplayMetaReader.ReadBuildNumber(replayPath);
+        if (build is { } number)
+        {
+            string? constantsPath = await constants
+                .ResolveAsync(number)
+                .ConfigureAwait(false);
+            if (constantsPath is not null)
+            {
+                options.ConstantsPath = constantsPath;
+            }
+            else
+            {
+                options.LastConstantsWarning = constants.LastError;
+            }
+        }
 
         return new ReplaysharkReplayParser(options);
     }
