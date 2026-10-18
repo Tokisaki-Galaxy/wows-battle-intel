@@ -170,20 +170,31 @@ try {
     if (-not (Test-Path $toolsSource)) {
         Write-Host "[publish] 本地无 replayshark，从上游 wows-toolkit release 下载..."
         $toolkitZip = Join-Path $env:RUNNER_TEMP "wows_toolkit_tools.zip"
-        Invoke-WebRequest `
-            -Uri "https://github.com/landaire/wows-toolkit/releases/latest/download/wows_toolkit_tools_win64.zip" `
-            -OutFile $toolkitZip
-        $toolkitExtract = Join-Path $env:RUNNER_TEMP "wows_toolkit"
-        if (Test-Path $toolkitExtract) { Remove-Item $toolkitExtract -Recurse -Force }
-        Expand-Archive -Path $toolkitZip -DestinationPath $toolkitExtract
-        $shark = Get-ChildItem $toolkitExtract -Recurse -Filter "replayshark.exe" | Select-Object -First 1
-        if ($shark) {
-            New-Item (Join-Path $repoRoot "data/tools") -ItemType Directory -Force | Out-Null
-            Copy-Item $shark.FullName $toolsSource
-            Write-Host "[publish] replayshark 已就位: $($shark.FullName)"
+        # 资产名带版本号，latest/download 的固定名不存在。先查 latest 的
+        # tag，再拼资产 URL，取 win64 工具包。
+        $latestTag = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/landaire/wows-toolkit/releases/latest"
+        $asset = $latestTag.assets |
+            Where-Object { $_.name -like "wows_toolkit_tools_*win64.zip" } |
+            Select-Object -First 1
+        if (-not $asset) {
+            Write-Host "[publish] 警告: 上游 latest release 无 win64 工具包资产" -ForegroundColor Yellow
         }
         else {
-            Write-Host "[publish] 警告: 上游 release 里找不到 replayshark.exe" -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $toolkitZip
+            $toolkitExtract = Join-Path $env:RUNNER_TEMP "wows_toolkit"
+            if (Test-Path $toolkitExtract) { Remove-Item $toolkitExtract -Recurse -Force }
+            Expand-Archive -Path $toolkitZip -DestinationPath $toolkitExtract
+            $shark = Get-ChildItem $toolkitExtract -Recurse -Filter "replayshark.exe" |
+                Select-Object -First 1
+            if ($shark) {
+                New-Item (Join-Path $repoRoot "data/tools") -ItemType Directory -Force | Out-Null
+                Copy-Item $shark.FullName $toolsSource
+                Write-Host "[publish] replayshark 已就位: $($shark.FullName)"
+            }
+            else {
+                Write-Host "[publish] 警告: 上游工具包里找不到 replayshark.exe" -ForegroundColor Yellow
+            }
         }
     }
 
