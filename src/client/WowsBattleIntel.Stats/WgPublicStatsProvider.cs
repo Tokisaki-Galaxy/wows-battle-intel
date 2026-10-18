@@ -109,35 +109,50 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             return;
         }
 
-        // --- 步骤二：账号统计 ---
-        await FetchAccountStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+        // --- 账号统计、军团标签与单船统计相互独立，并发推进。 ---
+        // 串行时三段依次排队，单船逐玩家 24 次请求排在最后，整链路拖到
+        // 30 秒开外；并发后整链路耗时压到最慢一段的量级。军团查询先于
+        // 单船没有依赖，单船数据也不依赖账号统计的结果。
+        var accountTask = FetchAccountStatsAsync(resolved, host, cancellationToken);
 
-        // --- 步骤二点五：军团标签 ---
-        // 军团是独立于统计的身份字段，隐藏战绩的玩家也查得到。回放链路已带
-        // 标签的保留原值，只补齐缺失的，避免无谓请求。
+        Task? clanTask = null;
         if (options.FetchClanTags)
         {
             var needClan = resolved.Where(p => string.IsNullOrEmpty(p.ClanTag)).ToList();
             if (needClan.Count > 0)
             {
-                await FetchPlayerClansAsync(needClan, host, cancellationToken).ConfigureAwait(false);
+                clanTask = FetchPlayerClansAsync(needClan, host, cancellationToken);
             }
         }
 
-        // --- 步骤三：单船统计，逐玩家。可按需跳过以提速。 ---
+        Task? shipTask = null;
         if (!options.SkipShipStats)
         {
             if (options.FetchClassStats)
             {
                 // 全船只列表与单船查询同 endpoint，一次请求同时覆盖
                 // 单船统计与分舰种聚合，请求数不变。舰种映射先就绪。
-                await EnsureShipClassLookupAsync(host, cancellationToken).ConfigureAwait(false);
-                await FetchAllShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+                shipTask = Task.Run(async () =>
+                {
+                    await EnsureShipClassLookupAsync(host, cancellationToken).ConfigureAwait(false);
+                    await FetchAllShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+                }, cancellationToken);
             }
             else
             {
-                await FetchShipStatsAsync(resolved, host, cancellationToken).ConfigureAwait(false);
+                shipTask = FetchShipStatsAsync(resolved, host, cancellationToken);
             }
+        }
+
+        await accountTask.ConfigureAwait(false);
+        if (clanTask is not null)
+        {
+            await clanTask.ConfigureAwait(false);
+        }
+
+        if (shipTask is not null)
+        {
+            await shipTask.ConfigureAwait(false);
         }
     }
 
@@ -339,8 +354,12 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     }
 
     /// <summary>
-    /// 逐玩家拉取单船统计。
+    /// 逐玩家拉取单船统计，有界并发推进。
     /// </summary>
+    /// <remarks>
+    /// 与全量路径同一并发策略。此路径拿不到分舰种聚合，仅在关闭
+    /// FetchClassStats 时使用。
+    /// </remarks>
     private async Task FetchShipStatsAsync(
         List<PlayerRecord> group,
         string host,
@@ -349,22 +368,27 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         // original_exp 是账号 statistics 端点的字段，ships/stats 不认，
         // 带上会让整个请求报 INVALID_FIELDS。
         const string fields = "pvp.wins%2Cpvp.battles%2Cpvp.damage_dealt";
+        const int maxConcurrency = 4;
 
-        foreach (var player in group)
+        var targets = group
+            .Where(p => !string.IsNullOrEmpty(p.ShipId) && p.ShipId != "-1")
+            .Where(p => !string.IsNullOrEmpty(p.AccountId) && p.AccountId != "-1")
+            .ToList();
+        if (targets.Count == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
 
-            if (string.IsNullOrEmpty(player.ShipId) || player.ShipId == "-1")
-            {
-                continue;
-            }
-
-            string url = $"https://{host}/wows/ships/stats/"
-                + $"?application_id={options.ApplicationId}&fields={fields}"
-                + $"&account_id={player.AccountId}&ship_id={player.ShipId}";
-
+        using var gate = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        var tasks = targets.Select(async player =>
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                string url = $"https://{host}/wows/ships/stats/"
+                    + $"?application_id={options.ApplicationId}&fields={fields}"
+                    + $"&account_id={player.AccountId}&ship_id={player.ShipId}";
+
                 string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
                 var (battles, winrate, avgDamage, avgExp) =
                     WgApiParser.ParseShipStats(json, player.AccountId);
@@ -374,13 +398,21 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 player.ShipAvgDamage = avgDamage;
                 player.ShipAvgExp = avgExp;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
             {
                 // 单船查询失败不影响其他玩家。
             }
+            finally
+            {
+                gate.Release();
+            }
+        });
 
-            await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
-        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -436,10 +468,14 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     }
 
     /// <summary>
-    /// 逐玩家拉取全量船只统计，并同时填充单船与分舰种聚合。
+    /// 逐玩家拉取全量船只统计，有界并发推进。
     /// </summary>
     /// <remarks>
-    /// 一次请求返回该玩家全部船只，替代原逐玩家单船查询，请求数不变。
+    /// 一次请求返回该玩家全部船只，替代原逐玩家单船查询。WG 的 ships/stats
+    /// 端点一次只认一个 account_id，协议上无法按账号批量，改为有界并发：
+    /// 同时在飞的请求数封顶，请求间不再串行等待，24 人整队从串行的十几秒
+    /// 压到两三秒。并发度取 4，兼顾提速与限流：WG 公开 API 的配额按应用
+    /// 聚合计，4 路并发下 429 由 WgHttp 的退避重试兜底。
     /// 舰种映射来自 encyclopedia 目录缓存，缺失映射的船只不计入聚合。
     /// </remarks>
     private async Task FetchAllShipStatsAsync(
@@ -450,22 +486,26 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         // original_exp 是账号 statistics 端点的字段，ships/stats 不认，
         // 带上会让整个请求报 INVALID_FIELDS。
         const string fields = "ship_id%2Cpvp.wins%2Cpvp.battles%2Cpvp.damage_dealt";
+        const int maxConcurrency = 4;
 
-        foreach (var player in group)
+        var targets = group
+            .Where(p => !string.IsNullOrEmpty(p.AccountId) && p.AccountId != "-1")
+            .ToList();
+        if (targets.Count == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
 
-            if (string.IsNullOrEmpty(player.AccountId) || player.AccountId == "-1")
-            {
-                continue;
-            }
-
-            string url = $"https://{host}/wows/ships/stats/"
-                + $"?application_id={options.ApplicationId}&fields={fields}"
-                + $"&account_id={player.AccountId}";
-
+        using var gate = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        var tasks = targets.Select(async player =>
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                string url = $"https://{host}/wows/ships/stats/"
+                    + $"?application_id={options.ApplicationId}&fields={fields}"
+                    + $"&account_id={player.AccountId}";
+
                 string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
                 var allShips = WgApiParser.ParseAllShipStats(json);
                 if (allShips.TryGetValue(player.AccountId, out var byShip))
@@ -473,13 +513,21 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                     ApplyShipStats(player, byShip);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
             {
                 // 单船查询失败不影响其他玩家。
             }
+            finally
+            {
+                gate.Release();
+            }
+        });
 
-            await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
-        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     /// <summary>

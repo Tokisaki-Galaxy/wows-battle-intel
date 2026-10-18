@@ -977,6 +977,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             IsBusy = true;
             StatusMessage = $"正在刷新 {player.PlayerName} 的数据...";
+            LogSink.Info($"手动刷新玩家数据: {player.PlayerName}");
             try
             {
                 var provider = services.StatsProvider is IForcedStatsFetch forced
@@ -1019,6 +1020,10 @@ public sealed class MainViewModel : ViewModelBase
                         LogSink.Warn($"刷新玩家数据未返回: {player.PlayerName}");
                     }
                 }
+                else
+                {
+                    LogSink.Warn("统计提供商不支持强制刷新，无法执行单人刷新");
+                }
 
                 success = provider is not null;
             }
@@ -1037,6 +1042,7 @@ public sealed class MainViewModel : ViewModelBase
             : success
                 ? $"{player.PlayerName} 的数据已刷新"
                 : $"{player.PlayerName} 的数据刷新失败";
+        LogSink.Info(StatusMessage);
     }
 
     /// <summary>
