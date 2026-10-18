@@ -154,17 +154,17 @@ public sealed class AppServices : IDisposable
         // 启动时按保留口径清一次旧日志。写入器内部已吞异常，不会阻断启动。
         logs.TrimLogFiles(config.LogOptions);
 
-        // 启动时按保留天数清一次旧快照。fire and forget，失败记日志即可，
-        // 不阻塞启动。
-        _ = CleanupSnapshotsSilentlyAsync(services);
+        // 启动时按保留天数清一次旧快照，再按体积上限裁一次历史对局。
+        // fire and forget，失败记日志即可，不阻塞启动。
+        _ = MaintenanceSilentlyAsync(services);
 
         return services;
     }
 
     /// <summary>
-    /// 后台执行快照清理，异常静默记日志。
+    /// 后台执行数据维护：快照按天清理，数据库按体积上限裁剪。
     /// </summary>
-    private static async Task CleanupSnapshotsSilentlyAsync(AppServices services)
+    private static async Task MaintenanceSilentlyAsync(AppServices services)
     {
         try
         {
@@ -179,6 +179,28 @@ public sealed class AppServices : IDisposable
         catch (Exception ex)
         {
             services.Logs.Warn($"快照清理失败: {ex.Message}");
+        }
+
+        long maxBytes = (long)Math.Max(0, services.Config.DatabaseMaxSizeMb) * 1024 * 1024;
+        if (maxBytes <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            int trimmed = await services.Repository
+                .TrimBattlesToSizeAsync(maxBytes)
+                .ConfigureAwait(false);
+            if (trimmed > 0)
+            {
+                services.Logs.Info(
+                    $"数据库超过体积上限，已清理 {trimmed} 条最旧的对局记录");
+            }
+        }
+        catch (Exception ex)
+        {
+            services.Logs.Warn($"数据库体积裁剪失败: {ex.Message}");
         }
     }
 

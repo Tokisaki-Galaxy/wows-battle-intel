@@ -304,12 +304,16 @@
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
                           <Setter Property="ContextMenu">
-                            <!-- 右键菜单只有一个动作：一键复制本行战绩文本。
+                            <!-- 右键菜单：复制战绩、刷新该玩家数据、跳转详细记录。
                                  ContextMenu 独立于可视化树，需借 PlacementTarget 取到行的数据上下文 -->
                             <Setter.Value>
                               <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                                 <MenuItem Header="一键复制战绩"
                                           Command="{Binding CopyBattleRecordCommand}" />
+                                <MenuItem Header="刷新该玩家数据"
+                                          Command="{Binding RefreshStatsCommand}" />
+                                <MenuItem Header="跳转至详细记录"
+                                          Command="{Binding OpenDetailedRecordCommand}" />
                               </ContextMenu>
                             </Setter.Value>
                           </Setter>
@@ -575,11 +579,15 @@
                           <Setter Property="Background"
                                   Value="{Binding Converter={StaticResource RowBackgroundBrushKeyConverter}}" />
                           <Setter Property="ContextMenu">
-                            <!-- 右键菜单只有一个动作：一键复制本行战绩文本 -->
+                            <!-- 右键菜单：复制战绩、刷新该玩家数据、跳转详细记录 -->
                             <Setter.Value>
                               <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                                 <MenuItem Header="一键复制战绩"
                                           Command="{Binding CopyBattleRecordCommand}" />
+                                <MenuItem Header="刷新该玩家数据"
+                                          Command="{Binding RefreshStatsCommand}" />
+                                <MenuItem Header="跳转至详细记录"
+                                          Command="{Binding OpenDetailedRecordCommand}" />
                               </ContextMenu>
                             </Setter.Value>
                           </Setter>
@@ -1095,6 +1103,51 @@
                            Margin="0,0,8,0" />
                   <Button Grid.Row="2" Grid.Column="2" Content="浏览"
                           Command="{Binding BrowseModelPathCommand}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="{StaticResource SpacingLg}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="数据库维护" Style="{StaticResource HeadingTextStyle}" Margin="0,0,0,4" />
+                <TextBlock Text="当前数据库体积会随对局累积增长。可以设定体积上限，超限后启动时自动清理最旧的对局；也可以手动清空某类数据。清空操作不可恢复。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="当前体积"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DatabaseSizeText}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             VerticalAlignment="Center" Margin="0,0,0,8" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="体积上限"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                  <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBox Width="100" VerticalAlignment="Center"
+                             Text="{Binding DatabaseMaxSizeMb, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="MB，0 表示不限，超过后自动清理最旧的对局"
+                               Style="{StaticResource SecondaryTextStyle}"
+                               VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="手动清理"
+                             Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="清空对局记录" Command="{Binding ClearBattlesCommand}" />
+                    <Button Content="清空统计快照" Command="{Binding ClearSnapshotsCommand}" Margin="8,0,0,0" />
+                  </StackPanel>
                 </Grid>
               </StackPanel>
             </Border>
