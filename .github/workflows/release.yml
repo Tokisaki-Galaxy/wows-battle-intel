@@ -97,6 +97,56 @@ jobs:
             --clobber
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: 写发布说明
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          $repo = "https://github.com/$env:GITHUB_REPOSITORY"
+
+          # 资产名与 vpk / publish.ps1 的产出保持一致，改名要同步。
+          $setup = "WowsBattleIntel-win-Setup.exe"
+          $portable = "WowsBattleIntel-win-Portable.zip"
+          $cli = "wows-intel-$env:RELEASE_VERSION-win-x64-cli.zip"
+
+          $body = @"
+          ## 下载
+
+          **运行本程序需要先安装 .NET 10 桌面运行时。** 已安装的可跳过。
+          下载地址：[.NET 10 Desktop Runtime (win-x64)](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)
+
+          | 版本 | 适合人群 | 链接 |
+          | --- | --- | --- |
+          | 安装版 | 大多数用户，装完自动更新 | [$setup](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$setup) |
+          | 便携版 | 免安装，解压即用，支持自动更新 | [$portable](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$portable) |
+          | 命令行版 | 高级用户，批量分析与脚本集成 | [$cli](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$cli) |
+
+          普通用户从安装版与便携版里选一个下载即可，其余资产（nupkg、releases.win.json 等）是自动更新通道的内部文件，不需要下载。
+
+          ## 更新日志
+
+          $(
+            # 取上一个 tag 到本次的提交列表作为更新日志。首个 release
+            # 没有上一个 tag 时退化为全部提交的前 30 条。
+            $previous = git describe --tags --abbrev=0 "$tag^" 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $previous) {
+              $range = $tag
+            }
+            else {
+              $range = "$previous..$tag"
+            }
+
+            $log = git log $range --pretty="- %s (%h)" | Select-Object -First 30
+            if ($log) { ($log -join "`n") } else { "- 无提交记录变化" }
+          )
+          "@
+
+          # vpk upload --publish 已建好 Release，这里只改说明不动资产。
+          gh release edit $tag --notes $body
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: 上传构建产物（调试用，随时可下）
         uses: actions/upload-artifact@v7
         with:
