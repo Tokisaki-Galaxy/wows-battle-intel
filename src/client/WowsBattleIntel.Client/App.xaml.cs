@@ -125,25 +125,90 @@ public partial class App : Application
     /// <summary>
     /// 收到自定义消息时还原窗口并带到前台。
     /// </summary>
+    /// <remarks>
+    /// 第二实例已通过 AllowSetForegroundWindow 让渡前台权限，但部分环境下
+    /// Activate 仍被系统收紧。这里用 AttachThreadInput 把当前线程挂进前台
+    /// 线程的输入队列再 SetForegroundWindow，这是绕开前台限制的标准手段；
+    /// Topmost 一升一降作最后兜底。每次唤起都记日志，链路断在哪一环能直接看。
+    /// </remarks>
     private nint HookShowSelf(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
         if ((uint)msg == SingleInstanceGuard.WmShowSelf)
         {
             if (MainWindow is Views.MainWindow { } main)
             {
+                Services.Logs.Info("收到单实例唤起广播，正在还原窗口");
+                main.Show();
                 if (main.WindowState == WindowState.Minimized)
                 {
                     main.WindowState = WindowState.Normal;
                 }
 
+                NativeWin.RestoreAndActivate(
+                    new System.Windows.Interop.WindowInteropHelper(main).Handle);
                 main.Activate();
                 main.Topmost = true;
                 main.Topmost = false;
                 handled = true;
+                Services.Logs.Info("单实例唤起完成");
             }
         }
 
         return 0;
+    }
+
+    /// <summary>窗口前台操作的原生手段。集中在这一处，避免散落。</summary>
+    private static class NativeWin
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern bool SetForegroundWindow(nint hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern bool ShowWindow(nint hWnd, int nCmdShow);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        internal static extern uint GetCurrentThreadId();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        /// <summary>把目标窗口抬到前台。挂进前台线程输入队列后再设前台。</summary>
+        internal static void RestoreAndActivate(nint hwnd)
+        {
+            if (hwnd == 0)
+            {
+                return;
+            }
+
+            _ = ShowWindow(hwnd, 5); // SW_SHOW
+
+            nint foreground = GetForegroundWindowSafe();
+            _ = GetWindowThreadProcessId(foreground, out uint foregroundPid);
+            uint foregroundThread = GetWindowThreadProcessId(foreground, out _);
+            uint selfThread = GetCurrentThreadId();
+
+            bool attached = foregroundThread != 0 && foregroundThread != selfThread
+                && AttachThreadInput(selfThread, foregroundThread, true);
+            try
+            {
+                _ = SetForegroundWindow(hwnd);
+            }
+            finally
+            {
+                if (attached)
+                {
+                    _ = AttachThreadInput(selfThread, foregroundThread, false);
+                }
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern nint GetForegroundWindow();
+
+        private static nint GetForegroundWindowSafe() => GetForegroundWindow();
     }
 
     /// <summary>路径选择器，供配置界面使用。</summary>
