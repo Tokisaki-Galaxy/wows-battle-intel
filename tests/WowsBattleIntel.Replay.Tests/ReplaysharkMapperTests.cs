@@ -90,6 +90,52 @@ public class ReplaysharkMapperTests
     }
 
     [Fact]
+    public void Map_MidQuitBattleWithDistortedTeamId_FallsBackToRelation()
+    {
+        // 中途死亡退出、游戏未走完结算的对局：replayshark 还原不出队伍编号，
+        // team_id 被 ship_id 一类原始值填充（4285445840 量级），relation 不受
+        // 影响。友敌判定必须整体退回 relation 口径，且不得被大数值破坏。
+        var output = new ReplaysharkOutput
+        {
+            Metadata = new ReplaysharkMetadata
+            {
+                Map = "spaces/51_Greece",
+                GameType = "EventBattle",
+                MatchGroup = "event",
+                Version = new ReplaysharkVersion { Major = 15, Minor = 9, Patch = 0, Build = 13357625 },
+                PlayedDuration = 462.8f,
+                Timestamp = "2026-10-18T04:34:57Z",
+                BattleResult = new ReplaysharkBattleResult { Type = "Win", TeamId = 0 },
+            },
+            Players =
+            [
+                MakePlayer(537931438, "Tokisaki_Galaxy", "ASIA", teamId: 537931438, isSelf: true),
+                MakePlayer(672061883, "kazusaRin", "ASIA", teamId: 672061883),
+                MakePlayer(269936880, ":Yumashev:", "ASIA", teamId: 4285445840),
+                MakePlayer(269936879, ":Warrender:", "ASIA", teamId: 4276008720),
+            ],
+        };
+
+        // relation 按 MakePlayer 的默认规则由 teamId 奇偶推出，这里手动改写
+        // 成中途退出对局的真实取值：真人 0/1 友方，机器人 2 敌方。
+        output.Players[0].Relation = 0;
+        output.Players[1].Relation = 1;
+        output.Players[2].Relation = 2;
+        output.Players[2].IsBot = true;
+        output.Players[3].Relation = 2;
+        output.Players[3].IsBot = true;
+
+        var battle = ReplaysharkMapper.Map(output);
+
+        Assert.NotNull(battle);
+        Assert.Equal(2, battle.Allies.Count());
+        Assert.Equal(2, battle.Enemies.Count());
+        Assert.All(battle.Allies, p => Assert.True(p.IsAlly));
+        Assert.All(battle.Enemies, p => Assert.False(p.IsAlly));
+        Assert.Equal("Tokisaki_Galaxy", battle.Allies.First().PlayerName);
+    }
+
+    [Fact]
     public void Map_ShipIdUsesNumericIdNotShipIndex()
     {
         // 回归测试：ship_id 必须存数字 ID，WG API 的 ships/stats 只认它。

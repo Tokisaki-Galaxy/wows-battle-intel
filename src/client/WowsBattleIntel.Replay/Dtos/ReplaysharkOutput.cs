@@ -105,8 +105,11 @@ public sealed class ReplaysharkBattleResult
     public string Type { get; set; } = string.Empty;
 
     /// <summary>录制者所在队伍编号。</summary>
+    /// <remarks>
+    /// 与玩家条目的 team_id 同理，中途退出的对局会填进失真值，用 long 承接。
+    /// </remarks>
     [JsonProperty("team_id")]
-    public int TeamId { get; set; }
+    public long TeamId { get; set; }
 }
 
 /// <summary>
@@ -139,8 +142,13 @@ public sealed class ReplaysharkPlayer
     public long? DivisionId { get; set; }
 
     /// <summary>队伍编号。</summary>
+    /// <remarks>
+    /// 正常对局里是 0/1，但玩家中途死亡退出、游戏未走完结算的对局，
+    /// replayshark 还原不出队伍编号，会填进 ship_id 一类的原始值，量级
+    /// 超出 Int32。用 long 承接避免反序列化直接炸掉整份输出。
+    /// </remarks>
     [JsonProperty("team_id")]
-    public int TeamId { get; set; }
+    public long TeamId { get; set; }
 
     /// <summary>关系，0/1 为友，2 为敌。</summary>
     [JsonProperty("relation")]

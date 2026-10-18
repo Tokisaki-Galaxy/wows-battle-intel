@@ -48,9 +48,17 @@ public static class ReplaysharkMapper
         // 整体判反，训练数据里一半样本的特征与标签错配。
         //
         // 正确依据是 is_self 标记的玩家，其 team_id 即录制者所在队伍。
-        // 回放必然恰有一名录制者，缺失时退回胜方队伍并在下方注释说明局限。
+        //
+        // team_id 本身也可能失真：玩家中途死亡退出、游戏未走完结算的对局，
+        // replayshark 还原不出队伍编号，会拿 ship_id 一类的原始值填充
+        // （实测 4285445840 量级），而 relation 字段不受影响。判定录制者
+        // 队伍前先验证 team_id 是否还落在正常编号范围，失真时整体退回
+        // relation 口径。
         var recorder = output.Players.FirstOrDefault(p => p.IsSelf);
-        int recorderTeamId = recorder?.TeamId ?? result.TeamId;
+        bool teamIdUsable = IsTeamIdUsable(output.Players);
+        long recorderTeamId = teamIdUsable
+            ? recorder?.TeamId ?? result.TeamId
+            : 0;
 
         var divisionSizes = ComputeDivisionSizes(output.Players);
 
@@ -65,7 +73,7 @@ public static class ReplaysharkMapper
         var players = new List<PlayerRecord>(output.Players.Count);
         foreach (var rp in output.Players)
         {
-            players.Add(MapPlayer(rp, recorderTeamId, divisionSizes, playersById));
+            players.Add(MapPlayer(rp, recorderTeamId, teamIdUsable, divisionSizes, playersById));
         }
 
         var battle = new BattleRecord
@@ -93,7 +101,8 @@ public static class ReplaysharkMapper
     /// </summary>
     private static PlayerRecord MapPlayer(
         ReplaysharkPlayer rp,
-        int recorderTeamId,
+        long recorderTeamId,
+        bool teamIdUsable,
         IReadOnlyDictionary<long, int> divisionSizes,
         IReadOnlyDictionary<long, ReplaysharkPlayer> playersById)
     {
@@ -105,8 +114,8 @@ public static class ReplaysharkMapper
             PlayerName = rp.Name,
             Server = MapServer(rp.Realm),
             ClanTag = string.IsNullOrEmpty(rp.Clan) ? string.Empty : $"[{rp.Clan}]",
-            // 与录制者同队为友方。
-            IsAlly = rp.TeamId == recorderTeamId,
+            // 与录制者同队为友方。team_id 失真时退回 relation：0/1 友，2 敌。
+            IsAlly = teamIdUsable ? rp.TeamId == recorderTeamId : rp.Relation <= 1,
             IsBot = rp.IsBot,
             IsHidden = rp.IsHiddenProfile,
             // ship_id 是数字 ID，如 4286581900，WG API 的 ships/stats 端点只认它。
@@ -139,6 +148,31 @@ public static class ReplaysharkMapper
         };
 
         return player;
+    }
+
+    /// <summary>team_id 的正常编号上界。正常对局是 0/1，多队伍模式也是小编号。</summary>
+    private const long TeamIdSaneBound = 15;
+
+    /// <summary>
+    /// 判断整份输出的 team_id 是否可信。
+    /// </summary>
+    /// <remarks>
+    /// 玩家中途死亡退出、游戏未走完结算的对局，replayshark 还原不出队伍
+    /// 编号，会用 ship_id 一类的原始值填充 team_id（实测 4285445840 量级）。
+    /// 正常编号是 0/1 起的小整数，只要出现超出保守上界的值就整体判失真，
+    /// 友敌判定退回 relation 字段，它不受该缺陷影响。
+    /// </remarks>
+    private static bool IsTeamIdUsable(IReadOnlyList<ReplaysharkPlayer> players)
+    {
+        foreach (var rp in players)
+        {
+            if (rp.TeamId < 0 || rp.TeamId > TeamIdSaneBound)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
