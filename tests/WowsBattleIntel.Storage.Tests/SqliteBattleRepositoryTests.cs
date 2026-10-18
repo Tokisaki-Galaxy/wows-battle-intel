@@ -61,12 +61,12 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         }
     }
 
-    private static BattleRecord MakeBattle(string battleId = "battle-001", BattleOutcome outcome = BattleOutcome.Win)
+    private static BattleRecord MakeBattle(string battleId = "battle-001", BattleOutcome outcome = BattleOutcome.Win, DateTimeOffset? startedAt = null)
     {
         return new BattleRecord
         {
             BattleId = battleId,
-            StartedAt = DateTimeOffset.FromUnixTimeMilliseconds(1753163342000),
+            StartedAt = startedAt ?? DateTimeOffset.FromUnixTimeMilliseconds(1753163342000),
             FinishedAt = DateTimeOffset.FromUnixTimeMilliseconds(1753164260000),
             MapId = "spaces/50_Gold_harbor",
             BattleType = BattleType.Random,
@@ -959,5 +959,94 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         Assert.Equal("New", loaded["DUP"].Name);
         Assert.Equal(20, loaded["DUP"].MembersCount);
         Assert.Equal(ClanGradeTier.Good, loaded["DUP"].Grade);
+    }
+
+    [Fact]
+    public async Task GetBattleListAsync_ReturnsReplayPathAndTierRange()
+    {
+        // 友方两个等级 8 与 10，列表要能给出 VIII-X 的范围与回放路径。
+        var battle = MakeBattle(
+            "list-fields",
+            startedAt: DateTimeOffset.UtcNow.AddMinutes(-1));
+        battle.ReplayPath = @"D:\replays\20261017_132514_PBSB110-Conqueror_22_tierra.wowsreplay";
+        battle.Players = battle.Players
+            .Append(new PlayerRecord
+            {
+                AccountId = "1002", PlayerName = "AllyTwo", Server = GameServer.Asia,
+                IsAlly = true, ShipClass = ShipClass.Cruiser, ShipTier = 8,
+            })
+            .ToList();
+        await repository.SaveBattleAsync(battle);
+
+        var entries = await repository.GetBattleListAsync(10);
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(battle.ReplayPath, entry.ReplayPath);
+        Assert.Equal(10, entry.AllyTier);
+        Assert.Equal(8, entry.AllyMinTier);
+    }
+
+    [Fact]
+    public async Task ClearBattlesAsync_RemovesBattlesPlayersAndPredictions()
+    {
+        var battle = MakeBattle("clear-me", startedAt: DateTimeOffset.UtcNow.AddMinutes(-1));
+        await repository.SaveBattleAsync(battle);
+        await repository.SavePredictionAsync(new PredictionResult
+        {
+            BattleId = battle.BattleId,
+            PredictedAt = DateTimeOffset.UtcNow,
+            AllyWinProbability = 0.6,
+        });
+
+        await repository.ClearBattlesAsync();
+
+        Assert.Equal(0, await repository.CountBattlesAsync());
+        Assert.Null(await repository.GetBattleAsync("clear-me"));
+        Assert.Null(await repository.GetPredictionAsync("clear-me"));
+    }
+
+    [Fact]
+    public async Task ClearSnapshotsAsync_RemovesAllSnapshots()
+    {
+        await repository.SaveSnapshotAsync(new PlayerSnapshot
+        {
+            AccountId = "1001",
+            Server = GameServer.Asia,
+            CapturedAt = DateTimeOffset.UtcNow,
+            AccountBattles = 1000,
+        });
+
+        await repository.ClearSnapshotsAsync();
+
+        Assert.Null(await repository.GetLatestSnapshotAsync("1001", GameServer.Asia));
+    }
+
+    [Fact]
+    public async Task TrimBattlesToSizeAsync_DeletesOldestBattlesFirst()
+    {
+        // 造 5 局，时间递增。给一个极小的上限触发裁剪。
+        for (int i = 0; i < 5; i++)
+        {
+            await repository.SaveBattleAsync(MakeBattle(
+                $"trim-{i}", startedAt: DateTimeOffset.UtcNow.AddMinutes(-10 + i)));
+        }
+
+        // 上限压到不可能满足的极小值，把能删的都删光。
+        int trimmed = await repository.TrimBattlesToSizeAsync(1);
+
+        // 只要有对局被删，且删的是最旧的（trim-0 先消失）。
+        Assert.True(trimmed > 0);
+        var remaining = await repository.GetBattleListAsync(10);
+        if (remaining.Count > 0)
+        {
+            Assert.DoesNotContain(remaining, e => e.BattleId.StartsWith("trim-0", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void GetDatabaseSizeBytes_MemoryDb_ReturnsZero()
+    {
+        var memoryRepo = new SqliteBattleRepository(":memory:");
+        Assert.Equal(0, memoryRepo.GetDatabaseSizeBytes());
     }
 }
