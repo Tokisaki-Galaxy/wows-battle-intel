@@ -137,5 +137,7 @@
   <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
   <views:EmptyStringToCollapsedConverter x:Key="EmptyStringToCollapsedConverter" />
   <views:ProbabilityToGridLengthConverter x:Key="ProbabilityToGridLengthConverter" />
+  <views:OverlayStateToVisibilityConverter x:Key="OverlayStateToVisibilityConverter" />
+  <views:LoadingStateToVisibilityConverter x:Key="LoadingStateToVisibilityConverter" />
 
 </ResourceDictionary>

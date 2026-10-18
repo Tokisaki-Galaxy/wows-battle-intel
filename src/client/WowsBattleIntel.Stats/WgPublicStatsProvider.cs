@@ -29,6 +29,12 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
 
     private DateTimeOffset shipClassLookupLoadedAt = DateTimeOffset.MinValue;
 
+    /// <summary>目录加载失败后的负缓存截止时刻。MinValue 表示当前可用。</summary>
+    private DateTimeOffset shipClassLookupFailedUntil = DateTimeOffset.MinValue;
+
+    /// <summary>目录加载失败后的重试间隔。失败 5 分钟内不再发起整页轮询。</summary>
+    private static readonly TimeSpan ClassLookupFailureBackoff = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// 构造提供者。
     /// </summary>
@@ -433,6 +439,14 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             return;
         }
 
+        // 失败负缓存：目录不可达（断网、限流）时连续重试只会把 6 页超时
+        // 串进每次补拉。负缓存期内直接放弃，分舰种聚合退化为空，账号级
+        // 统计不受影响。缓存命中成功或负缓存期过后重试。
+        if (DateTimeOffset.UtcNow < shipClassLookupFailedUntil)
+        {
+            return;
+        }
+
         try
         {
             // 页数从 encyclopedia/ships 端点自己的 meta.page_total 取，
@@ -462,11 +476,17 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
                 shipClassLookup = lookup;
                 shipTierLookup = tierLookup;
                 shipClassLookupLoadedAt = DateTimeOffset.UtcNow;
+                shipClassLookupFailedUntil = DateTimeOffset.MinValue;
+            }
+            else
+            {
+                shipClassLookupFailedUntil = DateTimeOffset.UtcNow + ClassLookupFailureBackoff;
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // 目录加载失败不影响账号级统计，分舰种特征退化为未知。
+            shipClassLookupFailedUntil = DateTimeOffset.UtcNow + ClassLookupFailureBackoff;
         }
     }
 

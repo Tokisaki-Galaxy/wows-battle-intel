@@ -10,6 +10,21 @@ using WowsBattleIntel.Stats;
 namespace WowsBattleIntel.Client.ViewModels;
 
 /// <summary>
+/// 详情区覆盖层的状态。
+/// </summary>
+public enum DetailOverlayState
+{
+    /// <summary>无覆盖层，正常展示名单。</summary>
+    Hidden,
+
+    /// <summary>解析进行中，显示转圈动画。</summary>
+    Loading,
+
+    /// <summary>解析失败或对局未完成，显示提示文案并常驻。</summary>
+    Error,
+}
+
+/// <summary>
 /// 主窗口视图模型。
 /// </summary>
 /// <remarks>
@@ -372,6 +387,7 @@ public sealed class MainViewModel : ViewModelBase
 
         IsBusy = true;
         IsParsingReplay = true;
+        ShowOverlayLoading();
         StatusMessage = "正在解析回放...";
         try
         {
@@ -391,12 +407,18 @@ public sealed class MainViewModel : ViewModelBase
                 StatusMessage = result.Message ?? "回放解析失败";
                 LogSink.Warn($"回放补录失败: {Path.GetFileName(replayPath)} · {result.Message}");
 
-                // 未完成对局（中途退出、游戏没写入结果）永远不会解析成功，
-                // 占位项标记为未完成，列表不再呈现可重试的假象。其他失败
-                // （网络、版本缺失）保留原样，条件变化后重试仍有意义。
-                if (result.Message?.Contains("未完成对局", StringComparison.Ordinal) == true)
+                // 未完成对局（中途退出、游戏没写入结果）是确定性结果：
+                // 列表项标记为未完成，覆盖层用中性文案常驻，不再呈现
+                // 可重试的假象。其他失败（网络、版本缺失）用错误文案，
+                // 条件变化后用户重试仍有意义。
+                if (result.IsUnfinished)
                 {
                     summary.MarkUnfinished();
+                    ShowOverlayError("该回放对应的对局中途退出，没有战果记录", neutral: true);
+                }
+                else
+                {
+                    ShowOverlayError(result.Message ?? "回放解析失败", neutral: false);
                 }
 
                 return;
@@ -427,6 +449,7 @@ public sealed class MainViewModel : ViewModelBase
             if (version == historySelectionVersion)
             {
                 StatusMessage = "解析已取消";
+                HideOverlay();
             }
         }
         catch (Exception ex)
@@ -434,6 +457,7 @@ public sealed class MainViewModel : ViewModelBase
             if (version == historySelectionVersion)
             {
                 StatusMessage = $"回放解析失败: {ex.Message}";
+                ShowOverlayError($"解析失败: {ex.Message}", neutral: false);
             }
 
             LogSink.Error($"回放补录异常: {Path.GetFileName(replayPath)} · {ex.Message}");
@@ -629,6 +653,77 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool isParsingReplay;
 
+    /// <summary>
+    /// 详情区覆盖层的当前状态。
+    /// </summary>
+    /// <remarks>
+    /// 三态：Hidden 正常展示名单；Loading 解析中转圈；Error 失败提示常驻。
+    /// Error 态点击其他对局或列表重建后自然清除（覆盖层只由这几个入口写入）。
+    /// </remarks>
+    public DetailOverlayState OverlayState
+    {
+        get => overlayState;
+        private set => SetField(ref overlayState, value);
+    }
+
+    private DetailOverlayState overlayState = DetailOverlayState.Hidden;
+
+    /// <summary>覆盖层主文案。Loading 态固定"正在解析回放..."，Error 态为具体原因。</summary>
+    public string OverlayMessage => overlayState switch
+    {
+        DetailOverlayState.Loading => "正在解析回放...",
+        DetailOverlayState.Error => overlayErrorText,
+        _ => string.Empty,
+    };
+
+    /// <summary>覆盖层错误文案。中性提示与错误提示共用此字段，颜色由态决定。</summary>
+    private string overlayErrorText = string.Empty;
+
+    /// <summary>覆盖层是否用错误配色。未完成对局属确定性结果，用中性色不吓人。</summary>
+    public bool OverlayIsError => overlayState == DetailOverlayState.Error && !overlayIsNeutral;
+
+    private bool overlayIsNeutral;
+
+    /// <summary>
+    /// 显示解析中的转圈覆盖层。
+    /// </summary>
+    private void ShowOverlayLoading()
+    {
+        overlayIsNeutral = false;
+        OverlayState = DetailOverlayState.Loading;
+        OnPropertyChanged(nameof(OverlayMessage));
+        OnPropertyChanged(nameof(OverlayIsError));
+    }
+
+    /// <summary>
+    /// 显示失败提示覆盖层并常驻。
+    /// </summary>
+    /// <param name="message">提示文案。未完成对局传中性文案。</param>
+    /// <param name="neutral">true 用中性配色（确定性结果），false 用错误配色。</param>
+    private void ShowOverlayError(string message, bool neutral)
+    {
+        overlayErrorText = message;
+        overlayIsNeutral = neutral;
+        OverlayState = DetailOverlayState.Error;
+        OnPropertyChanged(nameof(OverlayMessage));
+        OnPropertyChanged(nameof(OverlayIsError));
+    }
+
+    /// <summary>清除覆盖层，恢复名单展示。</summary>
+    private void HideOverlay()
+    {
+        if (overlayState == DetailOverlayState.Hidden)
+        {
+            return;
+        }
+
+        overlayErrorText = string.Empty;
+        overlayIsNeutral = false;
+        OverlayState = DetailOverlayState.Hidden;
+        OnPropertyChanged(nameof(OverlayMessage));
+        OnPropertyChanged(nameof(OverlayIsError));
+    }
+
     /// <summary>观测状态说明。观测常驻，展示是否忙碌与待处理数量。</summary>
     public string ObservationStatusText => isBusy
         ? "加载中..."
@@ -797,6 +892,7 @@ public sealed class MainViewModel : ViewModelBase
         actualOutcome = BattleOutcome.Unknown;
         AllySummaryText = "-";
         EnemySummaryText = "-";
+        HideOverlay();
 
         // 预测取值分两种：赛前对局没有入库记录，用收敛循环持有的那一版；
         // 历史对局读入库记录。切换选中时若直接清成 null，切回赛前对局会

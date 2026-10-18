@@ -60,6 +60,13 @@ public sealed class BattleIngestionService
         }
         catch (ReplayParseException ex)
         {
+            // "未完成对局"是解析层的确定性判定（两个结果字段都为 null），
+            // 用显式标记区分，界面据此选择中性提示与不重试的引导。
+            if (ex.Message.Contains("未完成对局", StringComparison.Ordinal))
+            {
+                return IngestionResult.Unfinished();
+            }
+
             return IngestionResult.Failed(ex.Message);
         }
 
@@ -190,6 +197,15 @@ public sealed class IngestionResult
     /// <summary>是否因同局重复被跳过。跳过视为成功，但界面可区分提示。</summary>
     public bool IsDuplicate { get; init; }
 
+    /// <summary>
+    /// 失败是否因为对局未完成（中途退出，游戏没写入战果）。
+    /// </summary>
+    /// <remarks>
+    /// 这类失败是确定性的，重试永远同样结果，界面据此用中性提示而非
+    /// 错误提示，文案也不同于网络或环境类失败。解析成功路径恒为 false。
+    /// </remarks>
+    public bool IsUnfinished { get; init; }
+
     /// <summary>解析出的对局，失败时为空。</summary>
     public BattleRecord? Battle { get; init; }
 
@@ -213,4 +229,13 @@ public sealed class IngestionResult
     /// <summary>构造失败结果。</summary>
     public static IngestionResult Failed(string message) =>
         new() { Success = false, Message = message };
+
+    /// <summary>构造未完成对局的失败结果。与普通失败区分展示口径。</summary>
+    public static IngestionResult Unfinished() =>
+        new()
+        {
+            Success = false,
+            IsUnfinished = true,
+            Message = "该回放对应的对局中途退出，游戏没有写入战果记录",
+        };
 }

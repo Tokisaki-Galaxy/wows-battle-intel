@@ -816,20 +816,22 @@
                 </Grid>
               </Border>
 
-              <!-- 占位回放解析中：覆盖在名单区上的提示层。解析要跑 replayshark
-                   几秒到十几秒，期间详情区被清空，没有这层时一片空白像卡死。
-                   放在 Grid 最后一个子元素位置，后声明者绘制在上层，才能盖住名单 -->
+              <!-- 详情区覆盖层三态：Loading 转圈、Error 失败提示常驻（未完成对局
+                   用中性灰，其他失败用错误红）。隐藏态不渲染。文案与配色由
+                   OverlayMessage / OverlayIsError 驱动 -->
               <Border Grid.Column="0"
                       Grid.ColumnSpan="3"
                       Background="{DynamicResource BgBrush}"
-                      Opacity="0.85"
-                      Visibility="{Binding IsParsingReplay, Converter={StaticResource BoolToVisibilityConverter}}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                      Opacity="0.92"
+                      Visibility="{Binding OverlayState, Converter={StaticResource OverlayStateToVisibilityConverter}}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420">
+                  <!-- Loading 态的转圈。Error 态换成图标字符 -->
                   <Ellipse Width="28" Height="28"
                            Stroke="{StaticResource PrimaryBrush}"
                            StrokeThickness="3"
                            StrokeDashArray="12 36"
-                           RenderTransformOrigin="0.5,0.5">
+                           RenderTransformOrigin="0.5,0.5"
+                           Visibility="{Binding OverlayState, Converter={StaticResource LoadingStateToVisibilityConverter}}">
                     <Ellipse.RenderTransform>
                       <RotateTransform x:Name="ParsingSpinnerTransform" Angle="0" />
                     </Ellipse.RenderTransform>
@@ -846,10 +848,38 @@
                       </EventTrigger>
                     </Ellipse.Triggers>
                   </Ellipse>
-                  <TextBlock Text="正在解析回放..."
-                             Style="{StaticResource SecondaryTextStyle}"
+                  <TextBlock Text="!"
+                             FontSize="26"
+                             FontWeight="Bold"
                              HorizontalAlignment="Center"
-                             Margin="0,12,0,0" />
+                             Visibility="{Binding OverlayIsError, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding OverlayIsError}" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource HiddenBrush}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
+                  <TextBlock Text="{Binding OverlayMessage}"
+                             TextWrapping="Wrap"
+                             HorizontalAlignment="Center"
+                             Margin="0,12,0,0"
+                             TextAlignment="Center">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+                        <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding OverlayIsError}" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
                 </StackPanel>
               </Border>
             </Grid>

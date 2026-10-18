@@ -184,10 +184,13 @@ public class PreBattleLifecycleTests : IDisposable
         await WaitUntilAsync(
             () => vm.Allies.Count > 0 && vm.CountdownText.Length == 0,
             "历史对局详情加载并收起赛前文案");
+        // 补拉收尾的等待窗口：测试环境走真实 WG API，无网络时 HttpClient
+        // 60 秒超时叠加 429 退避重试，单请求可拖到两分钟。放宽到 130 秒。
+        // 慢不阻断结论——断言的是提示最终消失，不是多快消失。
         await WaitUntilAsync(
             () => !vm.StatusMessage.StartsWith("正在补充", StringComparison.Ordinal),
             "换局后补拉提示消失",
-            timeoutSeconds: 15);
+            timeoutSeconds: 130);
     }
 
     [Fact]
