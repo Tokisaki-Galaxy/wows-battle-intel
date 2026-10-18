@@ -24,9 +24,6 @@ public partial class App : Application
     /// <summary>单实例守卫。整个进程生命周期持有，退出时释放。</summary>
     private readonly Services.SingleInstanceGuard singleInstance = new();
 
-    /// <summary>XAML Startup 事件的入口，保持 override 的主体不变。</summary>
-    private void ApplicationStartup(object sender, StartupEventArgs e) => OnStartup(e);
-
     /// <inheritdoc />
     protected override async void OnStartup(StartupEventArgs e)
     {
