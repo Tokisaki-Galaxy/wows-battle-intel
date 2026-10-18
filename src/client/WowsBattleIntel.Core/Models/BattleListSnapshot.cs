@@ -18,7 +18,7 @@ public sealed record ReplayFileInfo(
 /// </summary>
 /// <remarks>
 /// 列表不需要完整名单。加载全部参战者会让启动变慢，等级标签单独给出，
-/// 避免为了一行 "T10" 去读整张 battle_players 表。
+/// 避免为了一行等级范围去读整张 battle_players 表。
 /// </remarks>
 /// <param name="BattleId">对局标识。</param>
 /// <param name="StartedAt">开战时间。</param>
@@ -27,10 +27,12 @@ public sealed record ReplayFileInfo(
 /// <param name="Server">服务器。</param>
 /// <param name="Outcome">结果，未判定时为 Unknown。</param>
 /// <param name="DurationSeconds">时长，秒。</param>
-/// <param name="AllyTier">友方常见等级，取不到时为 0。</param>
+/// <param name="AllyTier">友方最高等级，取不到时为 0。</param>
 /// <param name="PredictedWinProbability">预测胜率，无预测时为空。</param>
 /// <param name="IsPrebattle">是否为赛前占位记录（标识带 :pre 后缀）。</param>
 /// <param name="HasPlayers">库里是否已有参战者明细。</param>
+/// <param name="ReplayPath">来源回放文件路径，批量导入等无回放来源的记录为空。</param>
+/// <param name="AllyMinTier">友方最低等级，取不到时为 0。与 AllyTier 组成房间等级范围。</param>
 public sealed record BattleListEntry(
     string BattleId,
     DateTimeOffset StartedAt,
@@ -42,7 +44,9 @@ public sealed record BattleListEntry(
     int AllyTier,
     double? PredictedWinProbability,
     bool IsPrebattle,
-    bool HasPlayers);
+    bool HasPlayers,
+    string ReplayPath = "",
+    int AllyMinTier = 0);
 
 /// <summary>
 /// 历史列表的一次快照。

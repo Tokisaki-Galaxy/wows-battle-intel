@@ -298,9 +298,42 @@ public class MainViewModelTests
         var vm = NewViewModel(holder.Services);
         await vm.LoadRecentBattlesAsync();
 
-        // 列表查询原本不带参战者，等级标签会退到 T?。补齐后应显示实际等级。
+        // 列表查询原本不带参战者，等级标签会退到 ?。补齐后应显示实际等级。
+        // 本局友方只有一个等级，范围退化成单个罗马数字。
         var item = Assert.Single(vm.RecentBattles);
-        Assert.Equal("T10", item.TierText);
+        Assert.Equal("X", item.TierText);
+    }
+
+    [Fact]
+    public void TierText_MixedTiers_ShowsRomanRange()
+    {
+        var battle = MakeBattle("t", BattleOutcome.Win, DateTimeOffset.UtcNow);
+        // 友方补两个低级船，范围应是 VIII-X。
+        battle.Players = battle.Players
+            .Append(new PlayerRecord
+            {
+                AccountId = "1002", PlayerName = "AllyTwo", Server = GameServer.Asia,
+                IsAlly = true, ShipClass = ShipClass.Cruiser, ShipTier = 8,
+            })
+            .Append(new PlayerRecord
+            {
+                AccountId = "1003", PlayerName = "AllyThree", Server = GameServer.Asia,
+                IsAlly = true, ShipClass = ShipClass.Destroyer, ShipTier = 9,
+            })
+            .ToList();
+
+        var summary = BattleSummaryViewModel.FromBattle(battle);
+
+        Assert.Equal("VIII-X", summary.TierText);
+    }
+
+    [Fact]
+    public void TierText_SingleTier_ShowsSingleRoman()
+    {
+        var battle = MakeBattle("t", BattleOutcome.Win, DateTimeOffset.UtcNow);
+        var summary = BattleSummaryViewModel.FromBattle(battle);
+
+        Assert.Equal("X", summary.TierText);
     }
 
     [Fact]
@@ -313,7 +346,45 @@ public class MainViewModelTests
             Players = [],
         };
         var summary = BattleSummaryViewModel.FromBattle(battle);
-        Assert.Equal("T?", summary.TierText);
+        Assert.Equal("?", summary.TierText);
+    }
+
+    [Fact]
+    public void DisplayText_ShowsTypeMapAndShipNameFromReplayPath()
+    {
+        var battle = MakeBattle("t", BattleOutcome.Win, DateTimeOffset.UtcNow);
+        battle.ReplayPath = @"D:\replays\15.9.0.0\20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay";
+
+        var summary = BattleSummaryViewModel.FromBattle(battle);
+
+        // 类型、地图短名与船名依次排列；地图去掉 spaces/ 前缀。
+        Assert.Equal("随机 50_Gold_harbor · PBSB110-Conqueror", summary.DisplayText);
+    }
+
+    [Fact]
+    public void DisplayText_WithoutReplayPath_ShowsTypeAndMapOnly()
+    {
+        var battle = MakeBattle("t", BattleOutcome.Win, DateTimeOffset.UtcNow);
+
+        var summary = BattleSummaryViewModel.FromBattle(battle);
+
+        Assert.Equal("随机 50_Gold_harbor", summary.DisplayText);
+    }
+
+    [Fact]
+    public void FromEntry_KeepsReplayPathAndTierRange()
+    {
+        var entry = new BattleListEntry(
+            "id", DateTimeOffset.UtcNow, "spaces/23_Shards", BattleType.Random,
+            GameServer.Asia, BattleOutcome.Win, 600, 10, null, false, true,
+            ReplayPath: @"D:\replays\20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay",
+            AllyMinTier: 8);
+
+        var summary = BattleSummaryViewModel.FromEntry(entry);
+
+        Assert.Equal(entry.ReplayPath, summary.ReplayPath);
+        Assert.Equal("VIII-X", summary.TierText);
+        Assert.Contains("PBSB110-Conqueror", summary.DisplayText);
     }
 
     [Fact]

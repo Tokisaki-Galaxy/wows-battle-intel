@@ -37,6 +37,15 @@ public sealed class AppConfig
     public int SnapshotRetentionDays { get; set; } = 14;
 
     /// <summary>
+    /// 数据库体积上限，单位 MB。0 表示不限。
+    /// </summary>
+    /// <remarks>
+    /// 超限后启动与入库时按最旧优先清历史对局，直到体积回落。快照与军团档
+    /// 另有各自的保留策略，不受此限制。
+    /// </remarks>
+    public int DatabaseMaxSizeMb { get; set; } = 0;
+
+    /// <summary>
     /// 是否缓存对局战绩加速查询。开启后同一玩家在缓存有效期内的重复查询
     /// 直接命中本地，不再请求 WG API。默认开启。
     /// </summary>

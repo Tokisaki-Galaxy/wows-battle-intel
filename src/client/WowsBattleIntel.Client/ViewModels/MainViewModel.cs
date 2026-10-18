@@ -99,7 +99,7 @@ public sealed class MainViewModel : ViewModelBase
     /// 现在列表走单条 SQL 只取摘要字段，两千行与配合占位项足够覆盖绝大多数
     /// 玩家的全部历史；真被截断时界面会明确提示，不让用户以为"就这么多"。
     /// </remarks>
-    internal const int HistoryBattleLimit = 2000;
+    internal const int HistoryBattleLimit = 200;
 
     /// <summary>
     /// 构造视图模型。
@@ -815,6 +815,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
                 row.SetDivisionColorIndex(divisionColors.GetValueOrDefault(p.DivisionId ?? string.Empty, -1));
+                row.StatsRefreshRequested = RequestSinglePlayerRefreshAsync;
                 allyRows[RowKey(p)] = row;
                 Allies.Add(row);
             }
@@ -827,6 +828,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var row = PlayerRowViewModel.FromPlayer(p);
                 row.SetDivisionColorIndex(divisionColors.GetValueOrDefault(p.DivisionId ?? string.Empty, -1));
+                row.StatsRefreshRequested = RequestSinglePlayerRefreshAsync;
                 enemyRows[RowKey(p)] = row;
                 Enemies.Add(row);
             }
@@ -931,6 +933,85 @@ public sealed class MainViewModel : ViewModelBase
                 .GetAwaiter()
                 .GetResult() ?? account;
         });
+
+    /// <summary>
+    /// 响应名单行的右键刷新：跳过缓存拉一个玩家的最新 WG 数据并刷新行。
+    /// </summary>
+    /// <remarks>
+    /// 缓存装饰器实现 <see cref="IForcedStatsFetch"/>，走它既跳过缓存命中
+    /// 又保留统一的落库逻辑，拉到的快照照常写回，之后的普通查询仍走缓存。
+    ///
+    /// 完成后只刷新行内容与汇总，不重建详情区：重建会作废正在推进的同局
+    /// 补拉任务，一次单人刷新不该连带丢掉整队补拉结果。
+    /// </remarks>
+    private async Task RequestSinglePlayerRefreshAsync(PlayerRecord player)
+    {
+        bool success = false;
+        if (player.IsStatsCandidate)
+        {
+            IsBusy = true;
+            StatusMessage = $"正在刷新 {player.PlayerName} 的数据...";
+            try
+            {
+                var provider = services.StatsProvider is IForcedStatsFetch forced
+                    ? forced
+                    : null;
+                if (provider is not null)
+                {
+                    var updated = await provider
+                        .ForceFetchStatsAsync([player])
+                        .ConfigureAwait(true);
+                    var fresh = updated.FirstOrDefault(p =>
+                        p.AccountId == player.AccountId && p.Server == player.Server);
+                    if (fresh is not null)
+                    {
+                        // 用返回的新数据刷新对应行；行对象按引用持有在名单集合里。
+                        // 汇总条由行背后的记录计算，行换了汇总要跟着重算一次。
+                        bool isAlly = allyRows.Values.Any(r => r.Source?.AccountId == player.AccountId);
+                        var rows = isAlly ? allyRows.Values : enemyRows.Values;
+                        var row = rows.FirstOrDefault(r => r.Source?.AccountId == player.AccountId);
+                        if (row is not null)
+                        {
+                            row.RefreshFrom(fresh);
+                            var summary = BuildTeamSummary(rows
+                                .Select(r => r.Source)
+                                .Where(p => p is not null)
+                                .Select(p => p!));
+                            if (isAlly)
+                            {
+                                AllySummaryText = summary;
+                            }
+                            else
+                            {
+                                EnemySummaryText = summary;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 提供商没返回这条玩家（隐藏、拉取失败等），按失败处理。
+                        LogSink.Warn($"刷新玩家数据未返回: {player.PlayerName}");
+                    }
+                }
+
+                success = provider is not null;
+            }
+            catch (Exception ex)
+            {
+                LogSink.Warn($"刷新玩家数据失败: {player.PlayerName} · {ex.Message}");
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        StatusMessage = !player.IsStatsCandidate
+            ? $"{player.PlayerName} 无可刷新的数据（机器人或隐藏战绩）"
+            : success
+                ? $"{player.PlayerName} 的数据已刷新"
+                : $"{player.PlayerName} 的数据刷新失败";
+    }
 
     /// <summary>
     /// 用当前名单与模型重新生成预测并入库。

@@ -20,6 +20,9 @@ public sealed class SettingsViewModel : ViewModelBase
     private readonly IPathPicker picker;
     private readonly IFolderLauncher folderLauncher;
 
+    /// <summary>危险操作的确认委托。返回 true 表示用户同意执行。</summary>
+    private readonly Func<string, string, bool> confirm;
+
     private string gamePath = string.Empty;
     private string databasePath = string.Empty;
     private string modelPath = string.Empty;
@@ -27,6 +30,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private string wgApplicationId = string.Empty;
     private int pollIntervalSeconds = 10;
     private int snapshotRetentionDays = 14;
+    private int databaseMaxSizeMb;
     private bool enableBattleCache;
     private int battleCacheDays = 7;
     private string logDirectory = string.Empty;
@@ -41,14 +45,18 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>
     /// 构造视图模型，字段初值取自当前配置。
     /// </summary>
-    public SettingsViewModel(AppServices services, IPathPicker picker, IFolderLauncher? folderLauncher = null)
+    public SettingsViewModel(
+        AppServices services,
+        IPathPicker picker,
+        IFolderLauncher? folderLauncher = null,
+        Func<string, string, bool>? confirmDialog = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(picker);
-
         this.services = services;
         this.picker = picker;
         this.folderLauncher = folderLauncher ?? new ExplorerFolderLauncher();
+        confirm = confirmDialog ?? DefaultConfirm;
 
         LoadFrom(services.Config);
 
@@ -63,6 +71,8 @@ public sealed class SettingsViewModel : ViewModelBase
             p => ModelPath = p));
         OpenLogFolderCommand = SyncCommand(_ => OpenLogFolder());
         TrimLogsCommand = SyncCommand(_ => TrimLogs());
+        ClearBattlesCommand = SyncCommand(_ => ClearBattles());
+        ClearSnapshotsCommand = SyncCommand(_ => ClearSnapshots());
 
         SaveCommand = new RelayCommand(
             async _ => await SaveAsync().ConfigureAwait(true),
@@ -132,6 +142,29 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => snapshotRetentionDays;
         set => SetFieldAndMarkDirty(ref snapshotRetentionDays, value);
+    }
+
+    /// <summary>数据库体积上限，单位 MB，0 表示不限。</summary>
+    public int DatabaseMaxSizeMb
+    {
+        get => databaseMaxSizeMb;
+        set => SetFieldAndMarkDirty(ref databaseMaxSizeMb, value);
+    }
+
+    /// <summary>数据库当前体积的可读文本，如 128 MB。</summary>
+    public string DatabaseSizeText
+    {
+        get
+        {
+            long bytes = services.Repository.GetDatabaseSizeBytes();
+            return bytes switch
+            {
+                <= 0 => "未知",
+                < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+                < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
+                _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",
+            };
+        }
     }
 
     /// <summary>
@@ -299,6 +332,12 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>按当前口径立即清理日志文件命令。</summary>
     public System.Windows.Input.ICommand TrimLogsCommand { get; }
 
+    /// <summary>清空对局记录命令。</summary>
+    public System.Windows.Input.ICommand ClearBattlesCommand { get; }
+
+    /// <summary>清空统计快照命令。</summary>
+    public System.Windows.Input.ICommand ClearSnapshotsCommand { get; }
+
     /// <summary>保存并应用命令。</summary>
     public System.Windows.Input.ICommand SaveCommand { get; }
 
@@ -360,6 +399,11 @@ public sealed class SettingsViewModel : ViewModelBase
             return "快照保留天数不能为负，0 表示不清理。";
         }
 
+        if (DatabaseMaxSizeMb < 0)
+        {
+            return "数据库体积上限不能为负，0 表示不限。";
+        }
+
         if (BattleCacheDays < 0)
         {
             return "战绩缓存天数不能为负，0 表示不过期。";
@@ -415,6 +459,7 @@ public sealed class SettingsViewModel : ViewModelBase
             WgApplicationId = WgApplicationId.Trim(),
             PollIntervalSeconds = PollIntervalSeconds,
             SnapshotRetentionDays = SnapshotRetentionDays,
+            DatabaseMaxSizeMb = Math.Max(0, DatabaseMaxSizeMb),
             EnableBattleCache = EnableBattleCache,
             BattleCacheDays = BattleCacheDays,
             ColorRules = ColorRules.Select(r => r.ToRule()).ToList(),
@@ -485,6 +530,7 @@ public sealed class SettingsViewModel : ViewModelBase
         wgApplicationId = config.WgApplicationId;
         pollIntervalSeconds = config.PollIntervalSeconds;
         snapshotRetentionDays = config.SnapshotRetentionDays;
+        databaseMaxSizeMb = Math.Max(0, config.DatabaseMaxSizeMb);
         enableBattleCache = config.EnableBattleCache;
         battleCacheDays = config.BattleCacheDays;
         logDirectory = config.LogOptions.Directory;
@@ -501,6 +547,8 @@ public sealed class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(WgApplicationId));
         OnPropertyChanged(nameof(PollIntervalSeconds));
         OnPropertyChanged(nameof(SnapshotRetentionDays));
+        OnPropertyChanged(nameof(DatabaseMaxSizeMb));
+        OnPropertyChanged(nameof(DatabaseSizeText));
         OnPropertyChanged(nameof(EnableBattleCache));
         OnPropertyChanged(nameof(BattleCacheDays));
         OnPropertyChanged(nameof(ThemeIndex));
@@ -633,6 +681,81 @@ public sealed class SettingsViewModel : ViewModelBase
 
         services.Logs.TrimLogFiles(options);
         StatusMessage = $"已按当前设置清理 {options.Directory}。";
+    }
+
+    /// <summary>危险操作确认框的默认实现。</summary>
+    private static bool DefaultConfirm(string title, string message) =>
+        System.Windows.MessageBox.Show(
+            message,
+            title,
+            System.Windows.MessageBoxButton.OKCancel,
+            System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.OK;
+
+    /// <summary>
+    /// 确认后清空全部对局记录。
+    /// </summary>
+    /// <remarks>
+    /// 对局、参战者与预测一起清掉，统计快照与军团分档保留。删除不可恢复，
+    /// 弹一次确认框；确认委托可注入，测试里替换成固定返回。
+    /// </remarks>
+    private async void ClearBattles()
+    {
+        long sizeMb = services.Repository.GetDatabaseSizeBytes() / 1024 / 1024;
+        bool confirmed = confirm.Invoke(
+            "清空对局记录",
+            $"将删除全部对局、参战者与预测记录（数据库当前约 {sizeMb} MB），统计快照保留。此操作不可恢复，确定继续吗？");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            await services.Repository.ClearBattlesAsync().ConfigureAwait(true);
+            StatusMessage = "对局记录已清空。";
+            services.Logs.Info("用户从设置页清空了对局记录");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"清空失败: {ex.Message}";
+            services.Logs.Error($"清空对局记录失败: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// 确认后清空全部统计快照。
+    /// </summary>
+    private async void ClearSnapshots()
+    {
+        bool confirmed = confirm.Invoke(
+            "清空统计快照",
+            "将删除全部玩家统计快照。快照是预测特征与训练数据的原料，清空后近期状态特征要重新累积。确定继续吗？");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            await services.Repository.ClearSnapshotsAsync().ConfigureAwait(true);
+            StatusMessage = "统计快照已清空。";
+            services.Logs.Info("用户从设置页清空了统计快照");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"清空失败: {ex.Message}";
+            services.Logs.Error($"清空统计快照失败: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     /// <summary>

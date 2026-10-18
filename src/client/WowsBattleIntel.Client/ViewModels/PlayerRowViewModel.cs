@@ -26,7 +26,19 @@ public sealed class PlayerRowViewModel : ViewModelBase
     /// <summary>隐藏战绩的展示标签。与未知占位符区分，只在确认隐藏时出现。</summary>
     private const string HiddenLabel = "隐藏";
 
+    /// <summary>默认的网页打开器。测试里替换成记录调用的假实现。</summary>
+    private static readonly Services.IWebLauncher DefaultWebLauncher = new Services.ShellWebLauncher();
+
     private PlayerRecord? source;
+
+    /// <summary>本行背后的领域记录。汇总条重算时取最新数据用。</summary>
+    internal PlayerRecord? Source => source;
+
+    /// <summary>单玩家数据刷新回调。宿主（详情区）在构造行后注入。</summary>
+    internal Func<PlayerRecord, Task>? StatsRefreshRequested;
+
+    /// <summary>网页打开器。跳转详细记录时用，测试里替换。</summary>
+    internal Services.IWebLauncher WebLauncher { get; set; } = DefaultWebLauncher;
 
     /// <summary>
     /// 从领域模型构造。
@@ -50,6 +62,16 @@ public sealed class PlayerRowViewModel : ViewModelBase
     public System.Windows.Input.ICommand CopyBattleRecordCommand { get; }
 
     /// <summary>
+    /// 刷新本行玩家的 WG 统计数据命令。
+    /// </summary>
+    public System.Windows.Input.ICommand RefreshStatsCommand { get; }
+
+    /// <summary>
+    /// 跳转本行玩家的详细记录页命令。
+    /// </summary>
+    public System.Windows.Input.ICommand OpenDetailedRecordCommand { get; }
+
+    /// <summary>
     /// 构造视图模型，装配命令。命令的委托捕获本实例，必须在构造里建。
     /// </summary>
     private PlayerRowViewModel()
@@ -59,6 +81,65 @@ public sealed class PlayerRowViewModel : ViewModelBase
             CopyBattleRecordToClipboard();
             return Task.CompletedTask;
         });
+
+        RefreshStatsCommand = new RelayCommand(
+            async _ =>
+            {
+                if (source is { } player)
+                {
+                    await (StatsRefreshRequested?.Invoke(player) ?? Task.CompletedTask)
+                        .ConfigureAwait(true);
+                }
+            });
+
+        OpenDetailedRecordCommand = new RelayCommand(_ =>
+        {
+            // 账号未解析或服务器未知时拼不出链接，静默跳过比打开一个错误页好。
+            string url = BuildDetailedRecordUrl();
+            if (url.Length > 0)
+            {
+                WebLauncher.Open(url);
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// 拼出本行玩家在详细记录站的网址。
+    /// </summary>
+    /// <remarks>
+    /// 站点按账号 ID 与昵称定位玩家，服务器决定库源。账号未解析（哨兵 -1）
+    /// 或服务器未知时返回空串，命令侧静默跳过，不给用户一个 404 页。
+    /// </remarks>
+    public string BuildDetailedRecordUrl()
+    {
+        if (source is not { } player
+            || player.AccountId.Length == 0
+            || player.AccountId == "-1"
+            || player.Server == GameServer.Auto)
+        {
+            return string.Empty;
+        }
+
+        // 站点参数里的服务器用小写缩写，与 realm 口径一致。
+        string server = player.Server switch
+        {
+            GameServer.Asia => "asia",
+            GameServer.Eu => "eu",
+            GameServer.Na => "na",
+            GameServer.Ru => "ru",
+            GameServer.Cn => "cn",
+            _ => string.Empty,
+        };
+        if (server.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"https://wows.shinoaki.com/#record?server={server}"
+            + $"&accountId={Uri.EscapeDataString(player.AccountId)}"
+            + $"&name={Uri.EscapeDataString(player.PlayerName)}&tab=info";
     }
 
     /// <summary>

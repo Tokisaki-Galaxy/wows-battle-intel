@@ -112,4 +112,34 @@ public interface IBattleRepository
     Task<BattleRecord?> FindEquivalentBattleAsync(
         BattleRecord battle,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 清空全部对局记录，连同参战者与预测。
+    /// </summary>
+    /// <remarks>
+    /// 供设置页的数据库维护入口调用。统计快照与军团分档是独立数据，不在此列。
+    /// </remarks>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task ClearBattlesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 清空全部玩家统计快照。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task ClearSnapshotsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按体积上限裁剪历史对局，最旧的先删。
+    /// </summary>
+    /// <param name="maxBytes">体积上限（含 WAL 文件）。非正数时不裁剪。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>删除的对局条数。</returns>
+    Task<int> TrimBattlesToSizeAsync(
+        long maxBytes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 当前数据库文件体积（含 WAL 与 SHM）。内存库返回 0。
+    /// </summary>
+    long GetDatabaseSizeBytes();
 }

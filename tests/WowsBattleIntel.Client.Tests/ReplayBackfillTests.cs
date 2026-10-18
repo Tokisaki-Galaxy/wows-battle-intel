@@ -356,6 +356,25 @@ public class ReplayBackfillTests
     }
 
     [Theory]
+    [InlineData(@"20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", "PBSB110-Conqueror")]
+    [InlineData(@"D:\replays\15.9.0.0\20261006_123131_PUSC010-Cerberus_44_Path_warrior.wowsreplay", "PUSC010-Cerberus")]
+    [InlineData(@"20261006_123131_PISB810-Cyber-Ruggiero-di-Lauria_50_Gold_harbor.wowsreplay", "PISB810-Cyber-Ruggiero-di-Lauria")]
+    public void ReplayFileName_TryGetShipName_TakesFirstSegmentAfterTimestamp(string name, string expected)
+    {
+        Assert.Equal(expected, ReplayFileName.TryGetShipName(name));
+    }
+
+    [Theory]
+    [InlineData("temp.wowsreplay")]
+    [InlineData("notes.wowsreplay")]
+    [InlineData("20261017_132514.wowsreplay")]
+    [InlineData(null)]
+    public void ReplayFileName_TryGetShipName_InvalidName_ReturnsEmpty(string? name)
+    {
+        Assert.Equal(string.Empty, ReplayFileName.TryGetShipName(name));
+    }
+
+    [Theory]
     [InlineData(@"20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]
     [InlineData(@"D:\replays\15.9.0.0\20261017_132514_PBSB110-Conqueror_22_tierra_del_fuego.wowsreplay", true)]
     [InlineData("temp.wowsreplay", false)]

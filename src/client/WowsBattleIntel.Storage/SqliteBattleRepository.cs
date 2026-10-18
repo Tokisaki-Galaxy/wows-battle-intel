@@ -21,6 +21,7 @@ namespace WowsBattleIntel.Storage;
 public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvider, IPlayerSnapshotStore, IPlayerHistoryProvider, IClanGradeCache, IPlayerStatsCache
 {
     private readonly string connectionString;
+    private readonly string databasePath;
 
     /// <summary>
     /// 构造仓储。
@@ -29,6 +30,7 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
     public SqliteBattleRepository(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        this.databasePath = databasePath;
         connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
@@ -684,7 +686,8 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
         await using var command = connection.CreateCommand();
         command.CommandText = """
             WITH tier AS (
-                SELECT battle_id, MAX(ship_tier) AS ally_tier
+                SELECT battle_id, MAX(ship_tier) AS ally_tier,
+                       MIN(CASE WHEN ship_tier > 0 THEN ship_tier END) AS ally_min_tier
                 FROM battle_players
                 WHERE team = 0
                 GROUP BY battle_id
@@ -702,7 +705,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
                    b.result, b.duration_sec,
                    COALESCE(t.ally_tier, 0) AS ally_tier,
                    p.ally_win_prob,
-                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players
+                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players,
+                   COALESCE(b.replay_path, '') AS replay_path,
+                   COALESCE(t.ally_min_tier, 0) AS ally_min_tier
             FROM battles b
             LEFT JOIN tier t ON t.battle_id = b.battle_id
             LEFT JOIN latest_prediction p ON p.battle_id = b.battle_id
@@ -736,7 +741,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
             reader.GetInt32(7),
             reader.IsDBNull(8) ? null : reader.GetDouble(8),
             battleId.EndsWith(":pre", StringComparison.Ordinal),
-            reader.GetInt64(9) != 0);
+            reader.GetInt64(9) != 0,
+            reader.GetString(10),
+            reader.GetInt32(11));
     }
 
     /// <summary>
@@ -757,7 +764,9 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
             SELECT battle_id, started_at, map_id, battle_type, server,
                    result, duration_sec, 0 AS ally_tier,
                    NULL AS ally_win_prob,
-                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players
+                   EXISTS(SELECT 1 FROM battle_players bp WHERE bp.battle_id = b.battle_id) AS has_players,
+                   '' AS replay_path,
+                   0 AS ally_min_tier
             FROM battles b
             WHERE substr(b.battle_id, -4) = ':pre'
             ORDER BY started_at DESC;
@@ -1350,6 +1359,125 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
         command.CommandText = "DELETE FROM player_snapshots WHERE captured_at < $cutoff;";
         command.Parameters.AddWithValue("$cutoff", cutoff.ToUnixTimeMilliseconds());
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task ClearBattlesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // battle_players 有外键级联可随父表清掉；predictions 没有外键，
+        // 必须显式清。快照与军团档是独立数据，保留。
+        foreach (string table in new[] { "battle_players", "predictions", "battles" })
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            // 表名来自上面的字面量集合，不来自外部输入。
+            command.CommandText = $"DELETE FROM {table};";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task ClearSnapshotsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM player_snapshots;";
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> TrimBattlesToSizeAsync(
+        long maxBytes,
+        CancellationToken cancellationToken = default)
+    {
+        if (maxBytes <= 0)
+        {
+            return 0;
+        }
+
+        long size = DatabaseFileSize();
+        if (size <= maxBytes)
+        {
+            return 0;
+        }
+
+        // 超限后按最旧优先删对局。删除的页进入 freelist，文件不会立刻缩小，
+        // 每批删完做一次 WAL checkpoint 把页合并回主库，体积读数才可信，
+        // 否则只要初始超限就会一路把对局删光。
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        int total = 0;
+        while (size > maxBytes)
+        {
+            await using var batch = connection.CreateCommand();
+            batch.CommandText = """
+                DELETE FROM battles WHERE battle_id IN (
+                    SELECT battle_id FROM battles
+                    WHERE battle_id NOT LIKE '%:pre'
+                    ORDER BY started_at
+                    LIMIT 200
+                );
+                """;
+            int affected = await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            if (affected == 0)
+            {
+                break;
+            }
+
+            total += affected;
+
+            await using var checkpoint = connection.CreateCommand();
+            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await checkpoint.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            size = DatabaseFileSize();
+        }
+
+        return total;
+    }
+
+    /// <summary>数据库文件体积。带 WAL 时把未合并页也算上，防止低估。</summary>
+    private long DatabaseFileSize()
+    {
+        long total = 0;
+        foreach (string suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            string path = databasePath + suffix;
+            if (File.Exists(path))
+            {
+                total += new FileInfo(path).Length;
+            }
+        }
+
+        return total;
+    }
+
+    /// <inheritdoc />
+    public long GetDatabaseSizeBytes()
+    {
+        // ":memory:" 库没有文件体积可言。
+        if (databasePath == ":memory:")
+        {
+            return 0;
+        }
+
+        // 打开一次连接让 WAL 先合并，取到的体积更接近真实值。
+        try
+        {
+            var open = OpenAsync(CancellationToken.None).GetAwaiter().GetResult();
+            open.Dispose();
+        }
+        catch
+        {
+            // 打不开就用现有文件大小估算，不抛给调用方。
+        }
+
+        return DatabaseFileSize();
     }
 
     /// <inheritdoc />

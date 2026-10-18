@@ -27,6 +27,7 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     private BattleOutcome outcome = BattleOutcome.Unknown;
     private int durationSeconds;
     private int allyTier;
+    private int allyMinTier;
     private double? predictedWinProbability;
     private bool isPlaceholder;
     private bool isPrebattle;
@@ -50,14 +51,43 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     public BattleType BattleType => battleType;
 
     /// <summary>
-    /// 列表首行显示文本：对局类型与地图名。
+    /// 列表首行显示文本：对局类型、船名与地图名。
     /// </summary>
+    /// <remarks>
+    /// 船名来自回放文件名。正式入库的记录带 replay_path，占位项自带路径，
+    /// 都能取到；批量导入等无回放来源的记录退化为只有类型与地图。
+    /// </remarks>
     public string DisplayText =>
         isPlaceholder
-            ? "待解析回放"
+            ? $"待解析回放 · {ShipNameFromPath}"
             : mapId.Length == 0
                 ? $"赛前名单 · {BattleTypeLabel}"
-                : $"{BattleTypeLabel} {mapId}";
+                : ComposeDisplayText();
+
+    private string ComposeDisplayText()
+    {
+        string type = BattleTypeLabel;
+        string map = MapLabel;
+        string ship = ShipName;
+        string tail = map.Length == 0 ? type : $"{type} {map}";
+        return ship.Length == 0 ? tail : $"{tail} · {ship}";
+    }
+
+    /// <summary>地图标识去掉 spaces/ 前缀后的短名。</summary>
+    public string MapLabel =>
+        mapId.StartsWith("spaces/", StringComparison.Ordinal) ? mapId["spaces/".Length..] : mapId;
+
+    /// <summary>录制者所开的船名，来自回放文件名。取不到时为空串。</summary>
+    public string ShipName
+    {
+        get
+        {
+            string path = ReplayPath;
+            return path.Length == 0 ? string.Empty : Core.Models.ReplayFileName.TryGetShipName(path);
+        }
+    }
+
+    private string ShipNameFromPath => Core.Models.ReplayFileName.TryGetShipName(ReplayPath);
 
     /// <summary>
     /// 列表次行显示文本：时间、服务器与时长。占位项没有时长，显示点击解析。
@@ -102,8 +132,43 @@ public sealed class BattleSummaryViewModel : ViewModelBase
     /// <summary>对局类型标签。</summary>
     public string BattleTypeLabel => DisplayLabels.BattleType(battleType);
 
-    /// <summary>舰船等级，随地图名一起展示。占位项还没有等级。</summary>
-    public string TierText => allyTier > 0 ? $"T{allyTier}" : "T?";
+    /// <summary>舰船等级范围，罗马数字，如 X-XI。占位项还没有等级。</summary>
+    /// <remarks>
+    /// 一局里两边玩家等级可能不同，单个 T10 表达不了房间构成，改用友方
+    /// 最低到最高等级的范围。只有一档时显示单个等级。
+    /// </remarks>
+    public string TierText
+    {
+        get
+        {
+            if (allyTier <= 0)
+            {
+                return "?";
+            }
+
+            int min = allyMinTier > 0 ? Math.Min(allyMinTier, allyTier) : allyTier;
+            string low = RomanTier(min);
+            string high = RomanTier(allyTier);
+            return low == high ? low : $"{low}-{high}";
+        }
+    }
+
+    /// <summary>等级转罗马数字。超出一到十一的范围回退阿拉伯数字。</summary>
+    private static string RomanTier(int tier) => tier switch
+    {
+        1 => "I",
+        2 => "II",
+        3 => "III",
+        4 => "IV",
+        5 => "V",
+        6 => "VI",
+        7 => "VII",
+        8 => "VIII",
+        9 => "IX",
+        10 => "X",
+        11 => "XI",
+        _ => tier > 0 ? tier.ToString() : string.Empty,
+    };
 
     /// <summary>结果单字。</summary>
     public string ResultLabel => isPlaceholder
@@ -130,6 +195,7 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         return new BattleSummaryViewModel
         {
             BattleId = entry.BattleId,
+            ReplayPath = entry.ReplayPath,
             startedAt = entry.StartedAt,
             mapId = entry.MapId,
             battleType = entry.BattleType,
@@ -137,6 +203,7 @@ public sealed class BattleSummaryViewModel : ViewModelBase
             outcome = entry.Outcome,
             durationSeconds = entry.DurationSeconds,
             allyTier = entry.AllyTier,
+            allyMinTier = entry.AllyMinTier,
             predictedWinProbability = entry.PredictedWinProbability,
             isPrebattle = entry.IsPrebattle,
         };
@@ -157,6 +224,7 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         {
             BattleId = battle.BattleId,
             Battle = battle,
+            ReplayPath = battle.ReplayPath ?? string.Empty,
             startedAt = battle.StartedAt,
             mapId = battle.MapId,
             battleType = battle.BattleType,
@@ -164,6 +232,7 @@ public sealed class BattleSummaryViewModel : ViewModelBase
             outcome = battle.Outcome,
             durationSeconds = battle.DurationSeconds,
             allyTier = FirstAllyTier(battle),
+            allyMinTier = FirstAllyMinTier(battle),
             predictedWinProbability = predictedWinProbability,
             isPrebattle = battle.BattleId.EndsWith(":pre", StringComparison.Ordinal),
         };
@@ -203,10 +272,11 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         outcome = entry.Outcome;
         durationSeconds = entry.DurationSeconds;
         allyTier = entry.AllyTier;
+        allyMinTier = entry.AllyMinTier;
         predictedWinProbability = entry.PredictedWinProbability;
         isPlaceholder = false;
         isPrebattle = entry.IsPrebattle;
-        ReplayPath = string.Empty;
+        ReplayPath = entry.ReplayPath;
         NotifyAll();
     }
 
@@ -226,9 +296,10 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         outcome = battle.Outcome;
         durationSeconds = battle.DurationSeconds;
         allyTier = FirstAllyTier(battle);
+        allyMinTier = FirstAllyMinTier(battle);
         isPlaceholder = false;
         isPrebattle = battle.BattleId.EndsWith(":pre", StringComparison.Ordinal);
-        ReplayPath = string.Empty;
+        ReplayPath = battle.ReplayPath ?? string.Empty;
         NotifyAll();
     }
 
@@ -271,7 +342,13 @@ public sealed class BattleSummaryViewModel : ViewModelBase
         battle.Players
             .Where(p => p.IsAlly && p.ShipTier > 0)
             .Select(p => (int?)p.ShipTier)
-            .FirstOrDefault() ?? 0;
+            .Max() ?? 0;
+
+    private static int FirstAllyMinTier(BattleRecord battle) =>
+        battle.Players
+            .Where(p => p.IsAlly && p.ShipTier > 0)
+            .Select(p => (int?)p.ShipTier)
+            .Min() ?? 0;
 
     private void NotifyAll()
     {

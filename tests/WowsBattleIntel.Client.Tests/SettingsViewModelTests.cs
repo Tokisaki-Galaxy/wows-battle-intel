@@ -39,6 +39,85 @@ public class SettingsViewModelTests
     };
 
     [Fact]
+    public async Task ClearBattlesCommand_Confirmed_RemovesAllBattles()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+
+        var battle = new BattleRecord
+        {
+            BattleId = "clear-target",
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MapId = "spaces/23_Shards",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+        };
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        // 确认框替身直接同意。命令内部是异步删除，await 会等到 StatusMessage
+        // 出现"已清空"再断言，不能靠命令同步跑完。
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker(), confirmDialog: (_, _) => true);
+        vm.ClearBattlesCommand.Execute(null);
+        await WaitUntilAsync(() => vm.StatusMessage.Contains("已清空", StringComparison.Ordinal));
+
+        Assert.Equal(0, await holder.Services.Repository.CountBattlesAsync());
+    }
+
+    [Fact]
+    public async Task ClearBattlesCommand_NotConfirmed_KeepsData()
+    {
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+
+        var battle = new BattleRecord
+        {
+            BattleId = "keep-me",
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MapId = "spaces/23_Shards",
+            BattleType = BattleType.Random,
+            Server = GameServer.Asia,
+            Outcome = BattleOutcome.Win,
+        };
+        await holder.Services.Repository.SaveBattleAsync(battle);
+
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker(), confirmDialog: (_, _) => false);
+        vm.ClearBattlesCommand.Execute(null);
+
+        // 拒绝后没有删除动作，直接断言即可。
+        Assert.Equal(1, await holder.Services.Repository.CountBattlesAsync());
+    }
+
+    /// <summary>轮询等待条件成立，避免对异步命令的时序假设。</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(20);
+        }
+
+        Assert.Fail("等待命令执行完成超时");
+    }
+
+    [Fact]
+    public async Task DatabaseSizeText_FormatsReadableSize()
+    {
+        // TestServices 的库是真实文件，只要返回一个非空的可读文本即可。
+        string dbPath = TestServices.NewDatabasePath();
+        using var holder = await TestServices.CreateAsync(MakeConfig(dbPath));
+
+        var vm = new SettingsViewModel(holder.Services, new FakePathPicker());
+
+        Assert.NotEmpty(vm.DatabaseSizeText);
+    }
+
+    [Fact]
     public async Task Constructor_LoadsFieldsFromConfig()
     {
         string dbPath = TestServices.NewDatabasePath();
