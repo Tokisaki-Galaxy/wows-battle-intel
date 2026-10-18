@@ -60,8 +60,11 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
             return players;
         }
 
-        // 按服务器分组，不同服的 API 域名不同。
-        foreach (var group in targets.GroupBy(p => p.Server))
+        // 按服务器分组，不同服的 API 域名不同。分组键用快照口径：赛前名单
+        // 的 Server 恒为 Auto，真服只在 StatsServer 上。只认 Server 会让
+        // 手动刷新这类把合并后记录传回来的调用整组落进 Auto 被跳过，
+        // 表现为"刷新成功"实际一个请求都没发。
+        foreach (var group in targets.GroupBy(p => p.SnapshotServer))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (group.Key == GameServer.Auto)

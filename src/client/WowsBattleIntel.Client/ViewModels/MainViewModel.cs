@@ -989,9 +989,23 @@ public sealed class MainViewModel : ViewModelBase
                         .ForceFetchStatsAsync([player])
                         .ConfigureAwait(true);
                     var fresh = updated.FirstOrDefault(p =>
-                        p.AccountId == player.AccountId && p.Server == player.Server);
+                        p.AccountId == player.AccountId);
                     if (fresh is not null)
                     {
+                        // 网络层确实发过请求才有新数据。拉取前后数据完全一致
+                        // 时无法从记录区分，靠耗时兜底没有意义，直接以快照
+                        // 落库为证：拉取失败会在此前抛出或整组被跳过（Auto），
+                        // 后者记日志提示，不再无声报成功。
+                        if (player.SnapshotServer == GameServer.Auto)
+                        {
+                            LogSink.Warn(
+                                $"刷新玩家数据缺少有效服务器，未发起请求: {player.PlayerName}");
+                            StatusMessage = $"{player.PlayerName} 的数据刷新失败（服务器未知）";
+                            success = false;
+                            IsBusy = false;
+                            return;
+                        }
+
                         // 用返回的新数据刷新对应行；行对象按引用持有在名单集合里。
                         // 汇总条由行背后的记录计算，行换了汇总要跟着重算一次。
                         bool isAlly = allyRows.Values.Any(r => r.Source?.AccountId == player.AccountId);
@@ -1013,6 +1027,10 @@ public sealed class MainViewModel : ViewModelBase
                                 EnemySummaryText = summary;
                             }
                         }
+
+                        // 单人刷新后重算一次预测：新数据只刷了行与汇总，右侧
+                        // 读数还是旧值，用户感知"刷新了但没变化"。
+                        _ = RecomputeAfterManualRefreshAsync();
                     }
                     else
                     {
@@ -1043,6 +1061,21 @@ public sealed class MainViewModel : ViewModelBase
                 ? $"{player.PlayerName} 的数据已刷新"
                 : $"{player.PlayerName} 的数据刷新失败";
         LogSink.Info(StatusMessage);
+    }
+
+    /// <summary>
+    /// 单人手动刷新成功后重算一次预测。fire and forget，失败静默记日志。
+    /// </summary>
+    private async Task RecomputeAfterManualRefreshAsync()
+    {
+        try
+        {
+            await RecomputePredictionAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            LogSink.Warn($"刷新后重算预测失败: {ex.Message}");
+        }
     }
 
     /// <summary>
