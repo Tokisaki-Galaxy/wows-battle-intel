@@ -35,7 +35,7 @@ internal static class Program
                 "map" => RunMap(args),
                 "backtest" => RunBacktest(args),
                 "survey" => RunSurvey(args),
-                "import" => RunImport(args),
+                "import" => RunImport(args).GetAwaiter().GetResult(),
                 "snapshot" => RunSnapshot(args).GetAwaiter().GetResult(),
                 "predict" => RunPredict(args),
                 "onnx" => RunOnnx(args),
@@ -43,6 +43,7 @@ internal static class Program
                 "snapshot-backtest" => RunSnapshotBacktest(args),
                 "dedupe-battles" => RunDedupeBattles(args),
                 "rebuild-players" => RunRebuildPlayers(args),
+                "backfill-predictions" => RunBackfillPredictions(args).GetAwaiter().GetResult(),
                 "live" => RunLive(args).GetAwaiter().GetResult(),
                 "help" or "--help" or "-h" => PrintUsageAndSucceed(),
                 _ => Unknown(args[0]),
@@ -272,7 +273,7 @@ internal static class Program
     /// <summary>
     /// import 子命令：把一批解析结果导入本地 SQLite。
     /// </summary>
-    private static int RunImport(string[] args)
+    private static async Task<int> RunImport(string[] args)
     {
         if (args.Length < 3)
         {
@@ -284,10 +285,16 @@ internal static class Program
         string dbPath = args[2];
 
         var repository = new Storage.SqliteBattleRepository(dbPath);
-        repository.InitializeAsync().GetAwaiter().GetResult();
+        await repository.InitializeAsync().ConfigureAwait(false);
 
         var files = Directory.GetFiles(inputDir, "*.json");
         Console.WriteLine($"扫描到 {files.Count()} 份解析结果，导入 {dbPath}");
+
+        // 早期版本的 import 只落对局不落预测，那批记录在列表里永远显示
+        // 未预测。这里对齐客户端入库链路：落库后按同一套预测器补一条
+        // 预测记录。同一局重复导入时落库幂等，预测也不会重复写
+        // （按 battle_id 幂等判定，见 ShouldWritePredictionAsync）。
+        var predictor = new BaselinePredictor();
 
         int imported = 0;
         int skipped = 0;
@@ -315,8 +322,22 @@ internal static class Program
 
             try
             {
-                repository.SaveBattleAsync(battle).GetAwaiter().GetResult();
+                await repository.SaveBattleAsync(battle).ConfigureAwait(false);
                 imported++;
+
+                if (await ShouldWritePredictionAsync(repository, battle).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        var prediction = await predictor.PredictAsync(battle).ConfigureAwait(false);
+                        await repository.SavePredictionAsync(prediction).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // 预测失败不影响对局落库，与客户端入库服务同一口径。
+                        Console.Error.WriteLine($"  预测失败 {Path.GetFileName(file)}: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -328,6 +349,25 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine($"导入完成: 成功 {imported}, 跳过 {skipped}（无完整结果）, 失败 {failed}");
         return 0;
+    }
+
+    /// <summary>
+    /// 判断一局是否还需要补写预测记录。
+    /// </summary>
+    /// <remarks>
+    /// 已有预测的局跳过，重复导入不会堆出多条预测；非 PvP 对局不出预测，
+    /// 与客户端入库服务同一白名单。
+    /// </remarks>
+    private static async Task<bool> ShouldWritePredictionAsync(
+        Storage.SqliteBattleRepository repository,
+        BattleRecord battle)
+    {
+        if (!battle.BattleType.IsPvpType())
+        {
+            return false;
+        }
+
+        return await repository.GetPredictionAsync(battle.BattleId) is null;
     }
 
     /// <summary>
@@ -1311,6 +1351,98 @@ internal static class Program
     }
 
     /// <summary>
+    /// backfill-predictions 子命令：为库里缺预测的对局补算预测记录。
+    /// </summary>
+    /// <remarks>
+    /// 早期版本的 import 子命令只落对局不落预测，那批记录在列表里永远
+    /// 显示未预测。本命令遍历全库，按当前预测器逐局补算。预测特征取
+    /// 参战者的最新快照，因此先跑 snapshot 再跑本命令，补出的预测才
+    /// 基于完整数据。
+    /// </remarks>
+    private static async Task<int> RunBackfillPredictions(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("用法: wows-intel backfill-predictions <数据库路径>");
+            return 1;
+        }
+
+        string dbPath = args[1];
+        if (!File.Exists(dbPath))
+        {
+            Console.Error.WriteLine($"数据库不存在: {dbPath}");
+            return 1;
+        }
+
+        var repository = new Storage.SqliteBattleRepository(dbPath);
+        await repository.InitializeAsync().ConfigureAwait(false);
+
+        // 列表入口拿全量对局，逐局查预测缺失。
+        var entries = await repository
+            .GetBattleListAsync(int.MaxValue)
+            .ConfigureAwait(false);
+
+        // 幂等判定先批量做完：逐局查预测每局开一次连接，几万局太慢。
+        // 这里一次取全量预测标识，内存比对。
+        var predicted = new HashSet<string>(StringComparer.Ordinal);
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync().ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT DISTINCT battle_id FROM predictions;";
+            await using var reader = await command.ExecuteReaderAsync().ConfigureAwait(false);
+            while (await reader.ReadAsync().ConfigureAwait(false))
+            {
+                predicted.Add(reader.GetString(0));
+            }
+        }
+
+        var predictor = new BaselinePredictor();
+
+        int written = 0;
+        int skippedExisting = 0;
+        int skippedNonPvp = 0;
+        foreach (var entry in entries.Where(e => !e.IsPrebattle))
+        {
+            if (!entry.BattleType.IsPvpType())
+            {
+                skippedNonPvp++;
+                continue;
+            }
+
+            if (!predicted.Add(entry.BattleId))
+            {
+                skippedExisting++;
+                continue;
+            }
+
+            var battle = await repository
+                .GetBattleAsync(entry.BattleId)
+                .ConfigureAwait(false);
+            if (battle is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                var prediction = await predictor.PredictAsync(battle).ConfigureAwait(false);
+                await repository.SavePredictionAsync(prediction).ConfigureAwait(false);
+                written++;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"  预测失败 {entry.BattleId[..16]}: {ex.Message}");
+            }
+        }
+
+        Console.WriteLine(
+            $"补算完成: 新写 {written} 条预测，已有跳过 {skippedExisting} 局，非 PvP 跳过 {skippedNonPvp} 局");
+        return 0;
+    }
+
+    /// <summary>
     /// rebuild-players 子命令：用存量回放 JSON 重建参战者的船信息与身份字段。
     /// </summary>
     /// <remarks>
@@ -1888,6 +2020,7 @@ internal static class Program
         Console.WriteLine("  wows-intel history-backtest <数据库>         用近期状态特征回测, 无时间泄漏");
         Console.WriteLine("  wows-intel snapshot-backtest <数据库>        用账号胜率快照特征回测");
         Console.WriteLine("  wows-intel dedupe-battles <数据库> [--apply] 清理同局重复与非PvP预测, 默认dry-run");
+        Console.WriteLine("  wows-intel backfill-predictions <数据库>     为缺预测的对局补算预测记录");
         Console.WriteLine("  wows-intel rebuild-players <数据库> [--limit N] [--parsed-dir 目录]");
         Console.WriteLine("                                               用存量回放JSON重建参战者船信息");
         Console.WriteLine("  wows-intel live [--game 目录] [--db 库] [--watch]");
