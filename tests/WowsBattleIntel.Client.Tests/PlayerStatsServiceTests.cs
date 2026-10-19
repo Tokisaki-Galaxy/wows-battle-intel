@@ -384,6 +384,56 @@ public class PlayerStatsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CachingProvider_ForceFetch_BypassesFullyCoveredShortCircuit()
+    {
+        // 缓存齐全的玩家普通查询会短路，强制刷新必须照样联网重新拉，
+        // 否则手动刷新对已覆盖玩家就是空操作。
+        var provider = new FakeProvider { FillClassStats = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        // 首轮联网落库，玩家已 IsFullyCovered。
+        await cached.FetchStatsAsync([MakePlayer("Covered", "4001")]);
+        Assert.Equal(1, provider.Calls);
+
+        // 强制刷新：记录齐全也要发一次网络请求。
+        var refreshed = MakePlayer("Covered", "4001");
+        refreshed.ClassStatsJson = "{\"CA\":{\"battles\":100,\"wins\":55,\"damage\":50000}}";
+        await cached.ForceFetchStatsAsync([refreshed]);
+
+        Assert.Equal(2, provider.Calls);
+        Assert.Equal(0.55, refreshed.AccountWinrate, 3);
+    }
+
+    [Fact]
+    public async Task CachingProvider_ForceFetch_ClearsStaleStatsBeforeRefetch()
+    {
+        // 手动刷新前界面侧先把统计复位成哨兵。强制拉取应基于复位后的记录
+        // 重新联网并写回新值，不能因为缺数据判定路径变化而丢数据。
+        var provider = new FakeProvider { FillClassStats = true };
+        var cached = new CachingPlayerStatsProvider(
+            provider, repository, new PlayerStatsCacheOptions { Enabled = true });
+
+        await cached.FetchStatsAsync([MakePlayer("Stale", "4002")]);
+        Assert.Equal(1, provider.Calls);
+
+        var refreshed = MakePlayer("Stale", "4002");
+        refreshed.ResetStats();
+        await cached.ForceFetchStatsAsync([refreshed]);
+
+        Assert.Equal(2, provider.Calls);
+        // 拉取后统计从哨兵恢复成真实值。
+        Assert.Equal(0.55, refreshed.AccountWinrate, 3);
+        Assert.Equal(1000, refreshed.AccountBattles, 3);
+        Assert.False(string.IsNullOrEmpty(refreshed.ClassStatsJson));
+
+        // 新快照照常落库，后续普通查询继续命中缓存。
+        var snapshot = await repository.GetLatestSnapshotAsync("4002", GameServer.Asia);
+        Assert.NotNull(snapshot);
+        Assert.Equal(0.55, snapshot!.AccountWinrate, 3);
+    }
+
+    [Fact]
     public async Task GetAccountIdsByNames_ReturnsLatestRealAccount()
     {
         await repository.SaveBattleAsync(new BattleRecord
