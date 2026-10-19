@@ -282,4 +282,38 @@ public sealed class PlayerRecord
     /// <see cref="IsFullyCovered"/> 再判一次。
     /// </remarks>
     public bool IsStatsCandidate => !IsBot && !IsHidden && !IsUnresolvable && !string.IsNullOrEmpty(PlayerName);
+
+    /// <summary>
+    /// 复位全部统计字段到未知哨兵，供手动强制刷新前清空窗口与内存状态。
+    /// </summary>
+    /// <remarks>
+    /// 手动刷新的语义是"不信任现有读数，重新拉"。先复位再联网，界面上
+    /// 该行立即退回占位符，联网回来的才是唯一来源。身份字段（账号 ID、
+    /// 昵称、服务器、船、阵营）与本局表现（回放侧伤害击杀）保留不动，
+    /// 它们与 WG 统计无关，清掉反而丢信息。隐藏与死结标记也保留：
+    /// 隐藏者重拉也拿不到统计，死结者不该再进补拉。
+    /// </remarks>
+    public void ResetStats()
+    {
+        AccountBattles = -1;
+        AccountWinrate = -1;
+        AccountAvgDamage = -1;
+        AccountBattlesSolo = -1;
+        AccountWinrateSolo = -1;
+        AccountBattlesDiv2 = -1;
+        AccountWinrateDiv2 = -1;
+        AccountBattlesDiv3 = -1;
+        AccountWinrateDiv3 = -1;
+        WeightedWinrate = -1;
+        PersonalRating = -1;
+        ShipBattles = -1;
+        ShipWinrate = -1;
+        ShipAvgDamage = -1;
+        ShipAvgExp = -1;
+        ClassStatsJson = string.Empty;
+        ClassBattles = -1;
+        ClassWins = -1;
+        ClassDamage = -1;
+        FavoriteTier = -1;
+    }
 }

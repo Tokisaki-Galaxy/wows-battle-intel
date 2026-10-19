@@ -1066,11 +1066,12 @@ public sealed class MainViewModel : ViewModelBase
         });
 
     /// <summary>
-    /// 响应名单行的右键刷新：跳过缓存拉一个玩家的最新 WG 数据并刷新行。
+    /// 响应名单行的右键刷新：清空该行统计并跳过缓存重新拉取 WG 数据。
     /// </summary>
     /// <remarks>
-    /// 缓存装饰器实现 <see cref="IForcedStatsFetch"/>，走它既跳过缓存命中
-    /// 又保留统一的落库逻辑，拉到的快照照常写回，之后的普通查询仍走缓存。
+    /// 缓存装饰器实现 <see cref="IForcedStatsFetch"/>，强制路径会把玩家全部
+    /// 交回网络层，齐全与否都不短路。刷新前先复位统计并刷行，界面立即清成
+    /// 占位符，联网回来的数据是唯一来源；拉取失败行保持空，旧读数不残留。
     ///
     /// 完成后只刷新行内容与汇总，不重建详情区：重建会作废正在推进的同局
     /// 补拉任务，一次单人刷新不该连带丢掉整队补拉结果。
@@ -1090,6 +1091,12 @@ public sealed class MainViewModel : ViewModelBase
                     : null;
                 if (provider is not null)
                 {
+                    // 刷新的语义是"不信任现有读数"。先把统计复位成未知并立即
+                    // 反映到行上：界面上该行清空为占位符，联网回来的数据是
+                    // 唯一来源，旧读数不会因为网络失败而残留误导。
+                    player.ResetStats();
+                    RefreshRowAfterFetch(player);
+
                     var updated = await provider
                         .ForceFetchStatsAsync([player])
                         .ConfigureAwait(true);
@@ -1097,10 +1104,9 @@ public sealed class MainViewModel : ViewModelBase
                         p.AccountId == player.AccountId);
                     if (fresh is not null)
                     {
-                        // 网络层确实发过请求才有新数据。拉取前后数据完全一致
-                        // 时无法从记录区分，靠耗时兜底没有意义，直接以快照
-                        // 落库为证：拉取失败会在此前抛出或整组被跳过（Auto），
-                        // 后者记日志提示，不再无声报成功。
+                        // 网络层确实发过请求才有新数据。强制刷新已贯通到提供商，
+                        // 拉取失败会在此前抛出；Auto 服整组被跳过时记日志提示，
+                        // 不再无声报成功。
                         if (player.SnapshotServer == GameServer.Auto)
                         {
                             LogSink.Warn(
@@ -1112,26 +1118,7 @@ public sealed class MainViewModel : ViewModelBase
                         }
 
                         // 用返回的新数据刷新对应行；行对象按引用持有在名单集合里。
-                        // 汇总条由行背后的记录计算，行换了汇总要跟着重算一次。
-                        bool isAlly = allyRows.Values.Any(r => r.Source?.AccountId == player.AccountId);
-                        var rows = isAlly ? allyRows.Values : enemyRows.Values;
-                        var row = rows.FirstOrDefault(r => r.Source?.AccountId == player.AccountId);
-                        if (row is not null)
-                        {
-                            row.RefreshFrom(fresh);
-                            var summary = BuildTeamSummary(rows
-                                .Select(r => r.Source)
-                                .Where(p => p is not null)
-                                .Select(p => p!));
-                            if (isAlly)
-                            {
-                                AllySummaryText = summary;
-                            }
-                            else
-                            {
-                                EnemySummaryText = summary;
-                            }
-                        }
+                        RefreshRowAfterFetch(player);
 
                         // 单人刷新后重算一次预测：新数据只刷了行与汇总，右侧
                         // 读数还是旧值，用户感知"刷新了但没变化"。
@@ -1169,10 +1156,44 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 刷新指定玩家对应的名单行，并重算队伍汇总。
+    /// </summary>
+    /// <remarks>
+    /// 手动刷新链路复用：复位统计后调用一次清空行显示与汇总，联网成功后
+    /// 再调用一次写入新数据。行对象按引用持有在名单集合里，RefreshFrom
+    /// 只更新内容不重建集合。
+    /// </remarks>
+    /// <param name="player">已更新（或已复位）的玩家记录。</param>
+    private void RefreshRowAfterFetch(PlayerRecord player)
+    {
+        bool isAlly = allyRows.Values.Any(r => r.Source?.AccountId == player.AccountId);
+        var rows = isAlly ? allyRows.Values : enemyRows.Values;
+        var row = rows.FirstOrDefault(r => r.Source?.AccountId == player.AccountId);
+        if (row is not null)
+        {
+            row.RefreshFrom(player);
+        }
+
+        // 汇总条由行背后的记录计算。复位调用时该玩家退回未知态，汇总读数
+        // 一并清掉；联网成功调用时汇总吃到新数据。
+        var summary = BuildTeamSummary(rows
+            .Select(r => r.Source)
+            .Where(p => p is not null)
+            .Select(p => p!));
+        if (isAlly)
+        {
+            AllySummaryText = summary;
+        }
+        else
+        {
+            EnemySummaryText = summary;
+        }
+    }
+
+    /// <summary>
     /// 单人手动刷新成功后重算一次预测。fire and forget，失败静默记日志。
     /// </summary>
-    private async Task RecomputeAfterManualRefreshAsync()
-    {
+    private async Task RecomputeAfterManualRefreshAsync()    {
         try
         {
             await RecomputePredictionAsync().ConfigureAwait(true);
