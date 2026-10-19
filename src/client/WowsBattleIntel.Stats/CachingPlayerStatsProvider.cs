@@ -87,8 +87,13 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
     }
 
     /// <summary>
-    /// 拉取主体。读缓存命中与网络回写都集中在这里，bypassCache 只关掉读缓存。
+    /// 拉取主体。读缓存命中与网络回写都集中在这里。
     /// </summary>
+    /// <remarks>
+    /// bypassCache 为 false 时缓存齐全的玩家不再联网；为 true 时是用户主动
+    /// 要最新数据，齐全度只是缓存视角的判断，照旧过滤会让强制刷新退化成
+    /// 空操作，因此全部玩家都交回 inner 重新联网。
+    /// </remarks>
     private async Task<IReadOnlyList<PlayerRecord>> FetchStatsCoreAsync(
         IReadOnlyList<PlayerRecord> players,
         bool bypassCache,
@@ -112,10 +117,12 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
             await HydrateFromCacheAsync(targets, cancellationToken).ConfigureAwait(false);
         }
 
-        // 缓存已齐全的玩家不再联网。缺数据的才交回 inner。
-        var needNetwork = options.Enabled
-            ? targets.Where(p => !p.IsFullyCovered).ToList()
-            : targets;
+        // 缓存齐全的玩家不再联网，缺数据的才交回 inner。强制刷新不受此限：
+        // bypassCache 表示用户明确要绕过一切本地状态重新拉，齐全也照样联网，
+        // 否则已覆盖玩家会被这里短路，强制刷新退化成空操作。
+        var needNetwork = bypassCache || !options.Enabled
+            ? targets
+            : targets.Where(p => !p.IsFullyCovered).ToList();
         if (needNetwork.Count == 0)
         {
             return players;
