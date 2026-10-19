@@ -126,8 +126,19 @@ jobs:
           "@
 
           # 更新日志交给 GitHub 自动生成（按 PR 与提交聚合），附在自定义
-          # 说明之后，不手写 git log。
-          gh release edit $tag --notes $body --generate-notes
+          # 说明之后，不手写 git log。gh release edit 没有 --generate-notes
+          # 旗子；REST 的 PATCH releases/{id} 虽然接受 generate_release_notes，
+          # 但对已有正文且无关联 PR 的仓库实测不追加 Changelog。所以先调
+          # generate-notes 端点算出更新日志，拼到自定义说明后面再 PATCH。
+          $id = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$tag" --jq '.id'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $changelog = gh api -X POST "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
+            -f tag_name=$tag --jq '.body'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$id" `
+            -f body="$body`n`n$changelog" | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: 上传构建产物（调试用，随时可下）
