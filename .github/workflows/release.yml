@@ -123,6 +123,24 @@ jobs:
           | 命令行版 | 高级用户，批量分析与脚本集成 | [$cli](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$cli) |
 
           普通用户从安装版与便携版里选一个下载即可，其余资产（nupkg、releases.win.json 等）是自动更新通道的内部文件，不需要下载。
+
+          ## 安装版路径说明
+
+          受 Velopack 打包框架的技术限制，安装版是一键静默安装：没有安装向导，无法弹出引导或选择安装路径。双击运行后直接安装到固定位置：
+
+          ```
+          %LocalAppData%\WowsBattleIntel
+          ```
+
+          即 `C:\Users\<你的用户名>\AppData\Local\WowsBattleIntel`。安装完成后自动创建桌面与开始菜单快捷方式并启动程序。
+
+          如需手动指定安装位置，在 PowerShell 或 cmd 里带参数运行：
+
+          ```powershell
+          .\WowsBattleIntel-win-Setup.exe --installto "D:\Apps\WowsBattleIntel"
+          ```
+
+          不想装进 AppData 的用户也可以直接选便携版，解压即用，同样支持自动更新。
           "@
 
           # 更新日志交给 GitHub 自动生成（按 PR 与提交聚合），附在自定义
