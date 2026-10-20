@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>战舰世界战斗情报 - 下载</title>
-  <meta name="description" content="战舰世界战斗情报与胜负预测工具，本地解析回放，赛前给出胜率预测。" />
+  <meta name="description" content="战舰世界战斗情报与胜负预测工具。开局读取名单给出胜率预测，赛后从回放对照真实结果，全部在本地完成。" />
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" href="/icon.png" />
   <link rel="apple-touch-icon" href="/icon.png" />
-  <meta property="og:image" content="/icon.png" />
+  <meta property="og:image" content="/screenshot-battle.png" />
+  <meta name="twitter:card" content="summary_large_image" />
   <style>
     /*
       设计令牌：与客户端 Tokens.Dark.xaml / Tokens.Light.xaml 同源翻译。
@@ -36,6 +37,9 @@
       --primary-hover: #2896ff;
       --primary-soft: rgba(4, 132, 255, 0.15);
       --primary-bd: rgba(4, 132, 255, 0.38);
+
+      --ally: #0484ff;
+      --enemy: #ff3d5a;
 
       --ok: #00bc7d;
       --warn: #fe9a00;
@@ -74,6 +78,9 @@
         --primary-soft: rgba(4, 132, 255, 0.12);
         --primary-bd: rgba(4, 132, 255, 0.32);
 
+        --ally: #0473d9;
+        --enemy: #d92a45;
+
         --ok: #00a66a;
 
         --shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
@@ -93,12 +100,14 @@
     }
 
     .page {
-      max-width: 720px;
+      max-width: 1060px;
       margin: 0 auto;
       padding: var(--space-xl) var(--space-md) 80px;
     }
+    .page > * { margin-top: 0; }
+    .page > * + * { margin-top: var(--space-xl); }
 
-    /* 顶栏：产品图标与状态点 */
+    /* 顶栏：产品图标与站名 */
     .masthead {
       display: flex;
       align-items: center;
@@ -173,8 +182,49 @@
       font-size: 13px;
     }
 
+    /* 截图：一张主图两栏并排，窄屏自动落成单列 */
+    .shot {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .shot a { display: block; line-height: 0; }
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .shot figcaption {
+      padding: 10px var(--space-md) 12px;
+      border-top: 1px solid var(--hairline);
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .shot figcaption b {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .shots {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-lg);
+    }
+    /* 两张图都整行铺开：明细表列多字小，缩进双栏就看不清了。 */
+    @media (min-width: 860px) {
+      .shots > .shot:nth-child(odd) { margin-right: 6%; }
+      .shots > .shot:nth-child(even) { margin-left: 6%; }
+    }
+
     /* 信息区：分节标题带主色竖条，与客户端分节标题同构 */
     section { margin-top: var(--space-xl); }
+    .page > .hero + section { margin-top: var(--space-lg); }
     .sec-title {
       display: flex;
       align-items: center;
@@ -199,6 +249,8 @@
     }
     .card ul { margin: 0; padding-left: 20px; }
     .card li { margin: 4px 0; }
+    .card p:first-child { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
     .card code {
       background: var(--surface-inset);
       border: 1px solid var(--hairline);
@@ -207,6 +259,64 @@
       font-size: 13px;
       font-family: Consolas, "Cascadia Mono", monospace;
     }
+
+    /* 三栏特性：图标留白，窄屏落成单列 */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-md);
+    }
+    @media (min-width: 760px) {
+      .features { grid-template-columns: repeat(3, 1fr); }
+    }
+    .feature h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .feature p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    .tag {
+      display: inline-block;
+      margin-bottom: var(--space-sm);
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      border: 1px solid var(--primary-bd);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tag-enemy {
+      background: rgba(255, 61, 90, 0.12);
+      border-color: rgba(255, 61, 90, 0.40);
+      color: var(--enemy);
+    }
+
+    /* 下载方式表格 */
+    .dl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .dl-table th,
+    .dl-table td {
+      padding: 10px 0;
+      text-align: left;
+      border-bottom: 1px solid var(--hairline);
+      vertical-align: top;
+    }
+    .dl-table th {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .dl-table tr:last-child td { border-bottom: none; }
+    .dl-table a { color: var(--primary); text-decoration: none; }
+    .dl-table a:hover { text-decoration: underline; }
 
     /* 步骤列表：数字圆标 */
     .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
@@ -233,9 +343,22 @@
       align-items: center;
       justify-content: center;
     }
+    .steps li:first-child { margin-top: 0; }
+    .steps li:last-child { margin-bottom: 0; }
+
+    /* 图注里的小色块，对应客户端名单着色 */
+    .swatch {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 4px;
+      border-radius: 2px;
+      vertical-align: 0;
+    }
 
     /* 隐私说明里的强调色 */
     .ok-text { color: var(--ok); }
+    .warn-text { color: var(--warn); }
     .muted { color: var(--text-muted); font-size: 13px; }
 
     footer {
@@ -251,6 +374,33 @@
     }
     footer a { color: var(--text-muted); text-decoration: none; }
     footer a:hover { color: var(--primary); }
+
+    /* 截图灯箱：纯 CSS + 少量脚本，点开看大图 */
+    dialog.lightbox {
+      max-width: 96vw;
+      max-height: 96vh;
+      padding: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--bg);
+      overflow: auto;
+    }
+    dialog.lightbox::backdrop { background: rgba(0, 0, 0, 0.82); }
+    dialog.lightbox img { display: block; max-width: 100%; height: auto; }
+    dialog.lightbox button {
+      position: sticky;
+      top: 0;
+      left: 100%;
+      transform: translateX(-100%);
+      margin: 8px;
+      padding: 4px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+      background: var(--control-bg);
+      color: var(--text-primary);
+      font-size: 13px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -261,37 +411,129 @@
     </header>
 
     <div class="hero">
-      <h1>赛前知道这一局能不能赢</h1>
+      <h1>开局就知道这一局的胜率期望</h1>
       <p class="sub">
-        本地解析对局回放，自动补齐双方玩家历史战绩，机器学习模型在加载界面给出友方胜率预测。
-        名单按战绩染色，海王与猴子一眼可辨。
+        读取对局名单，补齐双方每位玩家的账号战绩、分舰种与单船数据，模型给出友方胜率。
+        打完一局，回放解析出真实结果，与赛前预测并排列出，误差一眼可见。
+        数据查询与推理全部在本机完成，回放文件不上传。
       </p>
       <div class="download-row">
         <a class="btn" href="https://github.com/tokisaki-galaxy/wows-battle-intel/releases/latest" id="download-link">下载最新版</a>
         <a class="btn btn-ghost" href="https://github.com/tokisaki-galaxy/wows-battle-intel">GitHub 仓库</a>
-        <span class="version-note">Windows x64 · 免安装 · zip 约 7 MB</span>
+        <span class="version-note">Windows 10 x64 及以上 · 安装版与便携版可选</span>
       </div>
     </div>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>实际界面</div>
+      <div class="shots">
+        <figure class="shot">
+          <a href="/screenshot-battle.png" data-lightbox title="查看大图">
+            <img src="/screenshot-battle.png" width="2046" height="1190" loading="lazy" decoding="async"
+                 alt="赛后对局情报界面：顶部显示本局预测胜率 52.0% 与结果胜利，左右两栏列出友方与敌方的玩家、输出、点亮、承伤与成就" />
+          </a>
+          <figcaption>
+            <b>赛后对局情报</b>
+            顶部是本局的预测胜率与真实结果。中间两栏是双方名单，行底按战绩水平染色，
+            <span class="swatch" style="background:#c8b6e2"></span>偏紫的偏弱，
+            <span class="swatch" style="background:#f6c9b8"></span>偏红的偏强。
+            每行给出发伤害、点亮、承伤与成就，左侧历史列表可以随时切到任意一局复盘。
+          </figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="/screenshot-prebattle.png" data-lightbox title="查看大图">
+            <img src="/screenshot-prebattle.png" width="1783" height="991" loading="lazy" decoding="async"
+                 alt="赛前名单界面：显示预测胜率 55.9% 与拉取进度，双方玩家按账号、加权、舰种、单船四项统计列出数据" />
+          </a>
+          <figcaption>
+            <b>赛前名单与胜率预测</b>
+            加载界面阶段就锁定名单，顶部给出胜率预测与数据拉取进度，人齐后数字会自动收窄。
+            每位玩家按账号、加权、舰种、单船四个口径给出场次与胜率，括号里是平均伤害；
+            低于五成的标暖色，五成以上标绿色，强弱排序不用自己算。
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>它能做什么</div>
+      <div class="features">
+        <div class="card feature">
+          <span class="tag">赛前</span>
+          <h3>胜率期望，不是断言</h3>
+          <p>
+            结合账号总胜率、加权胜率、分舰种表现与组队结构，输出友方的胜率期望。
+            单场方差很大，这个数字用来判断形势，不宣称能预知输赢。
+          </p>
+        </div>
+        <div class="card feature">
+          <span class="tag tag-enemy">赛后</span>
+          <h3>预测与结果并排对照</h3>
+          <p>
+            解析 <code>.wowsreplay</code> 回放拿到真实胜负与每人表现，和赛前预测放在一起，
+            逐场累积成一份自己的预测准确率记录。
+          </p>
+        </div>
+        <div class="card feature">
+          <span class="tag">本地</span>
+          <h3>查询与推理都在本机</h3>
+          <p>
+            战绩走战舰世界官方公开 API，与常见战绩站同源；模型在本地推理，
+            回放文件与账号凭据不上传。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>下载方式</div>
+      <div class="card">
+        <table class="dl-table">
+          <thead>
+            <tr><th>版本</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="https://github.com/tokisaki-galaxy/wows-battle-intel/releases/latest">安装版</a></td>
+              <td>首次使用推荐。安装后自动更新，不需要额外装运行时。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/tokisaki-galaxy/wows-battle-intel/releases/latest">便携版 zip</a></td>
+              <td>免安装，解压到任意目录即可运行，同样支持自动更新。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/tokisaki-galaxy/wows-battle-intel/releases/latest">命令行版 zip</a></td>
+              <td>适合批量分析回放、脚本集成，不提供图形界面。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="sec-bar"></div>开始使用</div>
+      <div class="card">
+        <ol class="steps">
+          <li>下载安装版并完成安装，或解压便携版到任意目录，例如 <code>D:\WowsBattleIntel</code></li>
+          <li>启动程序，在「设置」页确认游戏安装路径与回放目录（通常能自动识别）</li>
+          <li>开一局游戏。进入加载界面后程序自动捕获名单并给出预测，打完回到桌面即可看到赛后对照</li>
+          <li>历史回放会列在左侧，标「待解析」的条目点一下就会解析入库，旧局也能补进统计</li>
+        </ol>
+      </div>
+    </section>
 
     <section>
       <div class="sec-title"><div class="sec-bar"></div>运行要求</div>
       <div class="card">
         <ul>
           <li>Windows 10 1903 或更高（x64）</li>
-          <li><a class="ok-text" href="https://dotnet.microsoft.com/download/dotnet/10.0/runtime">.NET 10 桌面运行时</a>（若打不开程序先装它）</li>
-          <li>战舰世界客户端（用于定位回放目录）</li>
+          <li>战舰世界客户端（用于定位回放目录，只读取它写出的名单文件与回放）</li>
+          <li>
+            安装版自带运行时。便携版与命令行版需要
+            <a class="ok-text" href="https://dotnet.microsoft.com/download/dotnet/10.0/runtime">.NET 10 桌面运行时</a>，
+            启动报错时先装它
+          </li>
         </ul>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-title"><div class="sec-bar"></div>安装步骤</div>
-      <div class="card">
-        <ol class="steps">
-          <li>下载并解压 zip 到任意目录，例如 <code>D:\WowsBattleIntel</code></li>
-          <li>运行 <code>WowsBattleIntel.Client.exe</code>，首次启动在设置页填入游戏安装路径</li>
-          <li>开一局游戏，回到加载界面时程序会自动捕获对局并给出预测</li>
-        </ol>
       </div>
     </section>
 
@@ -301,7 +543,11 @@
         <ul>
           <li>战绩数据通过战舰世界官方公开 API 查询，与第三方战绩网站同源</li>
           <li>预测模型在本地运行，回放文件不上传</li>
-          <li>可选择参与对局数据协作：上报内容仅含匿名化的对局统计（账号 ID、船只、比分），可在设置中关闭</li>
+          <li>对局记录存在本机 SQLite 里，卸载或删除目录即清除</li>
+          <li>
+            <span class="warn-text">可选</span>参与对局数据协作：会上报匿名化的对局统计（账号 ID、船只、比分），
+            帮助改进模型，可在设置中关闭
+          </li>
         </ul>
       </div>
     </section>
@@ -311,5 +557,43 @@
       <a href="/api/health">服务状态</a>
     </footer>
   </div>
+
+  <dialog class="lightbox" id="lightbox">
+    <button type="button" id="lightbox-close">关闭</button>
+    <img id="lightbox-img" alt="" />
+  </dialog>
+
+  <script>
+    // 点截图看原图。用 dialog 自带的模态与 Esc 关闭，不需要额外依赖。
+    (function () {
+      var dialog = document.getElementById('lightbox');
+      var img = document.getElementById('lightbox-img');
+      if (!dialog || !img || typeof dialog.showModal !== 'function') {
+        return;
+      }
+
+      document.querySelectorAll('[data-lightbox]').forEach(function (link) {
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          img.src = link.getAttribute('href');
+          var inner = link.querySelector('img');
+          img.alt = inner ? inner.alt : '';
+          dialog.showModal();
+        });
+      });
+
+      document.getElementById('lightbox-close').addEventListener('click', function () {
+        dialog.close();
+      });
+
+      // 点遮罩关闭。用 mousedown 判定：在图片上按下鼠标拖选、松手落到遮罩上时
+      // 不关，避免用户想拖动看大图结果把预览关了。
+      dialog.addEventListener('mousedown', function (event) {
+        if (event.target === dialog) {
+          dialog.close();
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
