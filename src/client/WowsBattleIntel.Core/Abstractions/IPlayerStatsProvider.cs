@@ -43,6 +43,24 @@ public interface IForcedStatsFetch
 }
 
 /// <summary>
+/// 支持逐批上报进度的统计来源。
+/// </summary>
+/// <remarks>
+/// 由缓存装饰器实现。名单补齐过程中每落一批数据就回调一次，界面据此增量
+/// 刷新，不必按固定间隔轮询空转。不实现本接口的提供商退回整批完成后再刷新。
+/// </remarks>
+public interface IProgressStatsFetch
+{
+    /// <summary>
+    /// 为一批玩家拉取统计，每落一批数据回调一次 progress。
+    /// </summary>
+    Task<IReadOnlyList<PlayerRecord>> FetchStatsAsync(
+        IReadOnlyList<PlayerRecord> players,
+        CancellationToken cancellationToken,
+        Action progress);
+}
+
+/// <summary>
 /// 本地历史数据来源。提供近期状态与会话状态所需的逐场记录。
 /// </summary>
 /// <remarks>

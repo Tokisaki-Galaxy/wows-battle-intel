@@ -166,6 +166,12 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
     }
 
     /// <summary>
+    /// 昵称换账号 ID 的并发度。端点逐个昵称查询，取略高于单船统计的并发，
+    /// 在限流闸门兜底下把前置等待压到最低。
+    /// </summary>
+    private const int ResolveConcurrency = 6;
+
+    /// <summary>
     /// 用昵称批量换账号 ID。
     /// </summary>
     private async Task<Dictionary<string, string>> ResolveAccountIdsAsync(
@@ -174,37 +180,63 @@ public sealed class WgPublicStatsProvider : IPlayerStatsProvider
         CancellationToken cancellationToken)
     {
         // 逐昵称查询。WG 的 account/list 对逗号分隔多昵称的批量精确搜索
-        // 在部分服务器（Asia 实测）只返回部分结果，逐个查才可靠。每次
-        // 请求之间限速，避免触发限流。
+        // 在部分服务器（Asia 实测）只返回部分结果，逐个查才可靠。
+        // 并发逐名解析：名单前置的串行等待对整局查询是最长的一段，24 人
+        // 串行时纯等待就有数秒。限流交给 WgHttp 的共享闸门兜底，撞上 429
+        // 时全体暂停后再继续，比预先串行牺牲延迟更划算。
         var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
         var names = group
             .Select(p => p.PlayerName)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        foreach (var name in names)
+        var resolved = new (string Name, IReadOnlyDictionary<string, string> Parsed)?[names.Count];
+        var tasks = new List<Task>(names.Count);
+        using var gate = new SemaphoreSlim(ResolveConcurrency, ResolveConcurrency);
+        for (int i = 0; i < names.Count; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            string url = $"https://{host}/wows/account/list/"
-                + $"?application_id={options.ApplicationId}&type=exact&search={Uri.EscapeDataString(name)}";
-
-            try
+            int index = i;
+            string name = names[i];
+            tasks.Add(Task.Run(async () =>
             {
-                string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-                var parsed = WgApiParser.ParseAccountIds(json);
-                foreach (var kv in parsed)
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    mapping[kv.Key] = kv.Value;
+                    string url = $"https://{host}/wows/account/list/"
+                        + $"?application_id={options.ApplicationId}&type=exact&search={Uri.EscapeDataString(name)}";
+
+                    string json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+                    resolved[index] = (name, WgApiParser.ParseAccountIds(json));
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (OperationCanceledException)
+                {
+                    // 取消由外层 Task.WhenAll 统一向上抛。
+                }
+                catch (Exception)
+                {
+                    // 单个昵称失败不影响其他玩家。
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }, cancellationToken));
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        foreach (var entry in resolved)
+        {
+            if (entry is not { } value)
             {
-                // 单个昵称失败不影响其他玩家。
                 continue;
             }
 
-            await Task.Delay(options.DelayBetweenRequests, cancellationToken).ConfigureAwait(false);
+            foreach (var kv in value.Parsed)
+            {
+                mapping[kv.Key] = kv.Value;
+            }
         }
 
         foreach (var player in group)

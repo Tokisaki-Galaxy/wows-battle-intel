@@ -20,7 +20,7 @@ namespace WowsBattleIntel.Stats;
 ///
 /// 缓存读写失败、缓存仓储缺失一律回落网络，不让加速通道拖垮战绩查询本身。
 /// </remarks>
-public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedStatsFetch
+public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedStatsFetch, IProgressStatsFetch
 {
     private readonly IPlayerStatsProvider inner;
     private readonly IPlayerStatsCache? cache;
@@ -86,6 +86,27 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PlayerRecord>> FetchStatsAsync(
+        IReadOnlyList<PlayerRecord> players,
+        CancellationToken cancellationToken,
+        Action progress)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(progress);
+
+        // 没有缓存仓储时没有逐批落库的节奏可依附，整批完成后报一次即可。
+        if (cache is null)
+        {
+            var result = await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
+            progress();
+            return result;
+        }
+
+        return await FetchStatsCoreAsync(players, bypassCache: false, cancellationToken, progress)
+            .ConfigureAwait(false);
+    }
+
     /// <summary>
     /// 拉取主体。读缓存命中与网络回写都集中在这里。
     /// </summary>
@@ -97,16 +118,18 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
     private async Task<IReadOnlyList<PlayerRecord>> FetchStatsCoreAsync(
         IReadOnlyList<PlayerRecord> players,
         bool bypassCache,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? progress = null)
     {
-        // 隐藏战绩玩家也要交给 inner：他们没有统计，但军团标签仍要落库，
         // 供后续跨局回填。是否缺数据由 IsFullyCovered 判定，隐藏者恒缺。
         var targets = players
             .Where(p => !p.IsBot && !string.IsNullOrEmpty(p.PlayerName))
             .ToList();
         if (targets.Count == 0)
         {
-            return await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
+            var all = await inner.FetchStatsAsync(players, cancellationToken).ConfigureAwait(false);
+            progress?.Invoke();
+            return all;
         }
 
         // 读缓存受开关控制：关闭时跳过命中，每次都联网取最新。写快照不受开关
@@ -125,6 +148,8 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
             : targets.Where(p => !p.IsFullyCovered).ToList();
         if (needNetwork.Count == 0)
         {
+            // 全部命中缓存，不需要联网，界面立刻就能看到完整名单。
+            progress?.Invoke();
             return players;
         }
 
@@ -140,6 +165,7 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
         }
 
         await SafeSaveAsync(needNetwork, cancellationToken).ConfigureAwait(false);
+        progress?.Invoke();
 
         // inner 就地写回 needNetwork 里的记录，players 是它们的超集，
         // 命中缓存的记录已在上一步灌好，整体返回即可。
@@ -208,10 +234,12 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
         List<PlayerRecord> targets,
         CancellationToken cancellationToken)
     {
+        // 先整理出要查缓存的玩家与查询键，一次批量读库。逐个玩家串行查在
+        // 一局 24 人时是近百次往返，查询延迟随人数线性增长。
+        var requests = new List<PlayerSnapshotRequest>(targets.Count);
+        var pairs = new List<(PlayerRecord Player, GameServer Server)>(targets.Count);
         foreach (var player in targets)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
             // 查询服优先用已知的具体服，玩家记录为 Auto 时退回 StatsServer。
             // 赛前链路把对局服推断成具体服后，玩家记录的 Server 仍是 Auto，
             // 只认 Server 会让这些玩家每次都被判成“无缓存可用”。
@@ -221,41 +249,64 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
                 continue;
             }
 
+            requests.Add(new PlayerSnapshotRequest(player.AccountId, server, player.ShipId ?? string.Empty));
+            pairs.Add((player, server));
+        }
+
+        if (requests.Count == 0)
+        {
+            return;
+        }
+
+        IReadOnlyDictionary<PlayerSnapshotKey, PlayerSnapshotPair> cached;
+        try
+        {
+            cached = await cache!
+                .GetSnapshotPairsAsync(requests, options.Ttl, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // 批量缓存查询失败不影响后续网络补拉。
+            return;
+        }
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            var (player, server) = pairs[i];
+            var request = requests[i];
+
+            // 两层在批量结果里各自成键，按船键取到的可能只有单船层，账号层要用
+            // 账号键补。账号层缺失时整条跳过，与逐个查询的口径一致。
+            var shipKey = new PlayerSnapshotKey(request.AccountId, request.Server, request.ShipId);
+            var accountKey = new PlayerSnapshotKey(request.AccountId, request.Server, string.Empty);
+            var ship = cached.TryGetValue(shipKey, out var shipPair) ? shipPair.Ship : null;
+            var account = cached.TryGetValue(accountKey, out var accountPair) ? accountPair.Account : null;
+            if (account is null)
+            {
+                continue;
+            }
+
             try
             {
-                var account = await cache!
-                    .GetAccountSnapshotAsync(player.AccountId, server, options.Ttl, cancellationToken)
-                    .ConfigureAwait(false);
-                if (account is null)
-                {
-                    continue;
-                }
-
                 ApplyAccountSnapshot(player, account);
                 player.StatsServer = server;
 
-                // 单船层：带本局船 ID 时按船查，命中才覆盖。
-                if (!string.IsNullOrEmpty(player.ShipId))
+                // 单船层：本局这条船命中才覆盖。单船数据可能来自更早的一局。
+                if (ship is not null)
                 {
-                    var ship = await cache
-                        .GetShipSnapshotAsync(
-                            player.AccountId, server, player.ShipId, options.Ttl, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (ship is not null)
-                    {
-                        player.ShipBattles = ship.ShipBattles;
-                        player.ShipWinrate = ship.ShipWinrate;
-                        player.ShipAvgDamage = ship.ShipAvgDamage;
-                    }
+                    player.ShipBattles = ship.ShipBattles;
+                    player.ShipWinrate = ship.ShipWinrate;
+                    player.ShipAvgDamage = ship.ShipAvgDamage;
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
             }
             catch (Exception)
             {
-                // 缓存查询失败不影响后续网络补拉。
+                // 单条灌入失败不影响其余玩家。
             }
         }
     }
@@ -327,6 +378,17 @@ public sealed class CachingPlayerStatsProvider : IPlayerStatsProvider, IForcedSt
             .Select(p => PlayerSnapshot.FromPlayer(p, capturedAt))
             .ToList();
 
+        // 账号层与单船层同一次写入若共用同一毫秒，第二行会撞上
+        // (account_id, server, captured_at) 唯一键被静默丢弃，单船数据就永远
+        // 落不了库，之后每轮都判定"缺单船"反复联网。带船的记录错开一毫秒。
+        foreach (var snapshot in snapshots)
+        {
+            if (!string.IsNullOrEmpty(snapshot.ShipId))
+            {
+                snapshot.CapturedAt = snapshot.CapturedAt.AddMilliseconds(1);
+            }
+        }
+
         if (snapshots.Count == 0)
         {
             return;
@@ -363,3 +425,7 @@ public sealed class PlayerStatsCacheOptions
     /// </summary>
     public TimeSpan Ttl { get; set; } = TimeSpan.FromDays(7);
 }
+
+
+
+

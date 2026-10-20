@@ -965,6 +965,137 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
     }
 
     /// <summary>
+    /// 批量取整局名单的账号级与单船级缓存快照。
+    /// </summary>
+    /// <remarks>
+    /// 逐玩家查会让一局名单产生上百次串行往返，查询延迟随人数线性增长。
+    /// 这里一次连接、一条按账号与服务器分区的窗口函数查询，把每个账号的
+    /// 最新一条账号层与最新一条带船数据的记录（限本局那艘船）同时取出。
+    /// 两层取数口径与 <see cref="GetAccountSnapshotAsync"/>、
+    /// <see cref="GetShipSnapshotAsync"/> 完全一致：按 captured_at 倒序取第一条，
+    /// 单船层要求 ship_battles >= 0。
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<PlayerSnapshotKey, PlayerSnapshotPair>> GetSnapshotPairsAsync(
+        IReadOnlyList<PlayerSnapshotRequest> requests,
+        TimeSpan maxAge,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+
+        var result = new Dictionary<PlayerSnapshotKey, PlayerSnapshotPair>();
+        var keys = requests
+            .Where(r => !string.IsNullOrWhiteSpace(r.AccountId))
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+        {
+            return result;
+        }
+
+        // 先按服务器分组，同一服务器的账号一次查完。参数上限按 100 一批。
+        foreach (var group in keys.GroupBy(k => k.Server))
+        {
+            const int batchSize = 100;
+            var accounts = group
+                .Select(k => k.AccountId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            for (int offset = 0; offset < accounts.Count; offset += batchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var batch = accounts.Skip(offset).Take(batchSize).ToList();
+                await ReadPairBatchAsync(group.Key, batch, maxAge, result, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 读一批账号的两层快照，写进结果字典。
+    /// </summary>
+    private async Task ReadPairBatchAsync(
+        GameServer server,
+        IReadOnlyList<string> accountIds,
+        TimeSpan maxAge,
+        Dictionary<PlayerSnapshotKey, PlayerSnapshotPair> result,
+        CancellationToken cancellationToken)
+    {
+        bool hasLowerBound = maxAge != TimeSpan.MaxValue && maxAge >= TimeSpan.Zero;
+        long minCapturedAt = hasLowerBound
+            ? (DateTimeOffset.UtcNow - maxAge).ToUnixTimeMilliseconds()
+            : long.MinValue;
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        var placeholders = string.Join(",", accountIds.Select((_, i) => $"$a{i}"));
+
+        // 取数口径与 GetSnapshotAsync 一致：账号层取分区内最新一条，单船层取
+        // 该账号该船最新一条且带单船数据。外层用 SELECT * 保持表列序在前，
+        // 两个行号列追加在后，读取时整行按表列序解析，行号按名字单独取。
+        command.CommandText = $"""
+            SELECT * FROM (
+                SELECT ps.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY account_id ORDER BY captured_at DESC) AS rn_account,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY account_id, ship_id ORDER BY captured_at DESC) AS rn_ship
+                FROM player_snapshots ps
+                WHERE server = $server
+                  AND captured_at >= $minCapturedAt
+                  AND account_id IN ({placeholders})
+            )
+            WHERE rn_account = 1
+               OR (rn_ship = 1 AND ship_id IS NOT NULL AND ship_battles >= 0);
+            """;
+        command.Parameters.AddWithValue("$server", server.ToString());
+        command.Parameters.AddWithValue("$minCapturedAt", minCapturedAt);
+        for (int i = 0; i < accountIds.Count; i++)
+        {
+            command.Parameters.AddWithValue($"$a{i}", accountIds[i]);
+        }
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        int rnAccountOrdinal = reader.GetOrdinal("rn_account");
+        int rnShipOrdinal = reader.GetOrdinal("rn_ship");
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            bool isAccount = reader.GetInt64(rnAccountOrdinal) == 1;
+            var snapshot = ReadSnapshot(reader);
+
+            // 同一行经常既是账号层最新一条，也是本局这条船最新一条，两层都要
+            // 记下来，否则单船查找永远落空。
+            if (reader.GetInt64(rnShipOrdinal) == 1
+                && !string.IsNullOrEmpty(snapshot.ShipId)
+                && snapshot.ShipBattles >= 0)
+            {
+                var shipKey = new PlayerSnapshotKey(snapshot.AccountId, server, snapshot.ShipId);
+                PlayerSnapshotPair shipPair = result.TryGetValue(shipKey, out var haveShip)
+                    ? haveShip
+                    : new PlayerSnapshotPair(null, null);
+                result[shipKey] = shipPair with { Ship = snapshot };
+            }
+
+            if (!isAccount)
+            {
+                // 不是账号层最新一条，单船层已经在上一步记下。
+                continue;
+            }
+
+            var key = new PlayerSnapshotKey(snapshot.AccountId, server, string.Empty);
+            PlayerSnapshotPair pair = result.TryGetValue(key, out var existing)
+                ? existing
+                : new PlayerSnapshotPair(null, null);
+            result[key] = pair with { Account = snapshot };
+        }
+    }
+
+    /// <summary>
     /// 快照查询的公共实现。shipId 为空查账号级最新快照，否则查该船最新一条。
     /// </summary>
     /// <remarks>
@@ -1234,6 +1365,13 @@ public sealed class SqliteBattleRepository : IBattleRepository, IBattleListProvi
     }
 
     /// <summary>从读取器当前位置构造快照对象。</summary>
+    /// <summary>
+    /// 从 reader 当前位置读一条快照。
+    /// </summary>
+    /// <remarks>
+    /// 按序号取值。列序固定为 <c>SELECT *</c> 的表列序，本类的快照查询都
+    /// 取整行，窗口函数那种按序读会错位的投影不要在多行查询里混用。
+    /// </remarks>
     private static PlayerSnapshot ReadSnapshot(SqliteDataReader reader)
     {
         int shipIdOrdinal = TryGetOrdinal(reader, "ship_id");

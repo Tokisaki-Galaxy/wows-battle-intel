@@ -4,29 +4,22 @@ using WowsBattleIntel.Core.Models;
 namespace WowsBattleIntel.Client.Services;
 
 /// <summary>
-/// 玩家战绩的统一入口：分块推进拉取。
+/// 玩家战绩的统一入口：一次推进整批，逐块落库。
 /// </summary>
 /// <remarks>
 /// 全应用的战绩来源只走这里，避免各调用点各写一套。赛前名单、历史对局详情、
 /// 重算链路都调用本服务。
 ///
 /// 缓存能力不在这一层：提供商由 <see cref="Stats.CachingPlayerStatsProvider"/>
-/// 包装，查缓存、落库、TTL 判定都在装饰器里完成。本服务只负责一件事——把一大批
-/// 玩家切成小块逐块推进，让拉取过程可被中断、可增量展示。
+/// 包装，查缓存、落库、TTL 判定都在装饰器里完成。
 ///
-/// 分块推进是刻意的：加载界面里 tempArenaInfo 会随玩家陆续加入反复重写，
-/// 每次都触发新一轮详情加载并取消上一轮拉取。若只在整批拉完后一次性推进，
-/// 被取消的那批已经拿到的数据会全部丢掉。按小块拉取、每块拉完立即让装饰器
-/// 落库，任何时刻被取消，已完成的块都已持久化。
+/// 整批一次交给提供商，不再按固定人数切块：账号统计与军团标签本身就是按
+/// 100 个账号的批量端点，切块只会把同一局拆成多轮同样的请求；单船统计的
+/// 有界并发也随之摊平到一次，不会每块重建一次信号量。提供商内部按批落库，
+/// 中途被取消时已拿到的数据照样持久化，"取消不丢已完成部分"的保证不变。
 /// </remarks>
 public sealed class PlayerStatsService
 {
-    /// <summary>
-    /// 每次拉取的玩家数。取值兼顾请求效率与落库粒度：
-    /// 账号统计本就按 100 批量，单船统计逐玩家，块小只会多几次账号批量请求。
-    /// </summary>
-    private const int BatchSize = 8;
-
     private readonly IPlayerStatsProvider provider;
     private readonly LogService logs;
 
@@ -45,22 +38,24 @@ public sealed class PlayerStatsService
     }
 
     /// <summary>
-    /// 为一批玩家分块拉取统计，逐块落库缓存。
+    /// 为一批玩家拉取统计，拉到即落库缓存。
     /// </summary>
     /// <remarks>
     /// 只处理真人。账号 ID 为 -1 哨兵的赛前玩家也照收：装饰器或提供商内部会
     /// 先用本地历史把昵称换成真账号，省一次 account/list 请求，也能让账号级
     /// 快照直接命中缓存。
     ///
-    /// 单块拉取失败记日志后跳过该块，不中断其余块。取消时直接抛出，
-    /// 已落库的块不受影响。
+    /// 整批失败记日志后返回，不向上抛非取消除外；取消时直接抛出，
+    /// 已落库的数据不受影响。
     /// </remarks>
     /// <param name="players">待补全的玩家，统计就地写回。</param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="onProgress">每落一批数据的回调，用于把已到的结果刷上界面。可为空。</param>
     /// <returns>本次拉取的统计结果，含成功处理的条数与失败批次。</returns>
     public async Task<StatsFetchOutcome> FetchAndCacheAsync(
         IReadOnlyList<PlayerRecord> players,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onProgress = null)
     {
         ArgumentNullException.ThrowIfNull(players);
 
@@ -74,34 +69,32 @@ public sealed class PlayerStatsService
             return new StatsFetchOutcome(0, 0, 0);
         }
 
-        int succeeded = 0;
-        int failed = 0;
-        int total = 0;
-        for (int offset = 0; offset < targets.Count; offset += BatchSize)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var chunk = targets.Skip(offset).Take(BatchSize).ToList();
-            total++;
-            try
+            if (onProgress is not null && provider is IProgressStatsFetch progress)
             {
-                await provider.FetchStatsAsync(chunk, cancellationToken).ConfigureAwait(false);
-                succeeded += chunk.Count;
+                await progress
+                    .FetchStatsAsync(targets, cancellationToken, onProgress)
+                    .ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            else
             {
-                // 装饰器已在取消时先落已拿到数据的部分，这里让取消向上传播。
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // 单块失败不影响其余块，已拿到的数据照常落库。
-                failed++;
-                logs.Warn($"战绩拉取失败（第 {offset / BatchSize + 1} 批）: {ex.Message}");
+                await provider.FetchStatsAsync(targets, cancellationToken).ConfigureAwait(false);
             }
         }
+        catch (OperationCanceledException)
+        {
+            // 装饰器已在取消时先落已拿到数据的部分，这里让取消向上传播。
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 失败不影响已落库的数据，交给调用方按"零处理"判定。
+            logs.Warn($"战绩拉取失败: {ex.Message}");
+            return new StatsFetchOutcome(0, 1, 1);
+        }
 
-        return new StatsFetchOutcome(succeeded, failed, total);
+        return new StatsFetchOutcome(targets.Count, 0, 1);
     }
 }
 

@@ -219,6 +219,10 @@ public class ReplayBackfillTests
             () => vm.SelectedBattle is not null && vm.SelectedBattle.BattleId == "battle-stored",
             5000);
 
+        // 详情加载是异步的：选中项先落地，读库与合并随后在后台推进。等忙状态
+        // 回落到空闲再断言，否则读到的是加载刚开始的中途状态。
+        await WaitUntilAsync(() => !vm.IsBusy, 5000);
+
         // 旧解析失败后不得改掉详情区，也不得把忙状态留在界面上。
         Assert.True(vm.SelectedBattle?.BattleId == "battle-stored");
         Assert.False(vm.IsBusy);

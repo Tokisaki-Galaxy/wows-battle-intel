@@ -1049,4 +1049,36 @@ public class SqliteBattleRepositoryTests : IAsyncLifetime
         var memoryRepo = new SqliteBattleRepository(":memory:");
         Assert.Equal(0, memoryRepo.GetDatabaseSizeBytes());
     }
+
+    [Fact]
+    public async Task GetSnapshotPairsAsync_ReturnsAccountAndShipLayersSeparately()
+    {
+        // 账号层与单船层同一条记录时，两层都要能被取到：账号层喂统计，
+        // 单船层喂本局这条船的读数。批量口径与逐个查询一致。
+        var capturedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await repository.SaveSnapshotsAsync(
+        [
+            new PlayerSnapshot
+            {
+                AccountId = "5001",
+                Server = GameServer.Asia,
+                CapturedAt = capturedAt,
+                AccountBattles = 800,
+                AccountWinrate = 0.52,
+                ClassStatsJson = "{\"CA\":{\"battles\":100,\"wins\":52,\"damage\":40000}}",
+                ShipId = "4286581900",
+                ShipBattles = 60,
+                ShipWinrate = 0.58,
+            },
+        ]);
+
+        var pairs = await repository.GetSnapshotPairsAsync(
+            [new PlayerSnapshotRequest("5001", GameServer.Asia, "4286581900")],
+            TimeSpan.FromDays(1));
+
+        var account = Assert.Single(pairs, kv => kv.Key.ShipId.Length == 0).Value.Account;
+        var ship = Assert.Single(pairs, kv => kv.Key.ShipId == "4286581900").Value.Ship;
+        Assert.Equal(0.52, account!.AccountWinrate, 3);
+        Assert.Equal(60, ship!.ShipBattles, 3);
+    }
 }

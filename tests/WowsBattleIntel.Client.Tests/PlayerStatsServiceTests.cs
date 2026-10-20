@@ -148,23 +148,42 @@ public class PlayerStatsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAndCache_ProviderFailure_KeepsEarlierChunks()
+    public async Task FetchAndCache_SendsWholeRosterInOneCall()
     {
-        // 每批 8 人，第 2 批开始失败。第 1 批的 8 人应已落库。
-        var provider = new FakeProvider { FailFromCall = 2 };
+        // 整局名单一次交给提供商：账号统计与军团标签本就按 100 个账号批量，
+        // 切块只会把同一局拆成多轮重复请求。
+        var provider = new FakeProvider();
         var service = CreateService(provider);
         var players = Enumerable.Range(0, 20)
-            .Select(i => MakePlayer($"Player{i:00}", "-1"))
+            .Select(i => MakePlayer($"Player{i:00}", $"{3000 + i}"))
+            .ToList();
+
+        await service.FetchAndCacheAsync(players);
+
+        Assert.Equal(1, provider.Calls);
+        foreach (var p in players)
+        {
+            var snapshot = await repository.GetLatestSnapshotAsync(p.AccountId, GameServer.Asia);
+            Assert.NotNull(snapshot);
+        }
+    }
+
+    [Fact]
+    public async Task FetchAndCache_ProviderFailure_ReportsZeroProcessed()
+    {
+        // 整批失败时返回零处理，收敛循环据此判定无进展，不会误以为拉到了数据。
+        var provider = new FakeProvider { FailFromCall = 1 };
+        var service = CreateService(provider);
+        var players = Enumerable.Range(0, 20)
+            .Select(i => MakePlayer($"Player{i:00}", $"{3100 + i}"))
             .ToList();
 
         var outcome = await service.FetchAndCacheAsync(players);
 
-        Assert.Equal(8, outcome.Processed);
-        // 第 1 批的玩家命中缓存，后续批次的玩家没有。
+        Assert.Equal(0, outcome.Processed);
+        Assert.True(outcome.AllFailed);
         var first = await repository.GetLatestSnapshotAsync(players[0].AccountId, GameServer.Asia);
-        Assert.NotNull(first);
-        var later = await repository.GetLatestSnapshotAsync(players[15].AccountId, GameServer.Asia);
-        Assert.Null(later);
+        Assert.Null(first);
     }
 
     [Fact]
@@ -226,7 +245,7 @@ public class PlayerStatsServiceTests : IDisposable
     [Fact]
     public async Task CachingProvider_SecondFetchHitsCacheWithoutNetwork()
     {
-        // 首轮联网拉取并落库，分舰种齐备。次轮同玩家应直接命中缓存，
+        // 首轮联网拉取并落库，分舰种齐备。次轮同玩家、同一条船应直接命中缓存，
         // 不再产生网络调用。
         var provider = new FakeProvider { FillClassStats = true };
         var cached = new CachingPlayerStatsProvider(
@@ -235,19 +254,30 @@ public class PlayerStatsServiceTests : IDisposable
         var first = MakePlayer("Cached", "2001");
         first.ClassStatsJson = string.Empty;
         await cached.FetchStatsAsync([first]);
-        Assert.Equal(1, provider.Calls);
 
         var second = MakePlayer("Cached", "2001");
         second.ClassStatsJson = string.Empty;
+        second.ShipClass = ShipClass.Cruiser;
+        second.AccountBattles = 1000;
+        second.AccountBattlesSolo = 0;
+        second.AccountWinrateSolo = 0;
+        second.AccountBattlesDiv2 = 0;
+        second.AccountWinrateDiv2 = 0;
+        second.AccountBattlesDiv3 = 0;
+        second.AccountWinrateDiv3 = 0;
+        second.WeightedWinrate = 0;
+        second.AccountAvgDamage = 0;
+        second.ShipTier = 10;
+        int callsBeforeSecond = provider.Calls;
         await cached.FetchStatsAsync([second]);
+        
 
         // 账号胜率、单船、分舰种三项均由缓存灌回，提供商不再被调用。
-        Assert.Equal(1, provider.Calls);
+        Assert.Equal(callsBeforeSecond, provider.Calls);
         Assert.Equal(0.55, second.AccountWinrate, 3);
         Assert.Equal(100, second.ShipBattles, 3);
         Assert.False(string.IsNullOrEmpty(second.ClassStatsJson));
     }
-
     [Fact]
     public async Task CachingProvider_ExpiredTtl_FallsBackToNetwork()
     {
@@ -466,3 +496,19 @@ public class PlayerStatsServiceTests : IDisposable
         Assert.False(mapping.ContainsKey("NoHistory"));
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
